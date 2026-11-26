@@ -6,7 +6,7 @@ A push lands what `guards/patch.py`'s `applied` gave, `changes`, as one commit o
 `parent`, on the Run's work branch. The guard on it holds the sequence, not each request alone: the caller carries a
 state, which `began` gives first, asks `permits` before a request leaves, gives `seen` the port's answer after, and
 stops at the first False or code. The state holds from the first part on each field the later parts set, so that
-what the caller carries is of one shape throughout.
+what the caller carries is of one shape throughout, and from this part on the blobs read.
 
 - `began(push)`: `(state, None)`, the first state, or `(None, NOT_PERMITTED)` for a push told wrongly. `push` is
   `{"repo", "branch", "parent", "head", "message", "changes", "blobs"}`: `head` is the branch's head the Decision
@@ -15,7 +15,7 @@ what the caller carries is of one shape throughout.
   `blobs` reads, and writes nothing: the port reads under one what `applied` needs.
 - `permits(state, method, path, body)`: whether the next request may leave. The reads, each once and in order: the
   work branch, absent where `head` is None and at `head` where it is not; the admitted commit; the tree it names, every
-  level; and the blob of each file that tree holds. No write leaves yet.
+  level; and the blob of each file that tree holds, once whichever files share it. No write leaves yet.
 - `seen(state, method, path, body, answer)`: `(state, None)` after the port's answer, or `(None, code)`. The tree's
   answer is the port's listing, `adapters/push.py`'s `listed`, which checked it whole: this holds only that the port
   marked it `whole`, at the tree the admitted commit names (decision 1225).
@@ -65,12 +65,15 @@ UNANSWERED = "push_unanswered"
 OK = "200"
 ABSENT = "404"
 # Besides GitHub's own failure, 500 and above, what a read takes as no answer, as the port reads its listing: a rate
-# limit, or a token expired or refused.
+# limit, or a token expired or refused. The branch is read first; a 403 after it, by the same token, is GitHub refusing
+# that read, which comes again on every pass: a refusal, as the port reads a blob's (decision 1222).
 NO_ANSWER = ("401", "403", "429")
+NO_ANSWER_AFTER = ("401", "429")
 HEADS = "refs/heads/"
 RECURSIVE = "?recursive=1"
 # What a state holds; and what the port's listing holds, which `listed` marks `whole` and names by the tree it read.
-STATE = ("push", "tree", "before", "branch_read", "made", "new", "checked", "commit", "commit_back", "moved", "landed")
+STATE = ("push", "tree", "before", "branch_read", "blobs_read", "made", "new", "checked", "commit", "commit_back",
+         "moved", "landed")
 LISTING = ("tree", "blobs", "sha", "whole")
 # What a push writes is the next parts': until then, what a state holds of it is what `began` gave, no blob made,
 # no name and no flag set.
@@ -168,7 +171,7 @@ def began(push) -> tuple:
                    "read": list(changes["read"])}
         blobs = dict(blobs)
     return {"push": dict(push, changes=changes, blobs=blobs), "tree": None, "before": None, "branch_read": False,
-            "made": {}, "new": None, "checked": False, "commit": None, "commit_back": False, "moved": False,
+            "blobs_read": (), "made": {}, "new": None, "checked": False, "commit": None, "commit_back": False, "moved": False,
             "landed": False}, None
 
 
@@ -184,17 +187,30 @@ def _listing(said, tree) -> bool:
             and all(type(held) is tuple and len(held) == len(HELD) and _sha(held[0]) for held in blobs.values()))
 
 
+def _files(before) -> set:
+    """The blobs of the files a listing holds: what a push may read of it."""
+    return {held[0] for name, held in before["blobs"].items() if before["tree"].get(name) in patch.FILE_MODES}
+
+
 def _said(said, text) -> bool:
     return type(said) is str and said == text
 
 
 def _state(state) -> bool:
     """Whether `state` is in the shape `began` and `seen` give: its keys, a push told whole, the admitted tree's name or
-    none yet, its listing or none, read only once that name was, whether the branch was read, and nothing written."""
+    none yet, read only once the branch was, its listing or none, read only once that name was, the blobs of its files
+    read, each once, and nothing written."""
     if not _keyed(state, STATE) or not _told(state["push"]):
         return False
     tree, before = state["tree"], state["before"]
     if not (tree is None or _sha(tree)) or not (before is None or (tree is not None and _listing(before, tree))):
+        return False
+    if tree is not None and state["branch_read"] is not True:
+        return False
+    read = state["blobs_read"]
+    if type(read) is not tuple or not all(type(sha) is str for sha in read) or len(set(read)) != len(read):
+        return False
+    if read and (before is None or not set(read) <= _files(before)):
         return False
     return (type(state["branch_read"]) is bool and type(state["made"]) is dict and not state["made"]
             and all(state[key] is None for key in NONE_YET) and all(state[key] is False for key in NOT_YET))
@@ -213,12 +229,12 @@ def _step(state, method, path, body):
     rest, tree, before = path[len(root):], state["tree"], state["before"]
     if rest == "ref/heads/" + push["branch"] and not state["branch_read"]:
         return BRANCH_READ
-    if rest == "commits/" + push["parent"] and tree is None:
+    if rest == "commits/" + push["parent"] and tree is None and state["branch_read"]:
         return COMMIT_READ
     if tree is not None and rest == "trees/" + tree + RECURSIVE and before is None:
         return TREE_READ
-    if before is not None and any(rest == "blobs/" + held[0] for name, held in before["blobs"].items()
-                                  if before["tree"].get(name) in patch.FILE_MODES):
+    sha = rest[len("blobs/"):]
+    if before is not None and rest == "blobs/" + sha and sha in _files(before) and sha not in state["blobs_read"]:
         return BLOB_READ
     return None
 
@@ -228,8 +244,8 @@ def permits(state, method, path, body) -> bool:
     return _step(state, method, path, body) is not None
 
 
-def _unanswered(answer) -> bool:
-    return answer is None or answer["status"] in NO_ANSWER or answer["status"].startswith("5")
+def _unanswered(answer, statuses) -> bool:
+    return answer is None or answer["status"] in statuses or answer["status"].startswith("5")
 
 
 def seen(state, method, path, body, answer) -> tuple:
@@ -238,7 +254,7 @@ def seen(state, method, path, body, answer) -> tuple:
     stands, an answer in no shape `send` gives, or a listing the port did not mark whole or read at another tree, is
     `NOT_PERMITTED`; no answer, `UNANSWERED`; the branch not as the Decision admitted it, `BRANCH_MOVED`; any other
     answer the push cannot go on from, `ANSWER_REFUSED`. A blob's bytes are the port's `read_whole`'s to judge: its
-    read leaves the state as it was."""
+    read is only counted, so that it is not read again."""
     step = _step(state, method, path, body)
     if step is None:
         return None, NOT_PERMITTED
@@ -250,8 +266,8 @@ def seen(state, method, path, body, answer) -> tuple:
     if answer is not None and not (_keyed(answer, ("status", "body")) and type(answer["status"]) is str):
         return None, NOT_PERMITTED
     if step == BLOB_READ:
-        return state, None
-    if _unanswered(answer):
+        return dict(state, blobs_read=state["blobs_read"] + (path[len(path) - len(SHA):],)), None
+    if _unanswered(answer, NO_ANSWER if step == BRANCH_READ else NO_ANSWER_AFTER):
         return None, UNANSWERED
     status, got, push = answer["status"], answer["body"], state["push"]
     if step == BRANCH_READ:

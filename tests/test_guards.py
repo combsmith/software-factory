@@ -1190,7 +1190,7 @@ class Push(unittest.TestCase):
             self.assertEqual(push.began(told)[0]["push"], told)
             self.assertIsNone(push.began(told)[1])
         self.assertEqual(push.began(PUSH), ({
-            "push": PUSH, "tree": None, "before": None, "branch_read": False, "made": {}, "new": None, "checked": False,
+            "push": PUSH, "tree": None, "before": None, "branch_read": False, "blobs_read": (), "made": {}, "new": None, "checked": False,
             "commit": None, "commit_back": False, "moved": False, "landed": False}, None))
         # A push told wrongly is the Factory's own fault in describing it, never the Role's: a person's (issue 838).
         self.assertEqual(push.NOT_PERMITTED, "push_not_permitted")
@@ -1338,7 +1338,7 @@ class Push(unittest.TestCase):
         first, _ = push.began(PUSH)
         blob = GIT + "blobs/" + BLOB_A
         self.assertEqual([push.permits(first, "GET", path, None) for path in (AT_BRANCH, AT_COMMIT, AT_TREE, blob)],
-                         [True, True, False, False])
+                         [True, False, False, False])
         branched, why = push.seen(first, "GET", AT_BRANCH, None, ABSENT)
         self.assertEqual(branched, dict(first, branch_read=True))
         self.assertIsNone(why)
@@ -1354,16 +1354,19 @@ class Push(unittest.TestCase):
         listed["tree"]["docs/a.md"], listed["blobs"]["x"] = "100755", (BLOB_A, 1)
         self.assertEqual(state["before"], LISTING)
         self.assertFalse(push.permits(state, "GET", AT_TREE, None))
-        # A file's blob is read, as often as the port asks; a link's, a submodule's or another blob is not.
+        # A file's blob is read once, whatever its answer, which the port judges; a link's, a submodule's or another
+        # blob is not read.
         for sha, may in ((BLOB_A, True), (BLOB_T, True), (BLOB_L, False), ("4" * 40, False), (ROOT_TREE, False)):
             self.assertEqual(push.permits(state, "GET", GIT + "blobs/" + sha, None), may, sha)
-        self.assertEqual(push.seen(state, "GET", blob, None, {"status": "200", "body": {}}), (state, None))
-        self.assertEqual(push.seen(state, "GET", blob, None, None), (state, None))
-        # The branch and the commit, in either order; the commit read again is not asked.
-        either, _ = push.seen(first, "GET", AT_COMMIT, None, COMMIT)
-        self.assertEqual(push.seen(either, "GET", AT_BRANCH, None, ABSENT), (dict(first, tree=ROOT_TREE, branch_read=True), None))
-        unbranched, _ = push.seen(either, "GET", AT_TREE, None, LISTING)
-        self.assertEqual(push.seen(unbranched, "GET", blob, None, None), (unbranched, None))
+        once, _ = push.seen(state, "GET", blob, None, {"status": "200", "body": {}})
+        self.assertEqual(once, dict(state, blobs_read=(BLOB_A,)))
+        self.assertEqual(push.seen(state, "GET", blob, None, None), (once, None))
+        self.assertEqual([push.permits(once, "GET", GIT + "blobs/" + sha, None) for sha in (BLOB_A, BLOB_T)], [False, True])
+        self.assertEqual(push.seen(once, "GET", blob, None, None), NOT_PERMITTED)
+        twice, _ = push.seen(once, "GET", GIT + "blobs/" + BLOB_T, None, None)
+        self.assertEqual(twice["blobs_read"], (BLOB_A, BLOB_T))
+        # The branch first: nothing of the commit is read before the branch is, nor once it was not as admitted.
+        self.assertEqual(push.seen(first, "GET", AT_COMMIT, None, COMMIT), NOT_PERMITTED)
         self.assertEqual(self.read(MOVE, ref(PARENT))["branch_read"], True)
         self.assertEqual(self.read(READING)["before"], LISTING)
         # Nothing else leaves: a write, a body, another repo's or anything outside git's data, or a path of another kind.
@@ -1388,6 +1391,8 @@ class Push(unittest.TestCase):
                               ("paths of another kind", dict(LISTING, tree=list(LISTING["tree"]))),
                               ("blobs of another kind", dict(LISTING, blobs=Mapping(LISTING["blobs"]))),
                               ("a blob of no name", dict(LISTING, blobs={"docs/a.md": (None, 2)})),
+                              ("a blob of a list", dict(LISTING, blobs={"docs/a.md": [BLOB_A, 2]})),
+                              ("a blob of one thing", dict(LISTING, blobs={"docs/a.md": (BLOB_A,)})),
                               ("a blob's path of another kind", dict(LISTING, blobs={5: (BLOB_A, 2)}))):
             self.assertEqual(push.seen(committed, "GET", AT_TREE, None, listing), NOT_PERMITTED, said)
 
@@ -1403,6 +1408,8 @@ class Push(unittest.TestCase):
                 (MOVE, {"status": "200", "body": {"ref": "refs/heads/" + BRANCH, "object": PARENT}}, refused),
                 (MOVE, {"status": "200", "body": [ref(PARENT)["body"]]}, refused),
                 (PUSH, {"status": "422", "body": {}}, refused),
+                # A well-formed ref under another status proves nothing: not the admitted head, nor someone's write.
+                (MOVE, dict(ref(PARENT), status="422"), refused), (MOVE, dict(ref(NEW_A), status="422"), refused),
                 (MOVE, {"status": "404", "body": None}, moved),
                 # No answer, or one read as none.
                 (PUSH, None, unanswered), (MOVE, {"status": "500", "body": {}}, unanswered),
@@ -1412,8 +1419,9 @@ class Push(unittest.TestCase):
                 (PUSH, {"status": 404, "body": {}}, NOT_PERMITTED), (PUSH, {"status": "404"}, NOT_PERMITTED),
                 (PUSH, Mapping(ABSENT), NOT_PERMITTED)):
             self.assertEqual(push.seen(push.began(told)[0], "GET", AT_BRANCH, None, answer), why, (told["head"], answer))
-        first, _ = push.began(PUSH)
-        for answer, why in (({"status": "404", "body": {}}, refused), ({"status": "200", "body": {"sha": NEW_A, "tree": {"sha": ROOT_TREE}}}, refused),
+        first, _ = push.seen(push.began(PUSH)[0], "GET", AT_BRANCH, None, ABSENT)
+        for answer, why in (({"status": "404", "body": {}}, refused), ({"status": "403", "body": {}}, refused),
+                            ({"status": "401", "body": {}}, unanswered), ({"status": "429", "body": {}}, unanswered), ({"status": "200", "body": {"sha": NEW_A, "tree": {"sha": ROOT_TREE}}}, refused),
                             ({"status": "200", "body": {"sha": PARENT, "tree": {"sha": "x"}}}, refused),
                             ({"status": "200", "body": {"sha": PARENT, "tree": ROOT_TREE}}, refused),
                             ({"status": "200", "body": {"sha": PARENT}}, refused), ({"status": "200", "body": None}, refused),
@@ -1431,7 +1439,13 @@ class Push(unittest.TestCase):
                           ("a tree of no name", dict(first, tree="x")), ("a listing before the tree", dict(first, before=LISTING)),
                           ("a listing of another tree", dict(state, tree=NEW_A)), ("a listing unmarked", dict(state, before=dict(LISTING, whole=False))),
                           ("the branch read as 1", dict(first, branch_read=1)), ("landed", dict(first, landed=True)),
-                          ("a blob made", dict(first, made={"docs/a.md": MADE})), ("a tree made", dict(first, new=MADE))):
+                          ("a blob made", dict(first, made={"docs/a.md": MADE})), ("a tree made", dict(first, new=MADE)),
+                          ("a tree before the branch", dict(first, tree=ROOT_TREE)),
+                          ("a blob read before the listing", dict(first, blobs_read=(BLOB_A,))),
+                          ("a blob read twice", dict(state, blobs_read=(BLOB_A, BLOB_A))),
+                          ("a link's blob read", dict(state, blobs_read=(BLOB_L,))),
+                          ("a blob's name of another kind read", dict(state, blobs_read=(Text(BLOB_A),))),
+                          ("blobs read as a list", dict(state, blobs_read=[]))):
             for path in (AT_BRANCH, AT_COMMIT, AT_TREE, GIT + "blobs/" + BLOB_A):
                 self.assertFalse(push.permits(bad, "GET", path, None), (said, path))
                 self.assertEqual(push.seen(bad, "GET", path, None, ABSENT), NOT_PERMITTED, (said, path))

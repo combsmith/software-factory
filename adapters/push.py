@@ -30,8 +30,9 @@ guard, and held to the name asked, never the answer's own.
 
 `listed`, `to_read` and `read_whole` read the tree a patch lands on, as `guards/patch.py` takes it: its listing, then
 the bytes of each file the patch reads, one by one, whole or not at all, within `MOST_FILES` files and `MOST_BYTES`
-bytes. Each gives a code where it gives nothing, and `WHOSE` names whose each code of the guard and of this port is: the
-Role's, counted as its attempt; a person's, a Hold; or the port's, an environment fault, for no answer alone.
+bytes. Each gives a code where it gives nothing, and `WHOSE` names whose each code of the guards and of this port is: the
+Role's, counted as its attempt; a person's, a Hold; the port's, an environment fault, for no answer alone; or none's,
+`superseded`, where someone else wrote the work branch.
 
 `harness/push.py`, by hand, owes this port: every request sent by `transport`'s sender; its writers in
 `tools/check_writes.py`'s CALLERS; one request given unchanged to `permits` and `send`; `content` asked for the name
