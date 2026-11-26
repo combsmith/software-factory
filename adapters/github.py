@@ -176,8 +176,9 @@ def _answer(status: int, headers, raw: bytes) -> dict:
     kept = {}
     for name, value in headers.items():
         kept[name.lower()] = kept[name.lower()] + ", " + value if name.lower() in kept else value
-    kind = kept.get("content-type", "")
-    if "," not in kind and kind.split(";")[0].strip().endswith("json"):
+    # Counted by its lines, so that a comma in one type's quoted parameter is no second type (Kimi, cubic).
+    kinds = [value for name, value in headers.items() if name.lower() == "content-type"]
+    if len(kinds) == 1 and kinds[0].split(";")[0].strip().endswith("json"):
         try:
             text = raw.decode("utf-8")
             return {"status": status, "headers": kept, "body": json.loads(text) if text else None}

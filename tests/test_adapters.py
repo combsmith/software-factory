@@ -693,13 +693,15 @@ class Transport(unittest.TestCase):
         mixed = "Content-Type: application/json\r\nLink: %s\r\nlink: %s\r\n\r\n" % (paging, notice)
         live.opener = Opener(github.http.client.parse_headers(io.BytesIO(mixed.encode("latin-1"))))
         self.assertEqual(live.send(github.request("GET", "/x"))["headers"]["link"], paging + ", " + notice)
-        # A type sent twice is neither, the same twice too, as is one line that names two: its body is read as text,
-        # never as JSON (Astra, Muse).
+        # A type sent twice is neither, the same twice too: its body is read as text, never as JSON (Astra, Muse).
         for types in (("application/json; charset=utf-8", "text/plain"), ("text/plain", "application/json"),
-                      ("application/json", "application/json"), ("text/plain,application/json",)):
+                      ("application/json", "application/json")):
             text = "".join("Content-Type: %s\r\n" % one for one in types) + "\r\n"
             live.opener = Opener(github.http.client.parse_headers(io.BytesIO(text.encode("latin-1"))))
             self.assertEqual(live.send(github.request("GET", "/x"))["body"], "[]", types)
+        # One type whose quoted parameter holds a comma is one type (Kimi, cubic).
+        live.opener = Opener({"Content-Type": 'application/json; profile="https://example.test/a,b"'})
+        self.assertEqual(live.send(github.request("GET", "/x"))["body"], [])
 
 
 class Own(unittest.TestCase):
