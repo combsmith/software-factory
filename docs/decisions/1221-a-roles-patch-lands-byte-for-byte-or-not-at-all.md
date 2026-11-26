@@ -6,7 +6,7 @@ Status: accepted. 2026-11-25, the Solution Architect; issue 838. Extends decisio
 
 `guards/patch.py`'s `applied` lands a Role's patch on the files of the admitted commit, byte for byte, or gives one code why nothing lands. Nothing is searched for and nothing is guessed. Its docstring lists the narrower patch it reads, and refuses everything else.
 
-`bundle_unreadable`, `patch_does_not_apply`, `push_not_a_file` and `push_path_collision` are the Role's. `push_tree_unreadable` covers a tree or bytes the port handed over in no shape, or a file the patch reads whose bytes it did not hand over. It is a person's: a Hold, never the Role's attempt nor an environment fault, because the same commit is read the same way again. The guard gives it its own code; the push port's table, `WHOSE`, says whose each code is.
+`bundle_unreadable`, `patch_does_not_apply`, `push_not_a_file` and `push_path_collision` are the Role's. `push_tree_unreadable` covers a tree or bytes the port handed over in no shape, or a file the patch reads whose bytes it did not hand over. The guard gives it its own code, none of the Role's, and nothing calls the guard yet. Part 7's table, `WHOSE`, and the Kernel Hold for person codes will make it a person's Hold, before the Harness's push step calls the guard.
 
 A file may not land where it, or a directory above it, differs from another path the push leaves only by case, canonical form or an ignorable character. Names are folded as macOS folds them: decomposed, case-folded, decomposed again, wherever that is ASCII. The characters dropped are Unicode 13.0's Default_Ignorable_Code_Point ranges (`IGNORABLE`), dropped from both names. One such character with no twin holds nothing.
 
