@@ -10,8 +10,30 @@ F849_ALERTS = ("tests.test_controller.Issues.test_an_issue_left_unread_by_the_bu
 F849_BUDGET = ("tests.test_controller.Entry.test_the_issue_reads_stop_at_the_passs_budget_and_those_left_out_by_it_are_read_first_by_the_next",)
 F849_UNLISTED = ("tests.test_controller.Issues.test_an_issue_list_read_short_raises_its_own_alert_and_no_other",)
 HAND_PASS = ('tests.test_controller.Record.test_a_hand_approval_merged_between_passes_stays_information',)
+GITHUB_WAIT = ("tests.test_controller.Context.test_a_github_limit_defers_a_pushing_roles_runs_in_its_installation_until_its_reset",)
 TARGETS = ("controller/pass_.py",)
 MUTANTS = [
+    # A Run GitHub limited holds its Role's Runs in its installation until the reset, clamped (decision 9999).
+    ("GitHub's reset is not held to the most wait", "controller/pass_.py",
+     "min(max(reset, least), most)", "max(reset, least)", GITHUB_WAIT),
+    ("GitHub's reset in the past is not held to the least wait", "controller/pass_.py",
+     "min(max(reset, least), most)", "min(reset, most)", GITHUB_WAIT),
+    ("a bool is read as GitHub's reset", "controller/pass_.py",
+     "if type(reset) is int else most", "if isinstance(reset, int) else most", GITHUB_WAIT),
+    ("the wait for GitHub counts from the Run's start", "controller/pass_.py",
+     'end = r.get("ended_at") if moment(r.get("ended_at")) is not None else r["started_at"]',
+     'end = r["started_at"]', GITHUB_WAIT),
+    ("a wait for GitHub that is past is given", "controller/pass_.py",
+     '    return [w for w in waits if w["until"] > now]\n', "    return waits\n", GITHUB_WAIT),
+    ("the earliest of a scope's waits for GitHub holds", "controller/pass_.py",
+     "found[key] = max(found.get(key, wait), wait)", "found[key] = min(found.get(key, wait), wait)", GITHUB_WAIT),
+    ("any fault waits for GitHub", "controller/pass_.py",
+     ' or r["outcome"] != GITHUB_CAPACITY', "", GITHUB_WAIT),
+    ("a Run said to end after the pass waits for GitHub", "controller/pass_.py",
+     " or moment(end) is None or end > now:", " or moment(end) is None:", GITHUB_WAIT),
+    ("the waits for GitHub are given from a list read short", "controller/pass_.py",
+     'github_deferred(runs, now, rules["github_capacity"]) if whole else None',
+     'github_deferred(runs, now, rules["github_capacity"])', GITHUB_WAIT),
     # Issue 306: every write a Factory identity made matched to a recorded Effect (I-33, decision 0061).
     ('the pass record keeps no reconciliation', 'controller/pass_.py',
      '              "reconciliation": reconcile_.entries(found),\n',
