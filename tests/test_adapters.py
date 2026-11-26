@@ -9145,7 +9145,7 @@ class Push(unittest.TestCase):
         # `made` names its trees with `_tree_name`, so these names are git's own, from `git write-tree` on an index of
         # each tree: the empty tree, one file, one file git runs, a directory beside a file whose name sorts before
         # the directory's only as git sorts it, as if a `/` followed the directory's name, and two files, where no `/`
-        # follows either.
+        # follows either; and a directory between names on either side of `/`.
         one = "5626abf0f72e58d7a153368ba57db4c673c0e171"
         self.assertEqual(hashlib.sha1(b"blob 4\0one\n").hexdigest(), one)
         a_file = "b1ea253509c6004817f83cd7659ab4e6c38b2981"
@@ -9155,7 +9155,10 @@ class Push(unittest.TestCase):
                               ([("40000", "a", a_file), ("100644", "a.b", one)], "6b252a8ed528320520dc1e328b59422a95040a51"),
                               ([("100755", "run", one), ("40000", "a", a_file), ("100644", "a.b", one)],
                                "48614e7e191b98b217823e28108422b4275268c8"),
-                              ([("100644", "a.b", one), ("100644", "a", one)], "01209b322f27596690a1e6285f48e6da5d375fd4")):
+                              ([("100644", "a.b", one), ("100644", "a", one)], "01209b322f27596690a1e6285f48e6da5d375fd4"),
+                              # A directory sorts after `a.b` and `a.b.c`, and before `a0`: as if `/` followed it.
+                              ([("100644", "a0", one), ("40000", "a", a_file), ("100644", "a.b.c", one), ("100644", "a.b", one)],
+                               "1c3fd4a816b516aa9cf14d89ccfb5b81e62df0a7")):
             self.assertEqual(push._tree_name(entries), name, entries)
 
     def test_a_trees_listing_is_taken_whole_or_not_at_all(self):

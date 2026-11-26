@@ -234,6 +234,8 @@ MUTANTS = [
      'hashlib.sha1(b"tree %d\\0" % len(body) + body,', 'hashlib.sha1(body,', PUSH_NAMED),
     ("a file sorts as if a / followed its name", PUSH_PY,
      'return entry[1].encode() + (b"/" if entry[0] == TREE_MODE else b"")', 'return entry[1].encode() + b"/"', PUSH_NAMED),
+    ("a directory sorts last among its prefixes", PUSH_PY,
+     'return entry[1].encode() + (b"/" if entry[0] == TREE_MODE else b"")', 'return entry[1].encode() + (b"\\xff" if entry[0] == TREE_MODE else b"")', PUSH_NAMED),
     ("a directory sorts by its bare name", PUSH_PY,
      'return entry[1].encode() + (b"/" if entry[0] == TREE_MODE else b"")', 'return entry[1].encode()', PUSH_LISTED),
     ("a file is asked for after one gave a code", PUSH_PY,
