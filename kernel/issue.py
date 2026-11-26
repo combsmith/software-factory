@@ -1106,6 +1106,11 @@ def _implementing(facts, state, reason, evidence, mine, config):
         return _decision(facts, state, "draft_checks_unreadable", evidence, t.DEFER)
     if draft["checks"] != "failing":
         return _decision(facts, state, reason, evidence, t.NOTHING)
+    # The author Role's last Run ended on a code only a person can mend: held for a person before the rounds' brake, as
+    # every Run wanted is before the brakes (issue 838).
+    ended = needs_person(since_writer(mine, facts), config["author_role"])
+    if ended:
+        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)
     unreadable = _decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)
     held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"], unreadable)
     if held:

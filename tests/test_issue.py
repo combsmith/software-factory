@@ -2281,7 +2281,7 @@ class Investigation(unittest.TestCase):
     def test_an_issues_run_that_ended_person_holds_the_issue_and_calls_a_person_and_spends_no_attempt(self):  # issue 838
         # The twin of the pull request's rule: the Role's latest Run ended `person` holds the issue for a person, with that
         # Run as evidence, under a Pause too; ended any other way, the next Run is admitted.
-        ended = failed(INVESTIGATE, 1, "p1", outcome="person")
+        ended = failed(INVESTIGATE, 2, "p1", outcome="person")
         for ctx in (None, context(paused=True), context(paused=None)):
             d = decide(TRIAGED, [ended], ctx=ctx)
             self.assertEqual((d["state"], what(d), d["attention"], d["evidence"]),
@@ -2289,13 +2289,27 @@ class Investigation(unittest.TestCase):
         for kind in ("item", "environment", "capacity", "superseded", None):
             self.assertEqual(what(decide(TRIAGED, [dict(ended, outcome=kind)])), ("admit", "triage", INVESTIGATE), kind)
         # The Role's latest Run alone is read, and a writer's action releases the Hold, as it renews the attempts.
-        self.assertEqual(what(decide(TRIAGED, [ended, failed(INVESTIGATE, 2, "i2")])), ("admit", "triage", INVESTIGATE))
-        self.assertEqual(decide(TRIAGED, [failed(INVESTIGATE, 0, "i0"), ended])["evidence"], ["p1"])
-        renewed = facts(label_events=ACCEPTED, last_writer_action_at=at(1))
+        self.assertEqual(what(decide(TRIAGED, [ended, failed(INVESTIGATE, 3, "i3")])), ("admit", "triage", INVESTIGATE))
+        self.assertEqual(decide(TRIAGED, [failed(INVESTIGATE, 1, "i1"), ended])["evidence"], ["p1"])
+        renewed = facts(label_events=ACCEPTED, last_writer_action_at=at(2))
         self.assertEqual(what(decide(renewed, [ended])), ("admit", "triage", INVESTIGATE))
+        self.assertEqual(what(decide(facts(label_events=ACCEPTED, last_writer_action_at=at(1)), [ended]))[1],
+                         "run_needs_person")
         # Another Role's Run that ended `person` holds no Run of this Role.
-        self.assertEqual(what(decide(TRIAGED, [failed(JUDGE, 0, "p0", outcome="person", role="readiness")])),
+        self.assertEqual(what(decide(TRIAGED, [failed(JUDGE, 2, "p2", outcome="person", role="readiness")])),
                          ("admit", "triage", INVESTIGATE))
+        # The implementing Run's too, read before the rounds' brake: one round, then a Run that ended `person`, at a
+        # bound of two rounds, holds for the person, not at the rounds.
+        failing = facts(linked=[agents(draft=True, checks="failing")])
+        cfg = dict(config(), author_role="dev-lead")
+        cfg["limits"] = dict(cfg["limits"], max_implementing_rounds=2)
+        round_ = run(intent=issue.IMPLEMENT, role="dev-lead", name="m0", minute=7)
+        person = dict(run(intent=issue.IMPLEMENT, role="dev-lead", name="p8", minute=8), conclusion="failure",
+                      outcome="person")
+        d = decide(failing, [round_, person], cfg=cfg)
+        self.assertEqual((d["state"], what(d), d["evidence"]), ("held", ("hold", "run_needs_person", None), ["p8"]))
+        d = decide(failing, [round_, dict(person, outcome="item")], cfg=cfg)
+        self.assertEqual((what(d)[:2], d["evidence"]), (("hold", "attempts_exhausted"), ["m0", "p8"]))
 
     def test_an_issues_run_that_ran_and_left_no_outcome_is_an_attempt(self):  # issue 286's ruling
         # An investigating Run that failed or timed out with no outcome is the item's; one cancelled with none is not.

@@ -3157,17 +3157,33 @@ class Ceilings(unittest.TestCase):
         fixer = run(role=CONFIG["author_role"], intent="fix-findings", conclusion="failure", outcome="person", at=at(5),
                     name="d1")
         self.assertEqual(go(facts(), [fixer])["admit"], REVIEW_IT)
+        # Nor does another Role's later Run lift this Role's Hold.
+        d = go(facts(), [ended, dict(fixer, outcome="item", started_at=at(11), began_at=at(11))])
+        self.assertEqual((d["reason"], d["evidence"]), ("run_needs_person", ["p1"]))
+        # Two Runs of the Role started in one second are in no order: either that ended `person` holds the item.
+        for tied in ([ended, dict(other, started_at=at(10), began_at=at(10))],
+                     [dict(other, started_at=at(10), began_at=at(10)), ended]):
+            d = go(facts(), tied)
+            self.assertEqual((d["reason"], d["evidence"]), ("run_needs_person", ["p1"]), [r["run"] for r in tied])
         # A writer's action releases it, as it releases attempts_exhausted: the Runs before it are not read.
         self.assertEqual(go(facts(last_writer_action_at=at(10)), [ended])["admit"], REVIEW_IT)
         self.assertEqual(go(facts(last_writer_action_at=at(9)), [ended])["reason"], "run_needs_person")
         # The brakes count a Run that ended `person` as no attempt and, whatever it says of its Engine, no Run that spent
         # no model; it reached a model, so it counts toward the Run ceiling, the cost ceiling (FR-39).
-        many = [dict(ended, name="p%d" % i, engine_started=False) for i in range(LIMITS["max_runs_per_item"])]
+        many = [dict(ended, run="p%d" % i, engine_started=False) for i in range(LIMITS["max_runs_per_item"])]
         self.assertEqual((brakes._attempts(many, "review-change"), brakes._outside(many), brakes._spent(many)),
                          ([], [], many))
         self.assertIsNone(brakes.run_ceilings(_decision, facts(), [], "review-change", many[1:], LIMITS))
         self.assertEqual(brakes.run_ceilings(_decision, facts(), [], "review-change", many, LIMITS)["reason"],
                          "run_ceiling")
+        # A person is asked what attempts_exhausted asks.
+        rows = {row["reason"]: row for row in json.loads((ROOT / "config" / "feed.json").read_text())["decision_required"]}
+        self.assertEqual(dict(rows["run_needs_person"], reason=None), dict(rows["attempts_exhausted"], reason=None))
+        # So a later Run that lifts the Hold refunds no Run of the ceiling: with a ceiling of two, the next is refused.
+        two = config(limits=dict(LIMITS, max_runs_per_item=2))
+        self.assertEqual(go(facts(), [ended, other], cfg=two)["reason"], "run_ceiling")
+        self.assertEqual(go(facts(), [dict(ended, outcome="capacity"), other], cfg=two)["reason"], "run_ceiling")
+        self.assertEqual(go(facts(), [other], cfg=two)["admit"], REVIEW_IT)
 
     def test_a_writers_action_grants_a_fresh_allowance(self):  # I-28
         failures = [run(conclusion="failure", outcome="item", at="2026-10-11T12:1%d:00Z" % i, name="f%d" % i) for i in range(3)]

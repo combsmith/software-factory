@@ -1595,7 +1595,9 @@ class Records(unittest.TestCase):
         # Every fault outcome/1 names is kept, a person's among them (issue 838), and no other.
         faults = json.loads((ROOT / "schemas" / "outcome.schema.json").read_text())["properties"]["outcome"]["enum"]
         self.assertEqual(records.CONCLUDED, set(faults) - {None})
-        for fault in faults[:-1]:
+        run_record = json.loads((ROOT / "schemas" / "run-record.schema.json").read_text())
+        self.assertEqual(run_record["properties"]["outcome"]["enum"], faults)
+        for fault in sorted(set(faults) - {None}):
             told = dict(record(first), runs=[dict(first["runs"][0], outcome=fault)])
             self.assertEqual(records.known([told]), {("r_000000Z", "2026-10-21T00:00:00Z"): fault}, fault)
         faulted_then_none = dict(record(second), runs=[dict(second["runs"][2], outcome="item")])
