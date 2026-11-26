@@ -986,7 +986,7 @@ def explored():
 # person approved, or one changed since, holds until a person approves it at the head (I-29).
 HOLD_BOUNDS = {"run_ceiling": "max_runs_per_item", "environment_ceiling": "max_environment_runs_per_item",
                "attempts_exhausted": "max_attempts", "max_rounds": "max_rounds",
-               "run_needs_person": check_lifecycle.PERSON,
+               "run_needs_person": "max_runs_per_item",
                "act_ceiling": "max_acts_per_item", "human_hold": check_lifecycle.PERSON,
                "issue_stopped": check_lifecycle.PERSON,
                "hands_off": check_lifecycle.PERSON, "approver_is_author_or_last_pusher": "max_runs_per_item",

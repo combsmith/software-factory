@@ -2310,6 +2310,12 @@ class Investigation(unittest.TestCase):
         self.assertEqual((d["state"], what(d), d["evidence"]), ("held", ("hold", "run_needs_person", None), ["p8"]))
         d = decide(failing, [round_, dict(person, outcome="item")], cfg=cfg)
         self.assertEqual((what(d)[:2], d["evidence"]), (("hold", "attempts_exhausted"), ["m0", "p8"]))
+        # A writer's action after it releases it here too, and a draft whose checks do not fail wants no Run to hold.
+        renewed = facts(linked=[agents(draft=True, checks="failing")], last_writer_action_at=at(8))
+        self.assertEqual(what(decide(renewed, [round_, person], cfg=cfg)), ("admit", "linked_draft", issue.IMPLEMENT))
+        for checks in ("pending", "passing"):
+            green = facts(linked=[agents(draft=True, checks=checks)])
+            self.assertEqual(what(decide(green, [round_, person], cfg=cfg)), ("nothing", "linked_draft", None), checks)
         # It holds with a Run in flight, as the rounds' brake does: a Run waiting is none of the Role's completed Runs.
         cfg["limits"] = dict(cfg["limits"], max_implementing_rounds=3)
         flying = run(intent=issue.IMPLEMENT, status="in_progress", role="dev-lead", name="m9", minute=9)

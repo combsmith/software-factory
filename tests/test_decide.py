@@ -3162,6 +3162,12 @@ class Ceilings(unittest.TestCase):
             d = go(facts(), [ended, dict(other, **gone)])
             self.assertEqual((d["reason"], d["evidence"]), ("run_needs_person", ["p1"]), gone)
         self.assertEqual(go(facts(), [ended, dict(other, outcome=None, conclusion="timed_out")])["reason"], "awaiting_review")
+        # A Run that reported `person` and was cancelled after holds as any that ended `person`.
+        self.assertEqual(go(facts(), [dict(ended, conclusion="cancelled")])["reason"], "run_needs_person")
+        # Two tied that ended `person` name the least id, whatever their order.
+        both = [dict(ended, run="p2"), ended]
+        for tied in (both, both[::-1]):
+            self.assertEqual(go(facts(), tied)["evidence"], ["p1"], [r["run"] for r in tied])
         # Nor does another Role's later Run lift this Role's Hold.
         d = go(facts(), [ended, dict(fixer, outcome="item", started_at=at(11), began_at=at(11))])
         self.assertEqual((d["reason"], d["evidence"]), ("run_needs_person", ["p1"]))
