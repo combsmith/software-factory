@@ -601,7 +601,7 @@ MUTANTS = [
      'for key in ("branch_read", "stale") + FLAGS)',
      'for key in ("branch_read", "stale"))', PUSH_LANDS),
     ("a commit's name in a state need be no name", 'guards/push.py',
-     ' and (commit is None or _sha(commit))',
+     'not _sha(commit) or ',
      '', PUSH_LANDS),
     ('every 422 on a branch write is moved', 'guards/push.py',
      '            return dict(state, stale=True), None\n',
@@ -621,4 +621,7 @@ MUTANTS = [
     ('no answer after a 422 is read as the branch', 'guards/push.py',
      'if _unanswered(answer, NO_ANSWER if step == BRANCH_READ else NO_ANSWER_AFTER):',
      'if _unanswered(answer, NO_ANSWER if step == BRANCH_READ else NO_ANSWER_AFTER) and not state["stale"]:', PUSH_BACK_CODES),
+    ('a commit in a state may be a name given before it', 'guards/push.py',
+     ' or commit in made.values() or commit in (tree, new, state["push"]["parent"])',
+     '', PUSH_LANDS),
 ]

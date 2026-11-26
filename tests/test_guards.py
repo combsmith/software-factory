@@ -1759,6 +1759,7 @@ class Push(unittest.TestCase):
                 (made, "POST", GIT + "refs", {"ref": "refs/heads/main", "sha": COMMITTED}),
                 (made, "POST", GIT + "refs", {"ref": Text("refs/heads/" + BRANCH), "sha": COMMITTED}),
                 (moving, "PATCH", GIT + "refs/heads/" + BRANCH, {"sha": COMMITTED, "force": True}),
+                (moving, "PATCH", GIT + "refs/heads/" + BRANCH, {"sha": NEW_A, "force": False}),
                 (moving, "PATCH", GIT + "refs/heads/" + BRANCH, {"sha": COMMITTED, "force": 0}),
                 (moving, "PATCH", GIT + "refs/heads/" + BRANCH, {"sha": COMMITTED}),
                 (moving, "PATCH", GIT + "refs/heads/main", {"sha": COMMITTED, "force": False}),
@@ -1770,7 +1771,13 @@ class Push(unittest.TestCase):
         for bad in (dict(made, checked=False), dict(made, commit_back=False), dict(made, new=None),
                     dict(made, commit=None), dict(made, commit="x"), dict(made, landed=True), dict(made, checked=1)):
             self.assertFalse(push.permits(bad, *self.landing()[4][:3]))
+        # Nor one that says it made a commit named as what came before it.
+        for name in (PARENT, NEW_TREE, MADE):
+            self.assertFalse(push.permits(dict(made, commit=name), "POST", GIT + "refs", {"ref": "refs/heads/" + BRANCH, "sha": name}))
         self.assertFalse(push.permits(dict(self.upto(PUSH, 5), commit="x"), "GET", AT_BRANCH, None))
+        # A read back is of what was made alone.
+        self.assertFalse(push.permits(self.upto(PUSH, 1), "GET", AT_TREE, None))
+        self.assertFalse(push.permits(self.upto(PUSH, 3), "GET", AT_COMMIT, None))
 
     def test_each_read_back_and_branch_write_says_whose_a_stop_is(self):
         refused, moved, unanswered = (None, push.ANSWER_REFUSED), (None, push.BRANCH_MOVED), (None, push.UNANSWERED)
@@ -1784,7 +1791,11 @@ class Push(unittest.TestCase):
                     (1, dict(after, blobs=dict(blobs, **{"docs/a.md": (MADE, 3)})), refused),
                     (1, dict(after, tree=dict(after["tree"], **{"docs/a.md": "100755"})), refused),
                     (1, dict(after, tree=dict(after["tree"], **{"tests/t.py": FILE}), blobs=dict(blobs, **{"tests/t.py": (BLOB_T, 0)})), refused),
-                    (1, dict(after, whole=False), NOT_PERMITTED), (1, None, unanswered),
+                    (1, dict(after, blobs=dict(blobs, **{"docs/b.md": (NEW_A, 2)})), refused),
+                    (1, dict(after, tree=dict(after["tree"], **{"docs/c.md": FILE}), blobs=dict(blobs, **{"docs/c.md": (NEW_A, 2)})), refused),
+                    (1, dict(after, tree={k: v for k, v in after["tree"].items() if k != "bin/x"},
+                             blobs={k: v for k, v in blobs.items() if k != "bin/x"}), refused),
+                    (1, dict(after, whole=False), NOT_PERMITTED), (1, dict(after, sha=ROOT_TREE), NOT_PERMITTED), (1, None, unanswered),
                     # A commit named as what was made before it is none made.
                     (2, {"status": "201", "body": {"sha": PARENT}}, refused), (2, {"status": "201", "body": {"sha": NEW_TREE}}, refused),
                     (2, {"status": "422", "body": {}}, refused), (2, {"status": "401", "body": {}}, unanswered),
@@ -1793,6 +1804,8 @@ class Push(unittest.TestCase):
                     (3, dict(self.BACK, body=dict(self.BACK["body"], tree={"sha": ROOT_TREE})), refused),
                     (3, dict(self.BACK, body=dict(self.BACK["body"], parents=[{"sha": PARENT}, {"sha": NEW_A}])), refused),
                     (3, dict(self.BACK, body=dict(self.BACK["body"], message="Other")), refused),
+                    (3, dict(self.BACK, body=dict(self.BACK["body"], parents=[{"sha": NEW_A}])), refused),
+                    (3, dict(self.BACK, status="201"), refused),
                     (3, dict(self.BACK, body=dict(self.BACK["body"], sha=NEW_A)), refused),
                     (3, gone, refused), (3, {"status": "403", "body": {}}, refused), (3, None, unanswered),
                     (3, {"status": "401", "body": {}}, unanswered), (3, {"status": "429", "body": {}}, limited),

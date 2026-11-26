@@ -267,7 +267,10 @@ def _state(state) -> bool:
     # Each step past the tree only once the one before it was taken.
     commit = state["commit"]
     steps = (new is not None, state["checked"], commit is not None, state["commit_back"], state["moved"], state["landed"])
-    return (all(type(state[key]) is bool for key in ("branch_read", "stale") + FLAGS) and (commit is None or _sha(commit))
+    # A commit is no name given before it, as `seen` takes one.
+    if commit is not None and (not _sha(commit) or commit in made.values() or commit in (tree, new, state["push"]["parent"])):
+        return False
+    return (all(type(state[key]) is bool for key in ("branch_read", "stale") + FLAGS)
             and not any(later and not earlier for earlier, later in zip(steps, steps[1:]))
             and not (state["stale"] and (state["moved"] or not state["commit_back"])))
 

@@ -12,7 +12,7 @@ A branch write that GitHub refuses with a 422 does not stop the push at once. `g
 
 No branch write leaves after a 422. So decision 1225's "a ref write refused as moved" holds only a write that the branch read again shows moved.
 
-Limits: a branch moved and moved back between the write and the read reads as a refusal. GitHub's reason is never read.
+Limits: a branch moved and moved back between the write and the read reads as a refusal. GitHub's reason is never read. A branch rewound to an ancestor before the move takes it: REST has no compare-and-swap. A blob's and a submodule's names are GitHub's own, never read back.
 
 ## Why
 
