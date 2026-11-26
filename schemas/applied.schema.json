@@ -76,7 +76,7 @@
             "pattern": "^[a-z_]+$"
           },
           "branch": {
-            "description": "A landed push_commits names the work branch it landed on, beside its commit in key: adapters/applied.py's landed vouches for a head only on the branch its push names (decision 1208). A reader reads it of a push alone",
+            "description": "Only a landed push_commits effect carries branch: the work branch it landed on, beside its commit in key. Readers use it for pushes alone: adapters/applied.py's landed vouches for a head only on the branch its push names (decision 1208).",
             "type": "string",
             "pattern": "^factory-work/issue-[1-9][0-9]*-[1-9][0-9]*$"
           }
