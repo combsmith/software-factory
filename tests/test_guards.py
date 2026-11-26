@@ -1159,14 +1159,6 @@ class Text(str):
     """Text of another kind, with the right characters: what `+` and `==` on it do is its own to say."""
 
 
-class Unequal(str):
-    """Text of another kind that equals nothing, so `in` finds no path under it."""
-    def __eq__(self, other):
-        return False
-
-    __hash__ = str.__hash__
-
-
 class Raising(str):
     """Text of another kind that may not be compared: a key is held to its type before any comparison reads it."""
     def __eq__(self, other):
@@ -1276,8 +1268,6 @@ class Push(unittest.TestCase):
                      told(written={"x": (FILE, b"")}, removed=["tests/t.py"], read=["tests/t.py"])):
             self.assertIsNotNone(push.began(good)[0], good["changes"])
             self.assertIsNone(push.touched(good["changes"])[1])
-            held = {path: FILE for path in good["changes"]["removed"] + good["changes"]["read"]}
-            self.assertIsNone(push.existing(good["changes"], held)[1])
         wrote = WROTE["written"]
         for said, bad in (
                 ("nothing written and nothing removed", told(written={}, removed=[])),
@@ -1293,6 +1283,7 @@ class Push(unittest.TestCase):
                 ("a removed path that is no text", told(removed=[["tests/t.py"]])),
                 ("a file written above a file written", told(written={"a": (FILE, b""), "a/b": (FILE, b"")})),
                 ("a file written two above a file written", told(written={"a": (FILE, b""), "a/b/c": (FILE, b"")})),
+                ("a file written under a file written, deeper", told(written={"a/b": (FILE, b""), "a/b/c": (FILE, b"")})),
                 ("a file removed above a file removed", told(written={"x": (FILE, b"")}, removed=["a", "a/b"])),
                 ("a file written and removed", told(removed=["docs/a.md"])),
                 ("a file removed twice", told(removed=["tests/t.py", "tests/t.py"])),
@@ -1321,55 +1312,16 @@ class Push(unittest.TestCase):
                 ("a key of the changes of another kind", dict(PUSH, changes={Text(key): value for key, value in WROTE.items()}))):
             self.assertEqual(push.began(bad), NOT_PERMITTED, said)
             self.assertEqual(push.touched(bad["changes"]), NOT_PERMITTED, said)
-            self.assertEqual(push.existing(bad["changes"], {}), NOT_PERMITTED, said)
 
     def test_the_paths_apply_is_asked_about_are_the_paths_that_land(self):
         changes = {"written": {"docs/b.md": (FILE, b"x\n"), "docs/a.md": (FILE, b"A\n"), "tests/new.py": (FILE, b"")},
                    "removed": ["tests/t.py", "config/x.json"], "read": ["tests/t.py", "docs/a.md"]}
         self.assertEqual(push.touched(changes), ((["config/x.json", "docs/a.md", "docs/b.md", "tests/new.py", "tests/t.py"],
                                                   ["tests/t.py", "docs/a.md"]), None))
-        tree = {"docs/a.md": FILE, "tests/t.py": FILE, "config/x.json": FILE, "run.sh": "100755"}
-        self.assertEqual(push.existing(changes, tree), (["config/x.json", "docs/a.md", "tests/t.py"], None))
-        self.assertEqual(push.existing(dict(changes, removed=[]), tree), (["docs/a.md"], None))
-        self.assertEqual(push.existing(dict(changes, removed=[], read=[]), {}), ([], None))
-        self.assertEqual(push.existing(dict(changes, removed=["tests/t.py"], read=["tests/t.py"]), {"tests/t.py": FILE}),
-                         (["tests/t.py"], None))
-        # A file removed or read that the tree holds as no file, a directory among them, and a file written over a link
-        # or a submodule the tree holds, were never `applied`'s.
-        for said, tree_said in ((changes, {}), ({"written": {}, "removed": ["tests"], "read": []}, {"tests/t.py": FILE}),
-                                ({"written": {"b": (FILE, b"")}, "removed": [], "read": ["a"]}, {}),
-                                ({"written": {"m": (FILE, b"")}, "removed": [], "read": []}, {"m": "160000"}),
-                                ({"written": {"l": (FILE, b"")}, "removed": [], "read": []}, {"l": "120000"}),
-                                ({"written": {}, "removed": ["l"], "read": []}, {"l": "120000"}),
-                                ({"written": {"b": (FILE, b"")}, "removed": [], "read": ["l"]}, {"l": "120000"})):
-            self.assertEqual(push.existing(said, tree_said), NOT_PERMITTED, (said, tree_said))
-        self.assertEqual(push.existing({"written": {"r": ("100755", b"")}, "removed": ["x"], "read": ["x"]},
-                                       {"r": FILE, "x": "100755"}), (["r", "x"], None))
-        # Changes that the tree they land on cannot hold were never `applied`'s: a file over a directory the tree keeps,
-        # at any depth, or under a file it keeps. Where the push removes what stood in the way, they land.
-        for wrote, tree_said in (({"tests": (FILE, b"x")}, {"tests/t.py": FILE}), ({"a/b": (FILE, b"")}, {"a": FILE}),
-                                 ({"a": (FILE, b"")}, {"a/b/c": FILE}), ({"a/b/c": (FILE, b"")}, {"a": FILE}),
-                                 ({"tests/unit": (FILE, b"")}, {"tests/unit/group/t.py": FILE}),
-                                 ({"tests/unit/x/y": (FILE, b"")}, {"tests/unit": FILE})):
-            said = {"written": wrote, "removed": [], "read": []}
-            self.assertEqual(push.existing(said, tree_said), NOT_PERMITTED, tree_said)
-        self.assertEqual(push.existing({"written": {"a/b": (FILE, b"")}, "removed": ["a"], "read": []}, {"a": FILE}),
-                         (["a"], None))
-        self.assertEqual(push.existing({"written": {"d": (FILE, b"")}, "removed": ["d/b"], "read": []},
-                                       {"d/b": FILE, "e": FILE}), (["d/b"], None))
-        # A tree in no shape a port gives is the port's read that this cannot take: a person's, as the patch guard's.
-        for tree_said in (list(tree), None, Mapping(tree), dict(tree, **{"tests/t.py": None}), {5: FILE},
-                          {Unequal("tests/t.py"): FILE}, dict(tree, **{"tests/t.py": Text(FILE)}), {"x": "040000"},
-                          # A file that is a directory to another, which no tree holds, at any depth
-                          dict(tree, **{"docs": FILE}), dict(tree, **{"x/y": FILE, "x/y/z/w": FILE}),
-                          # and a path deeper than any name read, before it is split
-                          dict(tree, **{"/".join("d" * (len(patch.DEEPEST) + 1)): FILE})):
-            self.assertEqual(push.existing(changes, tree_said), (None, patch.TREE_UNREAD), tree_said)
         # What `applied` gave is what is asked about, as it gave it.
         got, reason = patch.applied(CHANGE + NEW + GONE + COPIED, TREE, HELD)
         self.assertIsNone(reason)
         self.assertEqual(push.touched(got), ((["docs/a.md", "docs/c.md", "docs/n.md", "tests/t.py"], ["docs/a.md"]), None))
-        self.assertEqual(push.existing(got, TREE), (["docs/a.md", "tests/t.py"], None))
         self.assertIsNotNone(push.began(dict(PUSH, changes=got, blobs={path: "" for path in got["written"]}))[0])
 
 
