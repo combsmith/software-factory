@@ -2102,6 +2102,10 @@ class RemoveLabel(unittest.TestCase):
             self.assertNotIn("label", d)
         d = decide(facts(label_events=[labelled(READY, OTHER_APP, 1)], acts_since_writer=top - 1))
         self.assertEqual((d["state"], what(d), d["label"]), ("new", ("act", "label_not_counted", "remove_label"), READY))
+        # The record's limit: where the ceiling is not read, as under another App's factory:triage in new, the removal
+        # still runs at it.
+        d = decide(facts(label_events=[labelled(TRIAGE, OTHER_APP, 1)], acts_since_writer=top))
+        self.assertEqual((d["state"], what(d), d["label"]), ("new", ("act", "label_not_counted", "remove_label"), TRIAGE))
 
 
 class UnmergedCloses(unittest.TestCase):
