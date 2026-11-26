@@ -763,7 +763,8 @@ class Context(unittest.TestCase):
             self.assertEqual((decisions(out)[0]["reason"], out["alerts"]), ("github_capacity", []))
         many = [dict(limited(), run="r_0000G%d" % i, item=dict(support.ITEM, number=7 + i % 2)) for i in range(3)]
         out = passed(reads(runs=many))
-        self.assertEqual((out["record"]["context"]["model_deferred_until"], out["alerts"]), (None, []))
+        self.assertEqual((out["record"]["context"]["model_deferred_until"], out["alerts"],
+                          out["view"]["health"]["pause"]["state"]), (None, [], "none"))
         self.assertEqual(decisions(passed(reads(runs=[limited()])))[0]["outcome"], "admit")
         short = passed(reads(runs=[limited()], complete=False), cfg=cfg)["record"]["context"]
         self.assertEqual((short["github_deferred"], short["active_runs"]), (None, None))
