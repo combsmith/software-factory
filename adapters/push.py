@@ -44,7 +44,7 @@ import hashlib
 import re
 
 from adapters.effects import Allowed
-from adapters.github import JSON, Unanswered, request
+from adapters.github import JSON, LARGEST, Unanswered, request
 from guards import patch
 
 SHA = re.compile(r"[0-9a-f]{40}")
@@ -70,20 +70,26 @@ GIT_SHORT = "git~"
 # attempt, refused whole, and nothing is cut short. 64 MiB.
 MOST_FILES = 1000
 MOST_BYTES = 67108864
-# The largest blob GitHub's blob API gives, 100 MB: a file the listing says is larger is never read, by any attempt.
-MOST_BLOB = 104857600
-# The modes of a tree's listing that are no file: a directory, and a submodule, which git writes as a commit.
+# The largest file whose blob answer the transport takes whole: base64, a newline after every 60 characters, each
+# written in JSON as two, is 62 characters for every 45 bytes, and an answer past `LARGEST` is refused. 64 KiB is left
+# for the rest of the answer. A file the listing says is larger is never read, by any attempt; GitHub's own limit on a
+# blob, 100 MB, is higher still.
+MOST_BLOB = (LARGEST - 65536) * 45 // 62
+# The modes of a tree's listing that are no file: a directory, and a submodule, which git writes as a commit. A tree
+# object writes a directory's mode with no leading zero.
 DIRECTORY = "040000"
+TREE_MODE = "40000"
 LINK = "120000"
-# A status the port reads as no answer: GitHub's own failure, a rate limit, or a token the repo refuses.
-UNANSWERED = ("403", "429")
+# A status the port reads as no answer: GitHub's own failure, a rate limit, or a token expired or refused.
+UNANSWERED = ("401", "403", "429")
 # The port's codes. A read cut short or of no shape is `guards/patch.py`'s `TREE_UNREAD`.
 READS_TOO_LARGE = "push_reads_too_large"
 TREE_UNFETCHED = "push_tree_unfetched"
 ROLE, PERSON, PORT = "role", "person", "port"
 # Whose each code of the patch guard and of this port is: the Role's, counted as its attempt; a person's, a Hold on
 # the item, since the same commit reads the same way again; or the port's, an environment fault. Every code is here,
-# and none is read with a default: `WHOSE[code]`.
+# and none is read with a default: `WHOSE[code]`. A code's letters begin `push_`, `patch_` or `bundle_`: a test finds
+# every code of both modules by them.
 WHOSE = {patch.UNREADABLE: ROLE, patch.NOT_APPLIED: ROLE, patch.NOT_A_FILE: ROLE, patch.PATH_TWIN: ROLE,
          patch.TREE_UNREAD: PERSON, READS_TOO_LARGE: ROLE, TREE_UNFETCHED: PORT}
 
@@ -314,39 +320,68 @@ def _unanswered(answer) -> bool:
     return type(status) is not str or status in UNANSWERED or status[:1] == "5"
 
 
+def _tree_name(entries: list) -> str:
+    """The git name of the tree object of `entries`, each `(mode, name, sha)` as a tree object writes it: sorted by
+    name, a directory's name as if a `/` followed it, each a mode, a name, a NUL and the 20 bytes of its sha."""
+    def order(entry):
+        return entry[1].encode() + (b"/" if entry[0] == TREE_MODE else b"")
+    body = b"".join(b"%s %s\0" % (mode.encode(), name.encode()) + bytes.fromhex(sha)
+                    for mode, name, sha in sorted(entries, key=order))
+    # Git names a tree by sha1 of `tree <size>\0` and its entries: the hash is git's, compared with git's own.
+    return hashlib.sha1(b"tree %d\0" % len(body) + body, usedforsecurity=False).hexdigest()
+
+
 def listed(answer, sha):
     """`((tree, blobs), None)` from `send`'s answer to `read_tree` of `sha`, or `(None, code)`. `tree` is each path the
     tree holds that is no directory, to its mode, as `guards/patch.py`'s `applied` takes it; `blobs` is each file's
-    and link's `(sha, size)`. An answer the port reads as none is the port's, `TREE_UNFETCHED`; one GitHub cut short,
-    `truncated`, of another tree, or in any shape not read here, is a person's, `TREE_UNREAD`: the same commit reads
-    the same way again, and no part of a listing is taken."""
+    and link's `(sha, size)`. Each directory's entries are rebuilt into its tree object and named as git names it, the
+    whole into `sha`: an entry left out, added, listed twice or under no directory listed is a listing of no tree.
+    An answer the port reads as none is the port's, `TREE_UNFETCHED`; one GitHub cut short, `truncated`, of another
+    tree, or in any shape not read here, is a person's, `TREE_UNREAD`: the same commit reads the same way again, and
+    no part of a listing is taken."""
     if _unanswered(answer):
         return None, TREE_UNFETCHED
     body = answer.get("body") if _said(answer.get("status"), "200") else None
     if type(body) is not dict or body.get("truncated") is not False or not _said(body.get("sha"), sha) \
             or not _sha(sha) or type(body.get("tree")) is not list:
         return None, patch.TREE_UNREAD
-    tree, blobs = {}, {}
-    for entry in body["tree"]:
-        if type(entry) is not dict or type(entry.get("path")) is not str or entry["path"] in tree:
+    entries = body["tree"]
+    if not all(type(entry) is dict and type(entry.get("path")) is str and _sha(entry.get("sha")) for entry in entries):
+        return None, patch.TREE_UNREAD
+    kinds = {}
+    for entry in entries:
+        if entry["path"] in kinds:
             return None, patch.TREE_UNREAD
-        path, mode, kind, size = entry["path"], entry.get("mode"), entry.get("type"), entry.get("size")
-        if kind == "tree" and mode == DIRECTORY:
+        kinds[entry["path"]] = (entry.get("type"), entry.get("mode"))
+    folders = {"": []}
+    folders.update({path: [] for path, kind in kinds.items() if kind == ("tree", DIRECTORY)})
+    named = {"": sha}
+    tree, blobs = {}, {}
+    for entry in entries:
+        path, (kind, mode), size = entry["path"], kinds[entry["path"]], entry.get("size")
+        parent, _, name = path.rpartition("/")
+        if not name or parent not in folders:
+            return None, patch.TREE_UNREAD
+        if (kind, mode) == ("tree", DIRECTORY):
+            folders[parent].append((TREE_MODE, name, entry["sha"]))
+            named[path] = entry["sha"]
             continue
         if kind == "commit" and mode == patch.SUBMODULE:
             tree[path] = mode
-            continue
-        if kind != "blob" or mode not in FILE_MODES + (LINK,) or not _sha(entry.get("sha")) or type(size) is not int \
-                or size < 0:
+        elif kind == "blob" and mode in FILE_MODES + (LINK,) and type(size) is int and size >= 0:
+            tree[path], blobs[path] = mode, (entry["sha"], size)
+        else:
             return None, patch.TREE_UNREAD
-        tree[path], blobs[path] = mode, (entry["sha"], size)
+        folders[parent].append((mode, name, entry["sha"]))
+    if any(_tree_name(held) != named[path] for path, held in folders.items()):
+        return None, patch.TREE_UNREAD
     return (tree, blobs), None
 
 
 def to_read(listing, sources):
     """`(paths, None)`, the files among `sources` (`guards/patch.py`'s) whose bytes a push reads, in their order, or
     `(None, code)`. A path the listing does not hold, a link or a submodule is read by no one: the guard refuses the
-    patch without its bytes. A file larger than GitHub's blob API gives, `MOST_BLOB`, is a person's, `TREE_UNREAD`.
+    patch without its bytes. A file larger than the transport takes whole, `MOST_BLOB`, is a person's, `TREE_UNREAD`.
     More files than `MOST_FILES`, or more bytes than `MOST_BYTES` in all by the listing's sizes, is the Role's,
     `READS_TOO_LARGE`: nothing is read. A patch `sources` cannot read reads nothing, and the guard names it."""
     tree, blobs = listing
@@ -360,18 +395,21 @@ def to_read(listing, sources):
 
 def read_whole(listing, paths, answers):
     """`(contents, None)`, each of `paths` to its bytes, from `answers`, each `send`'s answer to `read_blob` of the sha
-    the listing gives that path; or `(None, code)`, all or nothing. Any answer that gives no bytes of that name but is
-    not one the port reads as none, a refusal, or a blob too large or no blob, is a person's, `TREE_UNREAD`, before
-    all else; then any answer the port reads as none, or none at all, is the port's, `TREE_UNFETCHED`; then bytes past
-    `MOST_BYTES` in all, whatever the listing said, are the Role's, `READS_TOO_LARGE`."""
-    got = {path: answers.get(path) if type(answers) is dict else None for path in paths}
-    contents = {path: content(answer, listing[1][path][0]) for path, answer in got.items()}
-    if any(data is None and not _unanswered(got[path]) for path, data in contents.items()):
-        return None, patch.TREE_UNREAD
-    if any(data is None for data in contents.values()):
-        return None, TREE_UNFETCHED
-    if sum(len(data) for data in contents.values()) > MOST_BYTES:
-        return None, READS_TOO_LARGE
+    the listing gives that path; or `(None, code)`, all or nothing. They are read in order, and the first that gives no
+    bytes ends the read: a missing answer, or one the port reads as none, is the port's, `TREE_UNFETCHED`; any other,
+    a refusal, or a blob too large, of no blob or of other bytes, a person's, `TREE_UNREAD`. Bytes past `MOST_BYTES`
+    in all, whatever the listing said, end it as the Role's, `READS_TOO_LARGE`. So a caller that reads each blob in
+    this order and stops at the first code holds no more than `MOST_BYTES` and one answer."""
+    contents, held = {}, 0
+    for path in paths:
+        answer = answers.get(path) if type(answers) is dict else None
+        data = content(answer, listing[1][path][0])
+        if data is None:
+            return None, TREE_UNFETCHED if _unanswered(answer) else patch.TREE_UNREAD
+        held += len(data)
+        if held > MOST_BYTES:
+            return None, READS_TOO_LARGE
+        contents[path] = data
     return contents, None
 
 
