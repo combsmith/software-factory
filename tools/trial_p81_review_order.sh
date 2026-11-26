@@ -18,8 +18,9 @@
 # review's comments. The token lives in a shell variable and reaches curl on its standard input. Each answer is redacted
 # by tools/redact_trial.py in a scratch directory outside the repo; OUT gets the clean answers (clean-N), what the
 # redaction removed (redacted-N), the bodies sent (sent-NAME), each call with the time before it (requests.json) and
-# ran_at. A refused mint, a failed call, a reviews list not read as none before the first write, a review not started
-# pending, a later write refused or a revocation not answered 204 stops the run; a token that may be live is told.
+# ran_at. A refused mint, a failed call, a read not answered 200, a reviews list not read as none before the first
+# write, a review not started pending, a later write refused, a timeline with a next page past the bound or a revocation
+# not answered 204 stops the run, with no "Done"; a token that may be live is told.
 set -eu
 # Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
 # (issue 1215).
@@ -212,13 +213,15 @@ ask() {   # METHOD PATH [BODY]
     asked="$asked{\"n\": $n, \"as\": \"${slug}[bot]\", \"call\": \"$1 /$2\", \"body\": \"${3:-}\", \"at\": \"$at\","
     asked="$asked \"status\": $status},"
     echo "$1 /$2: $status"
-    last_write="$1 /$2"
+    last_call="$1 /$2"
+    # A read not answered 200 is no evidence, and a run that went on past it would be handed over as whole.
+    [ "$1" != GET ] || wrote 200
 }
 
-# The last write was answered STATUS, or the run stops: what follows a refused one could not answer the question.
+# The last call was answered STATUS, or the run stops: what follows a refused one could not answer the question.
 wrote() {   # STATUS
     [ "$status" = "$1" ] && return 0
-    echo "trial_p81_review_order: $last_write: GitHub answered $status, not $1; nothing after it is asked" >&2
+    echo "trial_p81_review_order: $last_call: GitHub answered $status, not $1; nothing after it is asked" >&2
     exit 1
 }
 
@@ -367,8 +370,9 @@ print(held["id"] if isinstance(held, dict) and held.get("state") == "PENDING" el
         fi
         names_next "$n" || break
         if [ "$page" -ge "$PAGES" ]; then
-            echo "trial_p81_review_order: page $page of two still names a next page; the rest is not read" >&2
-            break
+            echo "trial_p81_review_order: page $page of two still names a next page; the rest is unread, so the run" \
+                "is not whole" >&2
+            exit 1
         fi
         page=$((page + 1))
     done
