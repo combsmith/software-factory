@@ -15637,7 +15637,8 @@ class SignalTraps(unittest.TestCase):
         for script in sorted((ROOT / "tools").glob("trial_*.sh")):
             lines = script.read_text().splitlines()
             first = next(n for n, line in enumerate(lines) if line.startswith("set -e"))
-            self.assertEqual(lines[first + 3:first + 5], ["set +a", "unset CDPATH"], script.name)
+            then = [line for line in lines[first + 1:] if line.strip() and not line.lstrip().startswith("#")]
+            self.assertEqual(then[:2], ["set +a", "unset CDPATH"], script.name)
 
 
 class ReaderTrialScript(unittest.TestCase):
@@ -15920,14 +15921,14 @@ esac
 
     def test_the_maintainers_environment_steers_nothing(self):  # issue 1215
         # Run by a path relative to the repo, under a CDPATH that holds a tools/ of its own, with SSLKEYLOGFILE and each
-        # name a credential is held in exported, and bash told to export every assignment: the script finds its own root,
-        # and curl is handed none of them.
+        # name a credential is held in exported, and the shell started exporting every assignment: the script finds its
+        # own root, and curl is handed none of them.
         decoy = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         (decoy / "tools").mkdir()
         env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
-               "CDPATH": str(decoy), "SSLKEYLOGFILE": str(decoy / "keys"), "SHELLOPTS": "allexport",
+               "CDPATH": str(decoy), "SSLKEYLOGFILE": str(decoy / "keys"),
                **{name: self.TOKEN for name in ("token", "jwt", "signature", "minted", "minting")}}
-        ran = subprocess.run(["sh", str(self.SCRIPT.relative_to(ROOT)), str(self.out), str(self.key), *self.GIVEN],
+        ran = subprocess.run(["sh", "-a", str(self.SCRIPT.relative_to(ROOT)), str(self.out), str(self.key), *self.GIVEN],
                              cwd=str(ROOT), capture_output=True, text=True, env=env, timeout=120)
         self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
         calls = self.calls()
