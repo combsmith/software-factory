@@ -1382,7 +1382,9 @@ class Push(unittest.TestCase):
             self.assertEqual(push.seen(first, method, path, body, ABSENT), NOT_PERMITTED, (method, path))
 
     def test_a_listing_the_port_did_not_mark_whole_or_read_at_another_tree_is_refused(self):
-        committed, _ = push.seen(push.began(PUSH)[0], "GET", AT_COMMIT, None, COMMIT)
+        branched, _ = push.seen(push.began(PUSH)[0], "GET", AT_BRANCH, None, ABSENT)
+        committed, _ = push.seen(branched, "GET", AT_COMMIT, None, COMMIT)
+        self.assertTrue(push.permits(committed, "GET", AT_TREE, None))
         unmarked = {key: value for key, value in LISTING.items() if key != "whole"}
         for said, listing in (("no mark", unmarked), ("a mark that is no True", dict(LISTING, whole=1)),
                               ("another tree's", dict(LISTING, sha=PARENT)),
@@ -1435,7 +1437,7 @@ class Push(unittest.TestCase):
         state = self.read()
         less = {key: value for key, value in first.items() if key != "landed"}
         for said, bad in (("none", None), ("a list", [first]), ("a key fewer", less),
-                          ("a mapping of another kind", Mapping(first)), ("a push told wrongly", dict(first, push=dict(PUSH, branch="main"))),
+                          ("a mapping of another kind", Mapping(first)), ("a push told wrongly", dict(state, push=dict(PUSH, message=""))),
                           ("a tree of no name", dict(first, tree="x")), ("a listing before the tree", dict(first, before=LISTING)),
                           ("a listing of another tree", dict(state, tree=NEW_A)), ("a listing unmarked", dict(state, before=dict(LISTING, whole=False))),
                           ("the branch read as 1", dict(first, branch_read=1)), ("landed", dict(first, landed=True)),
@@ -1446,7 +1448,7 @@ class Push(unittest.TestCase):
                           ("a link's blob read", dict(state, blobs_read=(BLOB_L,))),
                           ("a blob's name of another kind read", dict(state, blobs_read=(Text(BLOB_A),))),
                           ("blobs read as a list", dict(state, blobs_read=[]))):
-            for path in (AT_BRANCH, AT_COMMIT, AT_TREE, GIT + "blobs/" + BLOB_A):
+            for path in (AT_BRANCH, AT_COMMIT, AT_TREE, GIT + "blobs/" + BLOB_A, GIT + "blobs/" + BLOB_T):
                 self.assertFalse(push.permits(bad, "GET", path, None), (said, path))
                 self.assertEqual(push.seen(bad, "GET", path, None, ABSENT), NOT_PERMITTED, (said, path))
 
