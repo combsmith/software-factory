@@ -1393,8 +1393,8 @@ class Push(unittest.TestCase):
         self.assertFalse(push.permits(branched, "GET", AT_BRANCH, None))
         committed, _ = push.seen(branched, "GET", AT_COMMIT, None, COMMIT)
         self.assertEqual(committed, dict(branched, tree=ROOT_TREE))
-        self.assertEqual([push.permits(committed, "GET", path, None) for path in (AT_COMMIT, AT_TREE, blob)],
-                         [False, True, False])
+        self.assertEqual([push.permits(committed, "GET", path, None) for path in (AT_COMMIT, AT_TREE, blob, AT_TREE[:-12])],
+                         [False, True, False, False])
         listed = dict(LISTING, tree=dict(LISTING["tree"]), blobs=dict(LISTING["blobs"]))
         state, why = push.seen(committed, "GET", AT_TREE, None, listed)
         self.assertEqual((state, why), (dict(committed, before=LISTING), None))
@@ -1410,12 +1410,15 @@ class Push(unittest.TestCase):
         # The branch and the commit, in either order; the commit read again is not asked.
         either, _ = push.seen(first, "GET", AT_COMMIT, None, COMMIT)
         self.assertEqual(push.seen(either, "GET", AT_BRANCH, None, ABSENT), (dict(first, tree=ROOT_TREE, branch_read=True), None))
+        unbranched, _ = push.seen(either, "GET", AT_TREE, None, LISTING)
+        self.assertEqual(push.seen(unbranched, "GET", blob, None, None), (unbranched, None))
         self.assertEqual(self.read(MOVE, ref(PARENT))["branch_read"], True)
         self.assertEqual(self.read(READING)["before"], LISTING)
         # Nothing else leaves: a write, a body, another repo's or anything outside git's data, or a path of another kind.
         for method, path, body in (("POST", GIT + "blobs", {"content": "", "encoding": "base64"}), ("GET", AT_BRANCH, {}),
                                    ("PATCH", GIT + "refs/heads/" + BRANCH, None), ("get", AT_BRANCH, None),
                                    ("GET", "/repos/combsmith/other/git/ref/heads/" + BRANCH, None),
+                                   ("GET", "/repos/combsmith/software-factorx/git/ref/heads/" + BRANCH, None),
                                    ("GET", "/repos/" + REPO + "/contents/docs/a.md", None),
                                    ("GET", AT_BRANCH + "/x", None), ("GET", GIT + "commits/" + "c" * 40, None),
                                    ("GET", GIT + "trees/" + ROOT_TREE, None), ("GET", Text(AT_BRANCH), None),

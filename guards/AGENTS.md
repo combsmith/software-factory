@@ -1,6 +1,6 @@
 # guards/
 
-The guards on a Role's own writes, as pure functions: each says what such a write may land, or gives the one reason, a code, why nothing may. `patch.py` applies a Role's patch byte for byte. `push.py` holds how its push is told; the rest is to come.
+The guards on a Role's own writes, as pure functions: each says what such a write may land, or gives the one reason, a code, why nothing may. `patch.py` applies a Role's patch byte for byte. `push.py` holds what its push is told and reads.
 A guard binds the Role that writes this repo's code. So it lives here, never in `kernel/` or `adapters/`, where that Role may push; a port hands a guard what it read, and the Harness calls it. A guard reads nothing itself.
 
 | Rule | Held by |
@@ -32,4 +32,8 @@ A guard binds the Role that writes this repo's code. So it lives here, never in 
 | What it lands is what git lands, on fixed seeds, of a patch as git writes it and of the same patch broken | `tests/test_guards.py::test_a_patch_as_git_writes_it_lands_what_git_would` |
 | A push is told whole, each part of its exact type, or begins nothing under a code | `tests/test_guards.py::test_a_push_is_told_whole_or_begins_nothing`, `tests/test_guards.py::test_a_pushs_changes_are_what_applied_gives_path_by_path` |
 | `apply` is asked about the paths that land | `tests/test_guards.py::test_the_paths_apply_is_asked_about_are_the_paths_that_land` |
+| A push reads its branch, its commit, the commit's tree and its files, once each and in order | `tests/test_guards.py::test_a_push_reads_its_branch_commit_tree_and_files_once_each_in_order` |
+| A state in no shape `began` or `seen` gives lets nothing leave | `tests/test_guards.py::test_a_state_in_no_shape_lets_nothing_leave` |
+| The tree's listing is the port's, marked whole, at the tree the commit names | `tests/test_guards.py::test_a_listing_the_port_did_not_mark_whole_or_read_at_another_tree_is_refused` |
+| Every stop of a read gives the code of its class | `tests/test_guards.py::test_each_read_says_whose_a_stop_is` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
