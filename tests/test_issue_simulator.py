@@ -224,6 +224,12 @@ class IssueSimulation(unittest.TestCase):
         d = issue.decide(w.facts(), w.records(), w.context(), issues.CONFIG, w.now())
         self.assertNotEqual((d["outcome"], d.get("admit", {}).get("intent")), (terms.ADMIT, issue.INVESTIGATE))
 
+    def test_the_seeds_end_a_run_on_a_persons_code(self):  # issue 1223
+        # The twin of the pull request's world: on these seeds the issue is held for a person, and no Run of the Role
+        # starts until a person acts or its record expires.
+        for seed in (182, 202):
+            self.assertGreater(run(seed).person_holds, 0, seed)
+
     def test_a_stale_wait_shows_by_the_worlds_own_count(self):  # I-1, issue 165's ruling 8
         # The Factory's draft waits for its author, and nobody else moves. The world counts the wait itself, from the
         # moment the issue last moved and no earlier than the chain of passes began, and each pass holds the Kernel

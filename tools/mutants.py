@@ -70,6 +70,8 @@ PERSON_BLOCK = ("    # The author Role's last Run ended on a code only a person 
                 '        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)\n')
 PERSON_RUN = ('tests.test_decide.Ceilings.test_a_run_that_ended_person_holds_the_item_and_calls_a_person_and_spends_no_attempt',)
 ISSUE_PERSON_RUN = ('tests.test_issue.Investigation.test_an_issues_run_that_ended_person_holds_the_issue_and_calls_a_person_and_spends_no_attempt',)
+PERSON_IN_FLIGHT = ('tests.test_decide.Ceilings.test_a_run_that_ended_person_holds_the_item_while_another_run_is_in_flight',)
+ISSUE_PERSON_IN_FLIGHT = ('tests.test_issue.Investigation.test_an_issues_run_that_ended_person_holds_the_issue_while_another_run_is_in_flight',)
 STANDS_UNREAD = ('tests.test_issue.Stands.test_what_cannot_be_read_gives_none',)
 F849_KERNEL = ("tests.test_issue.Unreadable.test_a_timeline_past_the_ports_bound_defers_on_its_own_code_and_calls_a_person",)
 STALE = "tests.test_decide.Staleness."
@@ -3382,6 +3384,23 @@ MUTANTS = ISSUE + OUTSIDE + [
      '    ended = needs_person(since_writer(mine, facts), role)\n    if ended:\n'
      '        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)\n',
      ISSUE_PERSON_RUN),
+    # Issue 1223: the Hold stands beside a Run a pass that read the list late admitted, as a spent count does.
+    ("a Run that ended person is run again beside a Run in flight", 'kernel/decide.py',
+     '            held = (_decision(facts, t.HELD, "run_needs_person", ended, t.HOLD) if ended\n'
+     '                    else brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, config["limits"]))\n',
+     '            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, config["limits"])\n',
+     PERSON_IN_FLIGHT),
+    ("an issue's Run that ended person is run again beside a Run in flight", 'kernel/issue.py',
+     '            held = (_decision(facts, t.HELD, "run_needs_person", ended, t.HOLD) if ended\n'
+     '                    else brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits))\n',
+     '            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits)\n',
+     ISSUE_PERSON_IN_FLIGHT),
+    ("a Run that ended person beside a Run in flight is read before a writer acted", 'kernel/decide.py',
+     '            ended = needs_person(since_writer(mine, facts), wanted[0])\n',
+     '            ended = needs_person(mine, wanted[0])\n', PERSON_IN_FLIGHT),
+    ("an issue's Run that ended person beside a Run in flight is read before a writer acted", 'kernel/issue.py',
+     '            ended = needs_person(since_writer(mine, facts), wanted[0])\n',
+     '            ended = needs_person(mine, wanted[0])\n', ISSUE_PERSON_IN_FLIGHT),
     ("any Run of the Role that ended person holds the item", 'kernel/derive.py',
      'return sorted(r["run"] for r in last if r.get("outcome") == t.ENDED_PERSON)[:1]',
      'return sorted(r["run"] for r in done if r.get("outcome") == t.ENDED_PERSON)[:1]', PERSON_RUN + ISSUE_PERSON_RUN),

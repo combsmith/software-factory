@@ -1231,8 +1231,12 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     if flight:
         held = None
         if isinstance(wanted, tuple):
+            # A Run that ended on a person's code holds the issue as a spent count does, whatever Run a pass that read
+            # the list late admitted beside it (issue 1223).
             done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]
-            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits)
+            ended = needs_person(since_writer(mine, facts), wanted[0])
+            held = (_decision(facts, t.HELD, "run_needs_person", ended, t.HOLD) if ended
+                    else brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits))
         elif isinstance(wanted, dict) and wanted["outcome"] == t.HOLD:
             held = wanted
         if held:

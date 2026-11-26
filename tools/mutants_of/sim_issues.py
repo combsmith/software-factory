@@ -5,6 +5,11 @@ F849_WORLD = ("tests.test_issue.Unreadable.test_the_issue_world_meets_a_timeline
 F849_BROKEN_WORLD = ("tests.test_issue.Unreadable.test_the_issue_world_meets_a_broken_chain_of_spans_under_faults_and_calls_a_person",)
 TARGETS = ("sim/issues.py",)
 MUTANTS = [
+    # Issue 1223: an issue's Run killed past its limit may end on a person's code, and the issue is held for a person.
+    ("the issue world never ends a Run on a person's code", 'sim/issues.py',
+     '                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None, t.ENDED_PERSON]))\n',
+     '                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None]))\n',
+     ("tests.test_issue_simulator.IssueSimulation.test_the_seeds_end_a_run_on_a_persons_code",)),
     # Issue 838: where the branch does not exist, the opening Run is admitted for the commit it lands on.
     ("the issue world serves no default branch's head", "sim/issues.py",
      '            "base_head": "%040x" % (0xba5e0000 + self.minute),\n', "",

@@ -8,6 +8,11 @@ SIM_ENQUEUE = ("tests.test_simulator.Simulation.test_the_factorys_own_enqueue_ho
 
 TARGETS = ("sim/world.py",)
 MUTANTS = [
+    # Issue 1223: a Run killed past its limit may end on a person's code, and the item is held for a person.
+    ("the world never ends a Run on a person's code", 'sim/world.py',
+     '                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None, t.ENDED_PERSON]))\n',
+     '                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None]))\n',
+     ("tests.test_simulator.Simulation.test_the_seeds_end_a_run_on_a_persons_code",)),
     # Issue 526: the facts port reads the description's edits, and an absent edit time is unread, never none (0140).
     ("the fake's look is the Maintainer's alone", 'sim/world.py',
      '        looks = [rv["submitted_at"] for rv in self.reviews if self.is_person(rv["by"])\n',

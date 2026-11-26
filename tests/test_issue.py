@@ -2322,6 +2322,20 @@ class Investigation(unittest.TestCase):
         d = decide(failing, [round_, person, flying], cfg=cfg)
         self.assertEqual((what(d), d["evidence"]), (("hold", "run_needs_person", None), ["p8"]))
 
+    def test_an_issues_run_that_ended_person_holds_the_issue_while_another_run_is_in_flight(self):  # issue 1223
+        # A Run listed late is admitted again (P-22): the Hold stands while that Run waits or runs, as the pull
+        # request's does, until a writer acts.
+        ended = failed(INVESTIGATE, 2, "p1", outcome="person")
+        for status in ("queued", "in_progress"):
+            flying = run(intent=INVESTIGATE, status=status, role="business-analyst", name="q3", minute=3)
+            d = decide(TRIAGED, [ended, flying])
+            self.assertEqual((d["state"], what(d), d["evidence"]), ("held", ("hold", "run_needs_person", None), ["p1"]),
+                             status)
+            # Another fault leaves the issue working on the Run in flight; a writer's action releases the Hold.
+            self.assertEqual(what(decide(TRIAGED, [dict(ended, outcome="item"), flying]))[0], "nothing", status)
+            renewed = facts(label_events=ACCEPTED, last_writer_action_at=at(2))
+            self.assertEqual(what(decide(renewed, [ended, flying]))[0], "nothing", status)
+
     def test_an_issues_run_that_ran_and_left_no_outcome_is_an_attempt(self):  # issue 286's ruling
         # An investigating Run that failed or timed out with no outcome is the item's; one cancelled with none is not.
         tries = LIMITS["max_attempts"]

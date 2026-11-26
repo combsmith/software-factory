@@ -14,7 +14,8 @@ import random
 
 from kernel import issue
 from kernel import terms as t
-from sim.world import COLLEAGUE, MAINTAINER, PERMISSIONS, STRANGER, WRITE_ACCESS, Broken, World, queue_in_lane, spent_no_model, told
+from sim.world import (COLLEAGUE, MAINTAINER, PERMISSIONS, STRANGER, WRITE_ACCESS, Broken, World, held_for_a_person,
+                       queue_in_lane, spent_no_model, told)
 from tools import check_lifecycle
 from tools.jsonschema_lite import validate
 
@@ -118,6 +119,7 @@ class IssueWorld:
         self.pause_reading = PAUSES.get(seed % 5)
         self.paused_passes = 0
         self.stopped = []
+        self.person_holds = 0          # passes that held the issue for a person, on a Run that ended on their code
         self.moved = self.chain = self.minute
         self.gap = False
         self.stale = None
@@ -347,6 +349,12 @@ class IssueWorld:
         self.note("pass: %s / %s -> %s %s%s" % (d["state"], d["reason"], d["outcome"],
                                                  d.get("action") or d.get("admit", {}).get("intent", ""),
                                                  " [%s]" % d["attention"]))
+        # A Role whose last listed Run ended on a person's code is admitted again only once a person acts, or its record
+        # expires, unless the pass read the list late (issue 1223); a Run admitted so supersedes itself as it starts.
+        self.person_holds += d["reason"] == "run_needs_person"
+        self.check(not exact or d["outcome"] != t.ADMIT
+                   or not held_for_a_person(self.records(), d["admit"]["role"], self.last_writer),
+                   "a Run admitted for a Role held for a person")
         if self.pausing():
             self.paused(facts, runs, d, ctx)
             return
@@ -482,6 +490,8 @@ class IssueWorld:
             self.caused(FACTORY)
             return
         run["status"] = "in_progress"
+        self.check(not held_for_a_person(self.records(), run["role"], self.last_writer),
+                   "a Run started for a Role held for a person")
         self.model_runs += 1
         self.note("run %s: started %s" % (run["run"], run["intent"]))
         self.caused(FACTORY)
@@ -501,7 +511,7 @@ class IssueWorld:
             # the pause and the ceiling, no attempt (issue 433). Its Run may leave another, or none where apply is killed
             # too: with none, it is an attempt (issue 286). One cancelled with no outcome is no attempt (P-42, issue 388).
             if self.rng.random() < 0.8:
-                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None]))
+                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None, t.ENDED_PERSON]))
             else:
                 run.update(conclusion="cancelled", outcome=None)
             spent_no_model(run, len(self.runs))

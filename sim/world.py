@@ -188,6 +188,16 @@ def queue_in_lane(runs: list, run: dict, note) -> None:
     runs.append(run)
 
 
+def held_for_a_person(runs: list, role: str, last_writer) -> bool:
+    """Whether `role`'s last Run on the item, in either world, of those that ran since a writer acted, ended on a code
+    only a person can mend: none of that Role's Runs may start until a person acts (issue 1223). A Run superseded, or
+    cancelled with no outcome, ran nothing; of two started in one minute, either that ended so holds."""
+    ran = [r for r in runs if r["role"] == role and r["status"] == "completed" and r["outcome"] != "superseded"
+           and not (r["outcome"] is None and r["conclusion"] == "cancelled")
+           and (last_writer is None or r["started_at"] > last_writer)]
+    return any(r["outcome"] == t.ENDED_PERSON for r in ran if r["started_at"] == max(x["started_at"] for x in ran))
+
+
 def spent_no_model(run: dict, count: int) -> None:
     """Mark a killed Run, in either world, as one that spent no model on every other count of Runs, so that no seed
     draws differently: one failed for the environment failed before its Engine step, which GitHub then skipped
@@ -277,6 +287,7 @@ class World:
         # Whether this seed's activity can miss a push, drawn from its own generator, so every other seed stays as it was.
         self.activity = random.Random("activity %d" % seed) if seed % MISSING_PUSH_EVERY == MISSING_PUSH else None
         self.missing_passes = 0    # passes that read the last pusher null
+        self.person_holds = 0      # passes that held the item for a person, on a Run that ended on their code
         # GitHub: an_app_edits_a_description
         # When the description was last edited: the reviewer App's summary, seconds after the pull request opened, which
         # was before the world's first minute.
@@ -767,6 +778,12 @@ class World:
         wrong = validate(d, DECISION_SCHEMA)
         self.check(not wrong, "every Decision is valid: %s" % "; ".join(wrong))
         self.note("pass: %s %s -> %s" % (d["state"], d["reason"], d["outcome"]))
+        # A Role whose last Run ended on a person's code is admitted again only once a person acts, unless the pass
+        # read the list late (issue 1223); a Run it admits so supersedes itself as it starts (I-38).
+        self.person_holds += d["reason"] == "run_needs_person"
+        self.check(not exact or d["outcome"] != t.ADMIT
+                   or not held_for_a_person(self.runs, d["admit"]["role"], self.last_writer),
+                   "a Run admitted for a Role held for a person")
         # A Run listed before its run-name may be the Run in flight on this item: while one is listed inside
         # max_unnamed_run_seconds of its creation, no Run is admitted and no approval issued (I-46). One past the window
         # is no Run waiting for its name: it stalls nothing, and the pass names it as one alert (issue 270).
@@ -1075,6 +1092,7 @@ class World:
         # A Run's record says when it was made; when it left its lane and began, its job says (trials/P-64.json).
         # GitHub: a_run_begins_with_its_job
         run.update(status="in_progress", began_at=self.now())
+        self.check(not held_for_a_person(self.runs, run["role"], self.last_writer), "a Run started for a Role held for a person")
         self.caused("factory")
         self.model_runs += 1
         self.note("run %s: started %s %s" % (run["run"], run["role"], run["intent"]))
@@ -1112,7 +1130,7 @@ class World:
             # the pause and the ceiling, no attempt (issue 433). Its Run may leave another, or none where apply is killed
             # too: with none, it is an attempt (issue 286). One cancelled with no outcome is no attempt (P-42, issue 388).
             if self.rng.random() < 0.8:
-                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None]))
+                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None, t.ENDED_PERSON]))
             else:
                 run.update(conclusion="cancelled", outcome=None)
             spent_no_model(run, len(self.runs))

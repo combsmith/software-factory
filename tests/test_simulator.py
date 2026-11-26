@@ -683,6 +683,15 @@ class Simulation(unittest.TestCase):
         anchor = derive.description_anchor(w.facts(), w.edited, runs=w.records())
         return w.edited_since_approval(), anchor is not None and w.edited >= anchor
 
+    def test_the_seeds_end_a_run_on_a_persons_code(self):  # issue 1223
+        # A Run killed past its limit may end on a code only a person can mend: on these seeds the item is held for a
+        # person, and the world checks at every pass and start that no Run of the Role starts until a person acts.
+        for seed in (29, 32):
+            w = World(seed)
+            for _ in range(250):
+                w.step()
+            self.assertGreater(w.person_holds, 0, seed)
+
     def test_the_seeds_list_a_new_run_unnamed(self):  # I-46, decision 0036
         # On one seed in eight a Run is listed unnamed at the pass after its admission, and that pass defers what it
         # would admit or approve; every invariant holds throughout.

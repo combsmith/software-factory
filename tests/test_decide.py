@@ -3196,6 +3196,20 @@ class Ceilings(unittest.TestCase):
         self.assertEqual(go(facts(), [dict(ended, outcome="capacity"), other], cfg=two)["reason"], "run_ceiling")
         self.assertEqual(go(facts(), [other], cfg=two)["admit"], REVIEW_IT)
 
+    def test_a_run_that_ended_person_holds_the_item_while_another_run_is_in_flight(self):  # issue 1223
+        # A Run listed late is admitted again (P-22): the Hold stands while that Run waits or runs, as a spent count
+        # does, so the item does not leave the Hold until a person acts.
+        ended = run(conclusion="failure", outcome="person", at=at(10), name="p1")
+        for status in ("queued", "in_progress"):
+            flight = run(status=status, conclusion=None, outcome=None, at=at(12), name="q1")
+            d = go(facts(), [ended, flight])
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["evidence"]),
+                             ("held", "run_needs_person", "hold", ["p1"]), status)
+            # Another fault leaves the item working on the Run in flight; a writer's action releases the Hold.
+            self.assertEqual(go(facts(), [dict(ended, outcome="item"), flight])["outcome"], "nothing", status)
+            d = go(facts(last_writer_action_at=at(11)), [ended, flight])
+            self.assertEqual((d["outcome"], d["attention"]), ("nothing", "working"), status)
+
     def test_a_writers_action_grants_a_fresh_allowance(self):  # I-28
         failures = [run(conclusion="failure", outcome="item", at="2026-10-11T12:1%d:00Z" % i, name="f%d" % i) for i in range(3)]
         d = go(facts(last_writer_action_at="2026-10-11T12:30:00Z"), failures)
