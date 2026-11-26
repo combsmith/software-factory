@@ -16767,7 +16767,7 @@ elif "/issues/" in url:""", 1)
         (self.stand_in / "reviewed-before").write_text("")
         ran = self.run_script()
         self.assertNotEqual(ran.returncode, 0, ran.stdout)
-        self.assertIn("the pull request's reviews were not read as none, status 200; nothing is written", ran.stderr)
+        self.assertIn("the pull request's reviews were not read as none; nothing is written", ran.stderr)
         self.assertEqual([c["method"] for c in self.calls()], ["POST", "GET", "GET", "DELETE"])
 
     def test_a_comment_refused_stops_the_run_before_the_submission(self):

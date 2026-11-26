@@ -1194,7 +1194,7 @@ MUTANTS = [
      '        [1-5][0-9][0-9]) ;;\n',
      '        *) ;;\n', (P81_TESTS + 'test_a_status_that_is_no_number_is_not_kept_and_its_token_is_revoked',)),
     ('P-81 writes to a pull request reviewed before', P81,
-     '    if [ "$status" != 200 ] || [ "$(body_of "$n")" != "[]" ]; then\n',
+     '    if [ "$(body_of "$n")" != "[]" ]; then\n',
      '    if false; then\n', (P81_TESTS + 'test_a_pull_request_reviewed_before_is_written_to_not_at_all',)),
     ('P-81 takes a review started submitted for a pending one', P81,
      'held.get("state") == "PENDING"',

@@ -329,8 +329,8 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
     bodies
     reads
     # The pull request holds no review, so the run's is the only one.
-    if [ "$status" != 200 ] || [ "$(body_of "$n")" != "[]" ]; then
-        echo "trial_p81_review_order: the pull request's reviews were not read as none, status $status; nothing is written" >&2
+    if [ "$(body_of "$n")" != "[]" ]; then
+        echo "trial_p81_review_order: the pull request's reviews were not read as none; nothing is written" >&2
         exit 1
     fi
     ask POST "repos/$repo/pulls/$number/reviews" start
