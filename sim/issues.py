@@ -70,6 +70,9 @@ RETENTION = 60      # minutes, the world's own; GitHub keeps a run record 90 day
 # 6. An edit to a once-merged pull request's description names the issue after the merge (P-46, issue 267): it is in
 # `linked`, merged, and closed nothing, and the State with it is the State without it.
 LATE_EVERY, LATE = 10, 5     # odd: the outsider's seeds
+# 7. Another App that may push plants a branch at the next work branch's name, at a commit no opening Run pushed: the
+# opening is held for a person, who deletes the branch, and is never opened from it (decision 1207, issue 1216).
+PLANTED_EVERY, PLANTED = 11, 4
 # The three Runs: who runs each, and how one ends.
 ROLES = {issue.INVESTIGATE: "business-analyst", issue.JUDGE_READINESS: "readiness", issue.OPENING: "dev-lead"}
 MOVE_LABELS = (t.LABEL_HOLD, t.LABEL_HANDS_OFF, t.LABEL_ADMIT, issue.LABEL_TRIAGE, issue.LABEL_READY)
@@ -112,6 +115,11 @@ class IssueWorld:
         self.last_act = None
         self.runs = []                 # every Run ever, with the minute it started, for the retention
         self.branch_head = None
+        self.pushed = {}               # the commit each opening Run pushed, by its id, as its applied/1 records it
+        self.planted = set()           # the commits planted at the work branch's name (fault 7)
+        self.not_pushed = 0            # passes that held the issue on a planted head
+        # Whether this seed plants a branch, drawn from its own generator, so every other seed stays as it was.
+        self.planter = random.Random("planted %d" % seed) if seed % PLANTED_EVERY == PLANTED else None
         self.landed_on_an_older_base = False   # an opening Run's apply passed after the default branch moved
         self.served_base = {}                  # the default branch's head the world served when it admitted each Run
         self.pause_from = 10 + seed * 37 % 200 if seed % 5 in PAUSES else None
@@ -216,8 +224,10 @@ class IssueWorld:
             "last_writer_action_at": self.last_writer, "last_writer_comment_at": self.last_writer_comment,
             # GitHub: the_timeline_shows_each_act
             "acts_since_writer": self.acts, "branch_head": self.branch_head,
-            # The world's only pushes are its opening Runs', each recorded: a head that stands is one it pushed.
-            "branch_pushed": True if self.branch_head is not None else None,
+            # A head is told pushed where a listed opening Run recorded pushing it: not a planted one (fault 7), nor
+            # one whose Run's record expired (decision 1207).
+            "branch_pushed": None if self.branch_head is None else self.branch_head in {
+                self.pushed.get(r["run"]) for r in self.records() if r["intent"] == issue.OPENING},
             # The default branch moves as the world's clock does: no Run in flight is stopped by it (decision 0226).
             "base_head": "%040x" % (0xba5e0000 + self.minute),
             # The work branch is told at every read here: a short read of it is a short list, below (issue 1059).
@@ -374,6 +384,12 @@ class IssueWorld:
     def answers(self, facts: dict, runs: list, d: dict, whole: bool):
         """What the Kernel answered, held to the invariants it can be held to on this read."""
         self.check(d["state"] in DECLARED_STATES or d["state"] is None, "I-44 a State the Lifecycle does not declare")
+        # A head no listed opening Run pushed is never opened from, on any read, whatever the admission names: the
+        # issue is held for a person (decision 1207). Holds on a planted head are counted apart.
+        self.not_pushed += d["reason"] == "branch_not_pushed" and facts["branch_head"] in self.planted
+        self.check(d["outcome"] != t.ADMIT or d["admit"]["intent"] != issue.OPENING
+                   or (facts["branch_head"] not in self.planted and facts.get("branch_pushed") is not False),
+                   "an opening Run admitted on a branch the Factory never pushed")
         if d["outcome"] == t.ADMIT:
             self.check(not whole or self.accepted(), "I-42 a Run admitted on an issue not accepted now")
             self.check(not whole or not self.held(), "I-21 a Run admitted on a held issue")
@@ -549,13 +565,14 @@ class IssueWorld:
             else:
                 self.note("run %s: readiness judged, and added nothing" % run["run"])
         elif run["intent"] == issue.OPENING:
+            self.check(self.branch_head not in self.planted, "an opening Run applied on a branch the Factory never pushed")
             number = 100 + len(self.linked)
             # GitHub: a_closing_reference_is_read_from_any_pull_request
             self.linked.append({"number": number, "class": "agent", "opener": dict(AUTHOR_APP), "open": True,
                                 "draft": True, "opened_at": self.now(), "merged_at": None, "closed_at": None,
                                 "empty": False, "label_events": [], "closed_issue_at": None,
                                 "draft_events": [], "link_events": [], "keyword": True, "keyword_spans": [], "close_events": []})
-            self.branch_head = "%040x" % (0xabc0 + number)
+            self.branch_head = self.pushed[run["run"]] = "%040x" % (0xabc0 + number)
             self.moves()
             self.note("run %s: opened the draft #%d" % (run["run"], number))
 
@@ -567,6 +584,15 @@ class IssueWorld:
     def platform(self):
         """The pull request the Factory opened moves on its own Lifecycle; the queue merges it; a stranger's names
         the issue; another App labels."""
+        if self.planter is not None and self.faults and self.branch_head is None and self.planter.random() < 0.1:
+            # The fault: another App pushes a branch at the next work branch's name, as an App with contents: write
+            # may; no opening Run recorded pushing its commit.
+            self.branch_head = "%040x" % (0xfeed0000 + self.minute)
+            self.planted.add(self.branch_head)
+            self.reached.append(7)
+            self.note("another App pushed a branch at the work branch's name")
+            self.caused(PLATFORM)
+            return
         mine = [p for p in self.linked if p["open"] and p["class"] == "agent"]
         roll = self.rng.random()
         if mine and roll < 0.3:
@@ -644,6 +670,11 @@ class IssueWorld:
             self.reached.append(4)
             self.removal_in_flight = next(r["run"] for r in self.runs if r["status"] == "in_progress")
             self.note("%s removed %s while a Run was in flight" % (who["name"], name))
+            return HUMAN
+        if self.branch_head in self.planted and self.true_state == "held" and roll < 0.1:
+            # A person called to the Hold deletes the planted branch: the next opening starts its own (decision 1207).
+            self.branch_head = None
+            self.note("%s deleted the planted branch" % who["name"])
             return HUMAN
         if self.held() and roll < 0.15:
             # Only a person ends what a label holds, whoever placed it (L-17).
