@@ -3435,6 +3435,8 @@ MUTANTS = ISSUE + OUTSIDE + [
      CEILING_LABEL),
     ("a Run that adds a waiting label is admitted", 'kernel/issue.py', '            if _adds(then, label):\n',
      '            if False:\n', ('tests.test_issue.RemoveLabel.test_no_run_that_adds_a_waiting_label_is_admitted',)),
+    ("a Run that adds a waiting label defers on the act ceiling with the count unread", 'kernel/issue.py',
+     '"act_ceiling" if brake["outcome"] == t.HOLD else "acts_unreadable",\n', '"act_ceiling",\n', ('tests.test_issue.RemoveLabel.test_no_run_that_adds_a_waiting_label_is_admitted',)),
     ("any Run of the Role that ended person holds the item", 'kernel/derive.py',
      'return sorted(r["run"] for r in last if r.get("outcome") == t.ENDED_PERSON)[:1]',
      'return sorted(r["run"] for r in done if r.get("outcome") == t.ENDED_PERSON)[:1]', PERSON_RUN + ISSUE_PERSON_RUN),

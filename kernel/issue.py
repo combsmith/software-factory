@@ -1220,7 +1220,8 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
         if _waits(brake):
             then = _decide(_removed(facts, label), runs, context, config, now)
             if _adds(then, label):
-                return _decision(facts, state, brake["reason"], [label], t.DEFER)
+                return _decision(facts, state, "act_ceiling" if brake["outcome"] == t.HOLD else "acts_unreadable",
+                                 [label], t.DEFER)
             return then
         return _stop(facts, state, "label_not_counted", [label], context, REMOVE_LABEL, label=label)
     return after
@@ -1235,7 +1236,8 @@ def _waits(d) -> bool:
 def _adds(d: dict, label: str) -> bool:
     """Whether `d` admits a Run whose effect adds `label`: the readiness Run's adds factory:ready. While another App's
     `label` waits for its removal, that add changes nothing on GitHub, so the verdict could not land: the issue defers
-    instead, on the brake that makes the removal wait (issue 1251)."""
+    instead, on the brake that makes the removal wait: the act ceiling's Hold, or the unread count's deferral (issue
+    1251)."""
     return d["outcome"] == t.ADMIT and d["admit"]["intent"] == JUDGE_READINESS and label == LABEL_READY
 
 
