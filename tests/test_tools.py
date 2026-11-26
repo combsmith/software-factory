@@ -15757,7 +15757,7 @@ class SignalTraps(unittest.TestCase):
                 minting += 1
                 self.assertEqual(lines.count(unset), 1, script.name)
                 self.assertLess(lines.index(unset), calls[0], script.name)
-        self.assertEqual(minting, 11)
+        self.assertEqual(minting, 12)
 
     def test_every_trial_finds_its_root_as_the_file_system_does(self):  # issue 1215
         # A plain cd looks a relative path up along CDPATH, and says where it went, and takes .. past a link logically.
@@ -15770,7 +15770,7 @@ class SignalTraps(unittest.TestCase):
                 self.assertEqual(len(roots), 1, script.name)
                 self.assertRegex(roots[0], r'^root=\$\(CDPATH= cd -P -- "\$\(dirname -- "\$(0|\{BASH_SOURCE\[0\]\})"\)/\.\." && pwd -P\)$',
                                  script.name)
-        self.assertEqual(found, 15)
+        self.assertEqual(found, 16)
 
     def test_every_trial_is_steered_by_nothing_of_the_shells_environment(self):  # issue 1215
         # SHELLOPTS=allexport would export each credential as it is set, and CDPATH steer every other cd: each trial turns
@@ -16672,7 +16672,7 @@ elif "/issues/" in url:""", 1)
     def setUp(self):
         super().setUp()
         # Each wait is logged among the calls, in the order made.
-        (self.stand_in / "sleep").write_text('#!/bin/sh\necho "{\\"method\\": \\"SLEEP\\", \\"url\\": \\"$1\\"}" >> "$(dirname "$0")/log"\n')
+        (self.stand_in / "sleep").write_text('#!/bin/sh\necho "{\\"method\\": \\"SLEEP\\", \\"url\\": \\"$1\\", \\"env\\": []}" >> "$(dirname "$0")/log"\n')
         (self.stand_in / "sleep").chmod(0o755)
 
     def test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
