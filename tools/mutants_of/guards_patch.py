@@ -15,7 +15,7 @@ PATCH_ONCE = ('tests.test_guards.Patch.test_a_file_is_written_once_and_only_wher
 PATCH_NO_FILE = ('tests.test_guards.Patch.test_what_is_no_file_is_never_written',)
 PATCH_CASE = ('tests.test_guards.Patch.test_no_file_lands_beside_another_that_differs_by_case_alone',)
 PATCH_FOLD = ('tests.test_guards.Patch.test_a_name_is_folded_as_macos_folds_it_wherever_that_is_ascii',)
-PATCH_PORT = ('tests.test_guards.Patch.test_what_a_port_did_not_read_holds_for_a_person_under_its_own_code',)
+PATCH_PORT = ('tests.test_guards.Patch.test_what_a_port_did_not_read_is_refused_under_its_own_code',)
 PATCH_GIT = ('tests.test_guards.Patch.test_a_patch_as_git_writes_it_lands_what_git_would',)
 
 TARGETS = ("guards/patch.py",)
@@ -1011,6 +1011,9 @@ MUTANTS = [
     ('only the first character of each ignorable range is passed over', 'guards/patch.py',
      'if not any(first <= c <= last for first, last in IGNORABLE))',
      'if not any(first == c for first, last in IGNORABLE))', PATCH_FOLD),
+    ("a range of ignorable characters is passed over a character late", 'guards/patch.py',
+     '("\\u202a", "\\u202e")',
+     '("\\u202b", "\\u202f")', PATCH_FOLD),
     # guards/patch.py lands what git itself lands.
     ('every file lands as a plain one, whatever its mode', 'guards/patch.py',
      '= (mode, after)',

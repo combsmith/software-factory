@@ -788,7 +788,7 @@ class Patch(unittest.TestCase):
         self.assertNotIn(patch.PATH_TWIN, (patch.UNREADABLE, patch.NOT_APPLIED, patch.NOT_A_FILE))
 
 
-    def test_what_a_port_did_not_read_holds_for_a_person_under_its_own_code(self):
+    def test_what_a_port_did_not_read_is_refused_under_its_own_code(self):
         # A tree or contents in no shape a port gives is a person's, whatever the patch is: a path is text.
         for tree, held in ((None, HELD), (TREE, None), ([], HELD), (TREE, []), ({**TREE, b"f": FILE}, HELD),
                            ({**TREE, None: FILE}, HELD), ({1: FILE}, HELD), ({**TREE, "unread": None}, HELD),
@@ -911,17 +911,17 @@ class Patch(unittest.TestCase):
             if real.isascii() or patch._folded(said).isascii():
                 self.assertEqual(patch._folded(said), real, hex(point))
         self.assertEqual(patch._folded("Docs/A\u037e\u1fefK\u212a"), "docs/a;`kk")
-        # IGNORABLE is Unicode 13.0's Default_Ignorable_Code_Point, as ranges in order, apart and not touching.
-        bounds = [ord(c) for pair in patch.IGNORABLE for c in pair]
-        self.assertEqual(bounds, sorted(bounds))
-        self.assertTrue(all(bounds[k + 1] - bounds[k] > 1 for k in range(1, len(bounds) - 1, 2)), bounds)
-        self.assertEqual(len(patch.IGNORABLE), 17)
-        self.assertEqual(sum(ord(last) - ord(first) + 1 for first, last in patch.IGNORABLE), 4173)
-        for point in (0xAD, 0x34F, 0x61C, 0x115F, 0x1160, 0x17B5, 0x180E, 0x200C, 0x202E, 0x2065, 0x3164, 0xFE0F, 0xFEFF,
-                      0xFFA0, 0xFFF8, 0x1BCA3, 0x1D173, 0xE0001, 0xE0FFF):
-            self.assertEqual(patch._folded("a" + chr(point) + "b"), "ab", hex(point))
-        for point in (0xAC, 0xAE, 0x180F, 0x200A, 0x2010, 0x2070, 0xFE10, 0xFFF9, 0x1D17B, 0xE1000):
-            self.assertEqual(len(patch._folded("a" + chr(point) + "b")), 3, hex(point))
+        # IGNORABLE is Unicode 13.0's Default_Ignorable_Code_Point, written out (perl 5.34's \p{DICP}): each range's
+        # two ends are dropped, and the characters just outside them kept.
+        table = [(0xAD, 0xAD), (0x34F, 0x34F), (0x61C, 0x61C), (0x115F, 0x1160), (0x17B4, 0x17B5), (0x180B, 0x180E),
+                 (0x200B, 0x200F), (0x202A, 0x202E), (0x2060, 0x206F), (0x3164, 0x3164), (0xFE00, 0xFE0F), (0xFEFF, 0xFEFF),
+                 (0xFFA0, 0xFFA0), (0xFFF0, 0xFFF8), (0x1BCA0, 0x1BCA3), (0x1D173, 0x1D17A), (0xE0000, 0xE0FFF)]
+        self.assertEqual([(ord(first), ord(last)) for first, last in patch.IGNORABLE], table)
+        for first, last in table:
+            for point in (first, last):
+                self.assertEqual(patch._folded("a" + chr(point) + "b"), "ab", hex(point))
+            for point in (first - 1, last + 1):
+                self.assertEqual(len(patch._folded("a" + chr(point) + "b")), 3, hex(point))
 
     def test_a_patch_as_git_writes_it_lands_what_git_would(self):
         # Against git itself, on fixed seeds, under no configuration, attributes or ignore rules but git's own. Files
