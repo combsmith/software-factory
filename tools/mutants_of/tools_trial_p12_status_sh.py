@@ -34,11 +34,13 @@ TRIALS_SHELL = "tests.test_tools.SignalTraps.test_every_trial_is_steered_by_noth
 TRIALS_KEEP = "tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_in_a_private_directory_it_deletes"
 # Each of the SA's ruling of 2026-11-26 on the raw answers' directory, as (name, old, new), for every token script.
 KEEP_1215 = (
-    ("%s keeps its raw answers without --keep-raw", '    if [ -n "$keep" ]; then\n        echo', '    if true; then\n        echo'),
-    ("%s deletes its raw answers though --keep-raw asked", "    keep=1\n    shift\n", "    shift\n"),
+    ("%s keeps its raw answers without --keep-raw", '    [ -n "$keep" ] || rm -rf', '    [ -n "1" ] || rm -rf'),
+    ("%s deletes its raw answers though --keep-raw asked", "{ keep=1; shift; }", "{ shift; }"),
     ("%s deletes each raw answer though --keep-raw asked", 'drop() { [ -n "$keep" ] || rm -f -- "$@"; }', 'drop() { rm -f -- "$@"; }'),
-    ("%s does not say where it kept its raw answers", "as --keep-raw asked; delete it once read\" >&2\n", "as --keep-raw asked; delete it once read\" >/dev/null\n"),
+    ("%s does not say where it kept its raw answers", '"$scratch" >&2\n}\n', '"$scratch" >/dev/null\n}\n'),
     ("%s makes its raw answers' directory for others to read", 'scratch=$(cd "$made" && pwd -P)\n', 'chmod 755 "$made"\nscratch=$(cd "$made" && pwd -P)\n'),
+    ("%s keeps a scratch directory inside the repo", "    exit 2 ;;\nesac\n# The exit trap", "    ;;\nesac\n# The exit trap"),
+    ("%s keeps a redacted raw answer to the end", '2> "$out/redacted-$n"\n    drop "$scratch/raw-$n"\n', '2> "$out/redacted-$n"\n'),
 )
 ROOTS_1215 = SCRIPTS_1215 + ("trial_p13_cli.sh", "trial_p13_ended.sh", "trial_p26_sandbox.sh", "trial_p61_timeline.sh")
 # Not P-59's: trials/P-59.json holds the canary to have run that file as it is in tools/, byte for byte.

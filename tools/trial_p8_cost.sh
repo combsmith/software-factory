@@ -2,9 +2,7 @@
 # Trial P-8, the cost of a pass: what one pass over every open item costs in GraphQL points (issue 13, design
 # section 6, P-8 and P-32; the Maintainer's working ruling of 2026-10-19 on issue 13).
 #
-#   tools/trial_p8_cost.sh [--keep-raw] OUT READER_KEY OWNER/REPO [OWNER/REPO ...]
-#
-# --keep-raw keeps the raw answers in the run's own scratch directory, and says where; delete it once read.
+#   tools/trial_p8_cost.sh OUT READER_KEY OWNER/REPO [OWNER/REPO ...]
 #
 # The Maintainer runs it at his own terminal, from anywhere; no session runs it, since it mints a credential.
 # OUT is a directory that does not exist yet, outside this repo. READER_KEY is the path of the reader App's private
@@ -41,12 +39,8 @@ unset CDPATH
 set +x
 unset CURL_HOME
 
-# --keep-raw, first, keeps the raw answers for a person to read; the clean-up says where (issue 1215).
-keep=""
-if [ "${1:-}" = --keep-raw ]; then
-    keep=1
-    shift
-fi
+keep=""  # --keep-raw, first, keeps the raw answers for a person to read (issue 1215)
+[ "${1:-}" != --keep-raw ] || { keep=1; shift; }
 if [ "$#" -lt 3 ]; then
     echo "usage: tools/trial_p8_cost.sh [--keep-raw] OUT READER_KEY OWNER/REPO [OWNER/REPO ...]" >&2
     exit 2
@@ -108,19 +102,15 @@ API=https://api.github.com
 VERSION="X-GitHub-Api-Version: 2022-11-28"
 ACCEPT="Accept: application/vnd.github+json"
 JSON="Content-Type: application/json"
-# The raw answers are kept in a directory of this run's own, which mktemp makes new and for this user alone, outside
-# the repo as OUT is: a TMPDIR inside it, or a link into it, is refused. The exit trap deletes it however the run
-# ends, unless --keep-raw asks to keep it; only the redacted copies reach OUT (issue 1215).
-# The template names TMPDIR itself: macOS's mktemp -d alone does not always read it.
-# Its own line: inside the cd, a failed mktemp would be read as the directory this stands in, which the clean-up removes.
+# The raw answers are kept outside the repo, in a directory as tools/trial_p54_issue_lookup.sh makes it.
 made=$(mktemp -d "${TMPDIR:-/tmp}/trial-p8.XXXXXX")
 scratch=$(cd "$made" && pwd -P)
 case "$scratch/" in "$root"/*)
-    rm -rf "$scratch"
+    rmdir "$made"
     echo "trial_p8_cost: the scratch directory $scratch is inside the repo; set TMPDIR outside it" >&2
     exit 2 ;;
 esac
-# A raw answer is deleted once it is redacted, unless --keep-raw asks to keep them all.
+# The exit trap deletes it however the run ends, and drop each raw answer once redacted; --keep-raw keeps both.
 drop() { [ -n "$keep" ] || rm -f -- "$@"; }
 # No credential's name is taken from the environment, where one exported would reach every child, and curl is
 # told of no file to write its TLS keys to (issue 1215).
@@ -161,11 +151,8 @@ finish() {
         [ "$last" = 204 ] || unrevoked "$last"
         token=""
     fi
-    if [ -n "$keep" ]; then
-        echo "trial_p8_cost: the raw answers are kept in $scratch, as --keep-raw asked; delete it once read" >&2
-    else
-        rm -rf "$scratch"
-    fi
+    [ -n "$keep" ] || rm -rf "$scratch"
+    [ -z "$keep" ] || printf '%s: the raw answers are kept in %s, as --keep-raw asked; delete it once read\n' trial_p8_cost "$scratch" >&2
 }
 trap finish EXIT
 trap "trap '' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM QUIT PIPE
@@ -332,7 +319,7 @@ json.dump({"query": sys.stdin.read(), "variables": json.loads(sys.argv[1])}, ope
     status=$(awk 'BEGIN { head = 1 } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
     if [ "$read_ok" = 0 ] || [ "$status" != 200 ]; then
         drop "$scratch/raw-$n"
-        echo "trial_p8_cost: read $n ($3) failed (curl ok: $read_ok, status: ${status:-none}); nothing of it reaches OUT." >&2
+        echo "trial_p8_cost: read $n ($3) failed (curl ok: $read_ok, status: ${status:-none}); nothing of it is kept." >&2
         exit 1
     fi
     (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
