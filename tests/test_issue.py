@@ -2102,16 +2102,27 @@ class RemoveLabel(unittest.TestCase):
                                         # The readiness App's own label, once its Run's record is gone: no verdict
                                         # is asked for again while it waits.
                                         ("triage", ACCEPTED + [labelled(READY, READINESS, 5)], analysed),
+                                        # An earlier add, taken off, and another App's after it; and an add that
+                                        # is not the last event.
+                                        ("triage", ACCEPTED + [labelled(READY, READINESS, 5), unlabelled(READY, OTHER_APP, 6),
+                                                               labelled(READY, OTHER_APP, 7)], analysed),
+                                        ("triage", [labelled(READY, OTHER_APP, 1)] + [labelled(TRIAGE, CONTROLLER, 2)], []),
                                         ("ready", READIED_BY_A_PERSON + [labelled(TRIAGE, OTHER_APP, 3)], [])):
-            gone = events + [dict(events[-1], action="unlabeled")]
-            for acts in (top, top + 1, None):
-                d = decide(facts(label_events=events, role_comments=comments, acts_since_writer=acts))
-                removed = decide(facts(label_events=gone, role_comments=comments, acts_since_writer=acts))
+            uncounted = [ev for ev in events if ev["by"] in (OTHER_APP, READINESS) and ev["action"] == "labeled"][-1]
+            gone = events + [dict(uncounted, action="unlabeled")]
+            for acts, ctx in ((top, context()), (top + 1, context()), (None, context()), (top, context(paused=True))):
+                d = decide(facts(label_events=events, role_comments=comments, acts_since_writer=acts), ctx=ctx)
+                removed = decide(facts(label_events=gone, role_comments=comments, acts_since_writer=acts), ctx=ctx)
                 self.assertEqual((d["state"], what(d), d.get("admit"), d["attention"]),
                                  (removed["state"], what(removed), removed.get("admit"), removed["attention"]),
-                                 (state, acts))
+                                 (state, acts, ctx))
                 self.assertNotEqual(d["outcome"], "act", (state, acts))
                 self.assertNotEqual((d.get("admit") or {}).get("intent"), JUDGE, (state, acts))
+                self.assertTrue(not ctx["paused"] or d["outcome"] not in ("act", "admit"), (state, acts))
+            # Under the Pause alone the removal is stopped there, as any act that stops work, on the label.
+            d = decide(facts(label_events=events, role_comments=comments, acts_since_writer=top - 1),
+                       ctx=context(paused=True))
+            self.assertEqual((what(d), d["evidence"]), (("defer", "paused", None), [uncounted["label"]]), state)
             d = decide(facts(label_events=events, role_comments=comments, acts_since_writer=top - 1))
             self.assertEqual((d["state"], what(d)), (state, ("act", "label_not_counted", "remove_label")))
         # In new the ceiling holds the issue, with the label or without it, past the ceiling and under the Pause.

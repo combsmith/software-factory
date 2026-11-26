@@ -22,5 +22,6 @@ An issue held at the act ceiling in new read `new` for the pass that removed ano
 |---|---|
 | At or past the act ceiling, in new, triage and ready, the removal waits and makes no act; one act below, it is removed | `tests/test_issue.py::test_an_uncounted_label_waits_at_the_act_ceiling`, `kernel/issue.py`, mutant: "an uncounted label is removed at the act ceiling" |
 | With the act count unread the removal waits too | `tests/test_issue.py::test_an_uncounted_label_waits_at_the_act_ceiling`, `kernel/issue.py`, mutant: "an uncounted label is removed with the act count unread" |
+| Under the Pause alone the removal is stopped, as any act that stops work, on the label | `tests/test_issue.py::test_an_uncounted_label_waits_at_the_act_ceiling`, `kernel/issue.py`, mutant: "the Pause alone makes an uncounted label's removal wait" |
 | While it waits the issue admits what it admits once the label is gone | `tests/test_issue.py::test_an_uncounted_label_waits_at_the_act_ceiling`, `kernel/issue.py`, mutant: "a waiting removal stops what the issue admits once the label is gone" |
 | A waiting label reads as removed, not as never added, so no verdict is asked for again | `tests/test_issue.py::test_an_uncounted_label_waits_at_the_act_ceiling`, `kernel/issue.py`, mutant: "a waiting label is read as never added" |

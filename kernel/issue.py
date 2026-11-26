@@ -1232,16 +1232,14 @@ def _waits(d) -> bool:
 def _removed(facts: dict, label: str) -> dict:
     """`facts` as they will be once `label`, which does not count, is removed: its App's removal in the second of its
     latest add. While the removal waits the issue reads so, and a label nobody counts starts nothing (issue 1251)."""
-    events, gone = facts["label_events"], dict(latest_adds(facts["label_events"], label)[0], action="unlabeled")
-    later = [i for i, ev in enumerate(events) if ev["at"] > gone["at"]]
-    cut = later[0] if later else len(events)
-    return dict(facts, label_events=events[:cut] + [gone] + events[cut:])
+    gone = dict(latest_adds(facts["label_events"], label)[0], action="unlabeled")
+    return dict(facts, label_events=facts["label_events"] + [gone])
 
 
 def _run_holds(d: dict) -> bool:
-    """Whether `d` holds the issue on the Run it wants: any Hold but the act ceiling's, which `_decide` reads as the
-    brakes on removing the label (issues 1216, 1251)."""
-    return d["state"] == t.HELD and d["outcome"] == t.HOLD and d["reason"] != "act_ceiling"
+    """Whether `d` holds the issue on the Run it wants: any Hold. The act ceiling's is the brakes' on the removal too
+    (issues 1216, 1251)."""
+    return d["state"] == t.HELD and d["outcome"] == t.HOLD
 
 
 def _after_labels(facts: dict, runs: list, context: dict, config: dict, now: str, d: dict, mine: list) -> dict:
