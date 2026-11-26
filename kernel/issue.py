@@ -1003,8 +1003,8 @@ def stated(facts: dict, intents: dict, mine: list) -> bool:
 
 def _stop(facts, state, reason, evidence, context, action, **extra) -> dict:
     """An act that stops work, or that takes back a label that lets none go. Of the brakes only the Pause stops it
-    (decision 0003), and placing a Hold is not delayed by a Run in flight. `_decide` makes a label's removal wait under
-    a Hold the Run wanted places, the act ceiling's among them (issues 1216, 1251)."""
+    (decision 0003), and placing a Hold is not delayed by a Run in flight. `_decide` brakes a label's removal as any
+    act first, and makes it wait under a Hold the Run wanted places (issues 1216, 1251)."""
     pause = brakes.paused(_decision, facts, state, evidence, context)
     if pause:
         return pause
@@ -1204,8 +1204,9 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     # The acts that stop work, read first. Unmerged closes past their bound place a Hold (I-43); a label that stands
     # and does not count is removed, though not while a Run is in flight, whose own label may not count until it ends,
     # nor under a Hold the Run wanted places: it waits for the release, as under a person's Hold, so a label nobody
-    # counts never takes an issue out of held (issue 1216). The act ceiling's Hold is one too, where it is read: a
-    # removal is an act (issue 1251).
+    # counts never takes an issue out of held (issue 1216). Removing such a label stops no work, so it is braked as any
+    # act: while the act count is spent or cannot be read, it waits, and the issue reads as if the label did not stand
+    # (issue 1251).
     closes = unmerged_closes(facts)
     if len(closes) > config["limits"]["max_unmerged_closes"]:
         return dict(_stop(facts, state, "unmerged_closes", closes, context, PLACE_HOLD), attention=t.NEEDS_YOU)
@@ -1214,13 +1215,25 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     if label is not None and not in_progress(mine):
         if _run_holds(after):
             return after
+        brake = brakes.on_act(_decision, facts, state, [label], context, REMOVE_LABEL, since_writer(mine, facts),
+                              config["limits"], acted_since_writer(mine, facts))
+        if brake and brake["reason"] in ("act_ceiling", "acts_unreadable"):
+            return _decide(_without(facts, label), runs, context, config, now)
         return _stop(facts, state, "label_not_counted", [label], context, REMOVE_LABEL, label=label)
     return after
 
 
+def _without(facts: dict, label: str) -> dict:
+    """`facts` without the add of `label` that does not count: what the issue reads while its removal waits, so that a
+    label nobody counts changes nothing (issue 1251)."""
+    uncounted = latest_adds(facts["label_events"], label)
+    return dict(facts, label_events=[ev for ev in facts["label_events"] if ev not in uncounted])
+
+
 def _run_holds(d: dict) -> bool:
-    """Whether `d` holds the issue on the Run it wants: any Hold, the act ceiling's among them (issues 1216, 1251)."""
-    return d["state"] == t.HELD and d["outcome"] == t.HOLD
+    """Whether `d` holds the issue on the Run it wants: any Hold but the act ceiling's, which `_decide` reads as the
+    brakes on removing the label (issues 1216, 1251)."""
+    return d["state"] == t.HELD and d["outcome"] == t.HOLD and d["reason"] != "act_ceiling"
 
 
 def _after_labels(facts: dict, runs: list, context: dict, config: dict, now: str, d: dict, mine: list) -> dict:

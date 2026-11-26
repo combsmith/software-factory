@@ -71,8 +71,8 @@ def on_act(_decision, facts: dict, state: str, evidence: list, context: dict, ac
     is held to the act ceiling. A count
     spent holds the item before the Pause is read: a Hold is a reading and no act, and a Pause changes none (issue 169).
     The Pause then stops the act, and a count of acts that cannot be read defers it. An act that stops work is not
-    braked here: of the brakes only the Pause stops it. On an issue, an uncounted label's removal waits under a Hold the
-    Run wanted places, the act ceiling's among them (`kernel/issue.py`, issues 1216 and 1251).
+    braked here: of the brakes only the Pause stops it. Removing an issue's label that does not count stops no work,
+    and is braked here as any act (`kernel/issue.py`, issue 1251).
     """
     # Each act a Run makes, by the Intent of that Run: its jobs that do not land are held to its attempts and the Run
     # ceiling, as an approval's are.

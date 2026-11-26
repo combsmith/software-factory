@@ -2091,29 +2091,41 @@ class RemoveLabel(unittest.TestCase):
         self.assertEqual((what(d), d["attention"]), (("nothing", "triage", None), "working"))
 
     def test_an_uncounted_label_waits_at_the_act_ceiling(self):  # issue 1251
-        # At the act ceiling the issue is held, with another App's label or without it, and makes no act: the removal
-        # is an act, and waits for the release as under every other Hold. One act below the ceiling it is removed.
+        # Removing another App's label that does not count stops no work: it is braked as any act. At the act ceiling,
+        # past it, or with the count unread, the removal waits, in new, triage and ready alike, and the issue reads as
+        # if the label did not stand: it makes no act, and admits only what it admits without the label.
         top = LIMITS["max_acts_per_item"]
+        twins = ((([], [labelled(TRIAGE, OTHER_APP, 1)]), ([], [labelled(READY, OTHER_APP, 1)])),
+                 ((ACCEPTED, ACCEPTED + [labelled(READY, OTHER_APP, 4)]),),
+                 ((READIED_BY_A_PERSON, READIED_BY_A_PERSON + [labelled(TRIAGE, OTHER_APP, 3)]),))
+        for state, pairs in zip(("new", "triage", "ready"), twins):
+            for bare, labelled_too in pairs:
+                for acts in (top, top + 1, None):
+                    without = decide(facts(label_events=bare, acts_since_writer=acts))
+                    d = decide(facts(label_events=labelled_too, acts_since_writer=acts))
+                    self.assertEqual((what(d), d.get("admit"), d["attention"]),
+                                     (what(without), without.get("admit"), without["attention"]), (state, acts))
+                    self.assertNotIn("label", d)
+                    self.assertNotEqual(d["outcome"], "act", (state, acts))
+                    # One act below the ceiling the label is removed.
+                    d = decide(facts(label_events=labelled_too, acts_since_writer=top - 1))
+                    self.assertEqual(what(d), ("act", "label_not_counted", "remove_label"), state)
+        # In new the ceiling holds the issue, with the label or without it, past the ceiling and under the Pause.
         for events, acts, ctx in (([labelled(READY, OTHER_APP, 1)], top, context()), ([], top, context()),
+                                  ([labelled(TRIAGE, OTHER_APP, 1)], top, context()),
                                   ([labelled(READY, OTHER_APP, 1)], top + 1, context()),
                                   ([labelled(READY, OTHER_APP, 1)], top, context(paused=True))):
-            # Past the ceiling too; and under the Pause the spent count holds before the Pause is read, as the brakes do.
             d = decide(facts(label_events=events, acts_since_writer=acts), ctx=ctx)
             self.assertEqual((d["state"], what(d), d["attention"]), ("held", ("hold", "act_ceiling", None), "needs_you"),
                              (events, acts, ctx))
-            self.assertNotIn("action", d)
-            self.assertNotIn("label", d)
-        # Unmerged closes past their bound are read first, and still place their Hold at the ceiling.
+        # In triage the investigation the issue wants is admitted at the ceiling, as without the label; the label's
+        # own reading, factory:ready, starts no opening.
+        d = decide(facts(label_events=ACCEPTED + [labelled(READY, OTHER_APP, 4)], acts_since_writer=top))
+        self.assertEqual((d["state"], what(d)), ("triage", ("admit", "triage", INVESTIGATE)))
+        # A removal that stops work still passes the ceiling: unmerged closes past their bound place their Hold.
         closes = closed_links(*range(2, 3 + LIMITS["max_unmerged_closes"]))
         d = decide(facts(label_events=[labelled(READY, OTHER_APP, 1)], acts_since_writer=top, linked=closes))
         self.assertEqual(what(d), ("act", "unmerged_closes", "place_hold"))
-        d = decide(facts(label_events=[labelled(READY, OTHER_APP, 1)], acts_since_writer=top - 1))
-        self.assertEqual((d["state"], what(d), d["label"]), ("new", ("act", "label_not_counted", "remove_label"), READY))
-        # The record's limit: where the ceiling is not read, as under another App's factory:triage in new, the removal
-        # still runs at it.
-        d = decide(facts(label_events=[labelled(TRIAGE, OTHER_APP, 1)], acts_since_writer=top))
-        self.assertEqual((d["state"], what(d), d["label"]), ("new", ("act", "label_not_counted", "remove_label"), TRIAGE))
-
 
 class UnmergedCloses(unittest.TestCase):
     """The Controller places factory:hold when unmerged closes pass max_unmerged_closes (I-43)."""

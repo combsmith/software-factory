@@ -71,6 +71,7 @@ PERSON_BLOCK = ("    # The author Role's last Run ended on a code only a person 
 PERSON_RUN = ('tests.test_decide.Ceilings.test_a_run_that_ended_person_holds_the_item_and_calls_a_person_and_spends_no_attempt',)
 ISSUE_PERSON_RUN = ('tests.test_issue.Investigation.test_an_issues_run_that_ended_person_holds_the_issue_and_calls_a_person_and_spends_no_attempt',)
 HOLD_BEFORE_LABEL = ('tests.test_issue.WhatARunWrites.test_an_issues_hold_is_read_before_an_uncounted_label_is_removed',)
+CEILING_LABEL = ('tests.test_issue.RemoveLabel.test_an_uncounted_label_waits_at_the_act_ceiling',)
 STANDS_UNREAD = ('tests.test_issue.Stands.test_what_cannot_be_read_gives_none',)
 F849_KERNEL = ("tests.test_issue.Unreadable.test_a_timeline_past_the_ports_bound_defers_on_its_own_code_and_calls_a_person",)
 STALE = "tests.test_decide.Staleness."
@@ -3386,11 +3387,17 @@ MUTANTS = ISSUE + OUTSIDE + [
     # Issue 1216: a Hold the Run wanted places is read before an uncounted label's removal, which waits for the release.
     ("an uncounted label is removed before an issue's Hold", 'kernel/issue.py',
      '        if _run_holds(after):\n            return after\n', '', HOLD_BEFORE_LABEL),
-    # Issue 1251: the act ceiling's Hold stands over an uncounted label too, as decision 1255 reverses 1244's line.
+    # Issue 1251: removing an uncounted label is braked as any act (decision 1255 narrows 0003), and while it waits
+    # the issue reads as if the label did not stand.
     ("an uncounted label is removed at the act ceiling", 'kernel/issue.py',
-     '    return d["state"] == t.HELD and d["outcome"] == t.HOLD\n',
-     '    return d["state"] == t.HELD and d["outcome"] == t.HOLD and d["reason"] != "act_ceiling"\n',
-     ('tests.test_issue.RemoveLabel.test_an_uncounted_label_waits_at_the_act_ceiling',)),
+     '        if brake and brake["reason"] in ("act_ceiling", "acts_unreadable"):\n'
+     '            return _decide(_without(facts, label), runs, context, config, now)\n', '', CEILING_LABEL),
+    ("an uncounted label is removed with the act count unread", 'kernel/issue.py',
+     '        if brake and brake["reason"] in ("act_ceiling", "acts_unreadable"):\n',
+     '        if brake and brake["reason"] in ("act_ceiling",):\n', CEILING_LABEL),
+    ("the issue reads an uncounted label while its removal waits", 'kernel/issue.py',
+     '            return _decide(_without(facts, label), runs, context, config, now)\n',
+     '            return brake\n', CEILING_LABEL),
     ("any Run of the Role that ended person holds the item", 'kernel/derive.py',
      'return sorted(r["run"] for r in last if r.get("outcome") == t.ENDED_PERSON)[:1]',
      'return sorted(r["run"] for r in done if r.get("outcome") == t.ENDED_PERSON)[:1]', PERSON_RUN + ISSUE_PERSON_RUN),
