@@ -276,7 +276,8 @@ def _findings(told: dict, answer: dict) -> tuple:
 def read(told: dict, answer: dict, asks: int, seconds, schemas: dict) -> dict:
     """The Result of what the transport returned for the last ask. `told` is the step's own: the run, the release, the
     Lens, the content id, the change's paths, the API, the deployment, the pinned model, the effort, the cap on a text
-    and the prices."""
+    and the prices. Only the last ask is priced, so a cost is never lower than billed only if every ask before it billed
+    nothing: the step asks again only after one that was not billed, and holds that itself."""
     if type(asks) is not int or asks < 1:
         raise ValueError("an answer read was asked")
     status, body = answer.get("status"), answer.get("body")

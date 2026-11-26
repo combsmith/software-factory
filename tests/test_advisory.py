@@ -1123,7 +1123,7 @@ class Parser(unittest.TestCase):
                            read(chatted(said(), error={"code": error}, model=None), KIMI)):
                 self.assertEqual((failed["status"], failed["reason"]), ("incomplete", reason))
         # A chat completion that holds no one choice ended for a reason it names has not answered: it is not priced.
-        for body in ({"choices": []}, {"choices": None}, {"choices": [{"finish_reason": None, "message": {"content": ""}}]},
+        for body in ({"choices": []}, {"choices": None}, {"choices": [None]}, {"choices": [{"finish_reason": None, "message": {"content": ""}}]},
                      {"choices": [{"message": {"content": "x"}}] * 2}, {"choices": [{"finish_reason": "stop", "message": {"content": "x"}}] * 2}):
             running = read(chatted(said(), **body), KIMI)
             self.assertEqual((running["usage"]["cost_usd"], running["usage"]["answering_model"], running["reason"]),
@@ -1141,7 +1141,8 @@ class Parser(unittest.TestCase):
             self.assertIsNone(read(answered(said(), usage=spent))["usage"]["cost_usd"], spent)
         for spent, counts in (({"input_tokens": 1000}, (1000, None)), ({"output_tokens": 500}, (None, 500)),
                               ({"input_tokens": 0}, (None, None)), ({"output_tokens": 0}, (None, None)),
-                              ({"output_tokens": 10, "output_tokens_details": {"reasoning_tokens": 11}}, (None, None))):
+                              ({"output_tokens": 10, "output_tokens_details": {"reasoning_tokens": 11}}, (None, None)),
+                              ({"input_tokens": 1000, "output_tokens_details": {"reasoning_tokens": 5}}, (1000, None))):
             spent = read(answered(said(), usage=spent))["usage"]
             self.assertEqual((spent["input_tokens"], spent["output_tokens"], spent["cost_usd"]), counts + (None,), spent)
         # Nor is a count that contradicts itself: a prompt of no tokens, an answer with words and none, a total above
@@ -1209,6 +1210,8 @@ class Parser(unittest.TestCase):
                             ({"input": 150, "output": 600}, None)):
             usage = {"input_tokens": 1, "output_tokens": 1 if cost else 2 * 10 ** 8}
             self.assertEqual(read(answered(said(), usage=usage), dict(TOLD, usd_per_million=price))["usage"]["cost_usd"], cost, price)
+        dearest = dict(TOLD, usd_per_million={"input": 100, "output": 100})
+        self.assertEqual(read(answered(said(), usage={"input_tokens": 10 ** 9 - 1, "output_tokens": 1}), dearest)["usage"]["cost_usd"], 100000.0)
         self.assertIsNone(read(answered(said(), model="Astra Model"))["usage"]["answering_model"])
         self.assertIsNone(read(answered(said(), model="astra model"))["usage"]["answering_model"])
         # A count above what advice/1 holds is not known, and never an error of the step's.
