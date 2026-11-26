@@ -6790,7 +6790,8 @@ class Branches(unittest.TestCase):
                     raise github.Unanswered("not in the table")
                 status, body, headers = answers[req["path"]]
                 return {"status": status, "headers": headers, "body": body}
-        return branches.work_head(Answers(), "o/r", number, opener), asked
+        *got, self.named = branches.work_head(Answers(), "o/r", number, opener)
+        return tuple(got), asked
 
     def branch(self, k: int, sha=SHA) -> tuple:
         return 200, {"ref": "refs/heads/factory-work/issue-41-%d" % k, "object": {"type": "commit", "sha": sha}}, {}
@@ -6800,12 +6801,15 @@ class Branches(unittest.TestCase):
         none = (200, [], {})
         self.assertEqual(self.head({self.pulls(1): none, self.ref(1): self.branch(1)}),
                          ((self.SHA, True), [self.pulls(1), self.ref(1)]))
+        self.assertEqual(self.named, "factory-work/issue-41-1")     # the name read, which a push must name (1208)
         self.assertEqual(self.head({self.pulls(1): none, self.ref(1): (404, {"message": "Not Found"}, {})})[0],
                          (None, True))
+        self.assertEqual(self.named, "factory-work/issue-41-1")
         # Two the Factory opened, closed or merged, of any state, beside a person's: branch 3.
         got = self.head({self.pulls(1): (200, [self.opened(1, by=(5, "User")), self.opened(1)], {}),
                          self.pulls(2): (200, [self.opened(2)], {}), self.pulls(3): (200, [], {}), self.ref(3): self.branch(3)})
         self.assertEqual(got, ((self.SHA, True), [self.pulls(1), self.pulls(2), self.pulls(3), self.ref(3)]))
+        self.assertEqual(self.named, "factory-work/issue-41-3")
         # A branch whose pull requests are none of the opener's, a person's or one of the opener's on another branch
         # than the one asked of, cannot be told the Factory's or not: not told. Nor can the opener's from another repo.
         stray = dict(self.opened(1), head={"ref": "factory-work/issue-41-9", "repo": {"full_name": "o/r"}})
@@ -6857,22 +6861,141 @@ class Branches(unittest.TestCase):
                        (200, {"ref": "refs/heads/factory-work/issue-41-1", "object": {"type": "tag", "sha": self.SHA}}, {}),
                        (200, [], {})):
             self.assertEqual(self.head({self.pulls(1): none, self.ref(1): answer})[0], (None, False), answer)
+            self.assertIsNone(self.named, answer)
         self.assertEqual(self.head({self.pulls(1): none})[0], (None, False))
+        self.assertIsNone(self.named)
 
     def test_the_issues_port_hands_the_work_branchs_head_and_whether_it_was_told(self):
         told = []
 
         def head(transport, repo, number, opener):
             told.append((transport is router, repo, number, opener))
-            return answer
+            return answer + ("factory-work/issue-41-1",)
         for answer in ((self.SHA, True), (None, True), (None, False)):
             router = Router(github.Replay(issue_read()), {"don-petry": "admin", "stranger": "read"})
             accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
-            with mock.patch.object(issues.branches, "work_head", head):
+            with mock.patch.object(issues.branches, "work_head", head), \
+                    mock.patch.object(issues.applied, "landed", lambda *a: ({self.SHA}, True)):
                 found, _ = issues.read(router, "o/r", 41, accounts, lambda: Issues.NOW, identities=IDENTITIES, earlier=[],
                                        opener=self.OPENER)
             self.assertEqual((found["branch_head"], found["complete"]["branch"]), answer)
         self.assertEqual(told, [(True, "o/r", 41, self.OPENER)] * 3)
+
+    def test_a_work_branch_head_the_factory_never_pushed_is_not_its_own(self):
+        # The Solution Architect's rulings of 2026-11-25: a head that stands is the Factory's only where an earlier
+        # opening Run of the issue recorded pushing it, a landed push_commits keyed by that commit's sha in its
+        # applied/1 (adapters/applied.py's `landed`). The records are read only where the ref read finds a branch.
+        role, other, mine = "dev-lead", "e" * 40, "factory-work/issue-41-2"
+
+        def run(name, status="completed", conclusion="success", intent="open-pull-request", number=41, who=role,
+                repo="o/r", kind="issue"):
+            return {"run": name, "role": who, "intent": intent, "status": status, "conclusion": conclusion,
+                    "item": {"repo": repo, "type": kind, "number": number}}
+
+        def listed(*runs, ids=None, **over):
+            return dict({"complete": True, "unidentified": [], "runs": list(runs),
+                         "github_ids": ids if ids is not None else {r["run"]: [900 + i] for i, r in enumerate(runs)}}, **over)
+
+        def record(name, *pushes, state="applied", kind="push_commits", branch=mine):
+            return {"schema": "applied/1", "run": name, "release": "factory/v1.0.0", "findings": [],
+                    "effects": [{"id": "e%d" % i, "type": kind, "state": state, "key": key, "reason": None,
+                                 "branch": branch} for i, key in enumerate(pushes, 1)]}
+
+        def landed(runs, kept, role_=role):
+            asked = []
+
+            def read(transport, repo, github_id, name, required=False):
+                asked.append((repo, github_id, name, required))
+                found = kept.get(name, (None, True))
+                if found == "unanswered":
+                    raise github.Unanswered("no answer")
+                return found
+            with mock.patch.object(applied.artifacts, "applied", read):
+                return applied.landed(object(), "o/r", runs, role_, 41, mine), asked
+        # Every opening Run of this issue is read, and each commit it landed is one the Factory pushed.
+        r1, r2 = run("r_A1"), run("r_A2", conclusion="failure")
+        got, asked = landed(listed(r1, r2), {"r_A1": (record("r_A1", self.SHA), True), "r_A2": (record("r_A2", other), True)})
+        self.assertEqual(got, ({self.SHA, other}, True))
+        self.assertEqual(asked, [("o/r", 900, "r_A1", True), ("o/r", 901, "r_A2", False)])
+        # A push refused or failed landed nothing; another Effect's key is no push. A Run of another Role, Intent,
+        # issue, repo or item kind is not read at all.
+        for kept in ((record("r_A1", self.SHA, state="refused"), True), (record("r_A1", self.SHA, state="failed"), True),
+                     (record("r_A1", self.SHA, kind="open_pull_request"), True), (record("r_A1", self.SHA, kind="comment"), True),
+                     (None, True), (artifacts.EXPIRED, True)):
+            self.assertEqual(landed(listed(r1), {"r_A1": kept})[0], (set(), True), kept)
+        self.assertEqual(landed(listed(r1), {"r_A1": (record("r_A1", self.SHA, state="already_applied"), True)})[0],
+                         ({self.SHA}, True))
+        # The Solution Architect's ruling on record 1207's limit: a push vouches only for the branch it names, the one
+        # asked of (record 1208). One to another slot, or another issue's branch, vouches for none of this one.
+        for elsewhere in ("factory-work/issue-41-1", "factory-work/issue-41-3", "factory-work/issue-42-2"):
+            self.assertEqual(landed(listed(r1), {"r_A1": (record("r_A1", self.SHA, branch=elsewhere), True)})[0],
+                             (set(), True), elsewhere)
+        split = record("r_A1", self.SHA, other)
+        split["effects"][1]["branch"] = "factory-work/issue-41-1"
+        self.assertEqual(landed(listed(r1), {"r_A1": (split, True)})[0], ({self.SHA}, True))
+        # A landed push that names no work branch is read as a record not read whole, as one keyed by no whole sha is.
+        for odd in (None, 7, "main", "factory-work/issue-41-0", "factory-work/issue-41-2x", "refs/heads/" + mine):
+            self.assertEqual(landed(listed(r1), {"r_A1": (record("r_A1", self.SHA, branch=odd), True)})[0],
+                             (set(), False), odd)
+        unnamed = record("r_A1", self.SHA, other)
+        del unnamed["effects"][1]["branch"]     # after a push that matches, in the same record
+        self.assertEqual(landed(listed(r1), {"r_A1": (unnamed, True)})[0], (set(), False))
+        # A push refused names nothing it landed on, and is not read for it.
+        self.assertEqual(landed(listed(r1), {"r_A1": (record("r_A1", None, state="refused", branch=None), True)})[0],
+                         (set(), True))
+        # Every Effect of a record is read. A Run that opened its pull request pushed to that pull request's branch,
+        # never the next one, so its push vouches for nothing; one whose opening did not land still does.
+        both = record("r_A1", self.SHA)
+        for state, found in (("applied", set()), ("already_applied", set()), ("refused", {self.SHA}), ("failed", {self.SHA})):
+            kept = dict(both, effects=both["effects"] + [{"id": "e2", "type": "open_pull_request", "state": state,
+                                                          "key": "146", "reason": None}])
+            self.assertEqual(landed(listed(r1), {"r_A1": (kept, True)})[0], (found, True), state)
+            kept = dict(kept, effects=kept["effects"][::-1])
+            self.assertEqual(landed(listed(r1), {"r_A1": (kept, True)})[0], (found, True), state)
+        # A Run skipped, as opened or past its retention, ends nothing: a later Run's push is still read.
+        opened_pr = dict(both, effects=both["effects"] + [{"id": "e2", "type": "open_pull_request", "state": "applied",
+                                                           "key": "146", "reason": None}])
+        for first in ((opened_pr, True), (artifacts.EXPIRED, True)):
+            self.assertEqual(landed(listed(r1, r2), {"r_A1": first, "r_A2": (record("r_A2", other), True)})[0],
+                             ({other}, True), first[0])
+        for stranger in (run("r_B1", who="qa-lead"), run("r_B1", intent="investigate-issue"), run("r_B1", number=42),
+                         run("r_B1", repo="o/other"), run("r_B1", kind="pull_request")):
+            self.assertEqual(landed(listed(stranger), {"r_B1": "unanswered"}), ((set(), True), []), stranger)
+        # Not whole, never none: a Run in flight, one named by no GitHub run or two, a record not read whole or not
+        # answered, a push keyed by no whole sha; a run list short or naming a Run before its name; no Role.
+        for runs, kept in ((listed(run("r_A1", status="in_progress")), {}),
+                           (listed(r1, ids={}), {}), (listed(r1, ids={"r_A1": [1, 2]}), {}),
+                           (listed(r1), {"r_A1": (None, False)}), (listed(r1), {"r_A1": "unanswered"}),
+                           (listed(r1), {"r_A1": (record("r_A1", self.SHA[:7]), True)}),
+                           (listed(r1), {"r_A1": (record("r_A1", self.SHA + "0"), True)}),
+                           (listed(r1), {"r_A1": (record("r_A1", "g" * 40), True)}),
+                           (listed(r1, r2), {"r_A1": (record("r_A1", self.SHA), True), "r_A2": (None, False)}),
+                           (listed(r1, r2), {"r_A1": (record("r_A1", self.SHA), True), "r_A2": "unanswered"}),
+                           (listed(r1), {"r_A1": (record("r_A1", None), True)}),
+                           (listed(r1, complete=False), {}), (listed(r1, unidentified=["x"]), {}), (None, {})):
+            self.assertEqual(landed(runs, kept)[0], (set(), False), (runs, kept))
+        self.assertEqual(landed(listed(r1), {}, role_=None)[0], (set(), False))
+        # The port: a head no opening Run recorded is told false; one recorded, true; records not whole leave the branch
+        # not told; no branch asks nothing and tells nothing.
+        runs = listed(r1)
+        for head, found, told in (((self.SHA, True, mine), ({self.SHA}, True), (self.SHA, True, True)),
+                                  ((self.SHA, True, mine), ({other}, True), (self.SHA, True, False)),
+                                  ((self.SHA, True, mine), (set(), True), (self.SHA, True, False)),
+                                  ((self.SHA, True, mine), ({self.SHA}, False), (None, False, None)),
+                                  ((None, True, mine), None, (None, True, None)), ((None, False, None), None, (None, False, None))):
+            asked = []
+
+            def read(transport, repo, runs_, role_, number, branch):
+                asked.append((transport is router, repo, runs_ is runs, role_, number, branch))
+                return found
+            router = Router(github.Replay(issue_read()), {"don-petry": "admin", "stranger": "read"})
+            accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
+            with mock.patch.object(issues.branches, "work_head", lambda *a: head), \
+                    mock.patch.object(issues.applied, "landed", read):
+                facts_, _ = issues.read(router, "o/r", 41, accounts, lambda: Issues.NOW, identities=IDENTITIES, earlier=[],
+                                        opener=self.OPENER, runs=runs, role=role)
+            self.assertEqual((facts_["branch_head"], facts_["complete"]["branch"], facts_["branch_pushed"]), told, head)
+            self.assertEqual(asked, [(True, "o/r", True, role, 41, mine)] if found is not None else [], head)
 
 
 class Issues(unittest.TestCase):

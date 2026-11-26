@@ -1,0 +1,17 @@
+{
+  "schema": "applied/1",
+  "run": "r_01JA8P",
+  "release": "factory/v0.3.1",
+  "effects": [
+    {
+      "id": "e1",
+      "type": "push_commits",
+      "state": "applied",
+      "key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "reason": null,
+      "branch": "main"
+    }
+  ],
+  "findings": [],
+  "rulings": []
+}
