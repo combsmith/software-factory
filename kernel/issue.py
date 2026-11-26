@@ -1228,16 +1228,16 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     bare = d if reason != "opening_run" else derive(facts, without_opening(runs), config)
     wanted = None if bare["state"] == NEW else _run_wanted(facts, bare["state"], bare["reason"], bare["evidence"],
                                                           mine, config)
+    # A Run that ended on a person's code holds the issue before the ceilings with a Run in flight too, whatever Run
+    # waits: one a pass that read the list late admitted among them (issue 1223).
+    ended = needs_person(since_writer(mine, facts), wanted[0]) if flight and isinstance(wanted, tuple) else []
+    if ended:
+        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)
     if flight:
         held = None
         if isinstance(wanted, tuple):
-            # A Run that ended on a person's code holds the issue as a spent count does, whatever Run a pass that read
-            # the list late admitted beside it (issue 1223).
-            since = since_writer(mine, facts)
-            done = [r for r in since if r["status"] == "completed"]
-            ended = needs_person(since, wanted[0])
-            held = (_decision(facts, t.HELD, "run_needs_person", ended, t.HOLD) if ended
-                    else brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits))
+            done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]
+            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits)
         elif isinstance(wanted, dict) and wanted["outcome"] == t.HOLD:
             held = wanted
         if held:

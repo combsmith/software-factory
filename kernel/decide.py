@@ -217,17 +217,17 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
         # whatever would defer, a Pause among them: the ceilings are asked alone (decision 0003). The act ceiling is
         # not, since it counts acts and stops nothing but an act, and none is decided while a Run is seen to wait. One
         # listed before its name is not seen, so an enqueue can go ahead beside it; I-38 bounds that (decision 0036).
-        since = since_writer(mine, facts)
-        done = [r for r in since if r["status"] == "completed"]
+        done = [r for r in since_writer(mine, facts) if r["status"] == "completed"]
+        # A Run that ended on a person's code holds the item before the ceilings, as with none in flight, whatever Run
+        # waits: one a pass that read the list late admitted among them (issue 1223).
+        ended = needs_person(since_writer(mine, facts), wanted[0]) if wanted is not None else []
+        if ended:
+            return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)
         held = None
         if state == t.CONVERGED and _action(reason) == "issue_approval":
             held = brakes.approval_ceilings(_decision, facts, done, config["limits"], t.ISSUE_APPROVAL)
         elif wanted is not None:
-            # A Run that ended on a person's code holds the item as a spent count does, whatever Run a pass that read
-            # the list late admitted beside it (issue 1223).
-            ended = needs_person(since, wanted[0])
-            held = (_decision(facts, t.HELD, "run_needs_person", ended, t.HOLD) if ended
-                    else brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, config["limits"]))
+            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, config["limits"])
         if held:
             return held
         return _decision(facts, state, reason, evidence, t.NOTHING, working=True)

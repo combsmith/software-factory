@@ -3384,35 +3384,31 @@ MUTANTS = ISSUE + OUTSIDE + [
      '    ended = needs_person(since_writer(mine, facts), role)\n    if ended:\n'
      '        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)\n',
      ISSUE_PERSON_RUN),
-    # Issue 1223: the Hold stands beside a Run a pass that read the list late admitted, as a spent count does.
+    # Issue 1223: the Hold stands beside a Run a pass that read the list late admitted, before the ceilings.
     ("a Run that ended person is run again beside a Run in flight", 'kernel/decide.py',
-     '            held = (_decision(facts, t.HELD, "run_needs_person", ended, t.HOLD) if ended\n'
-     '                    else brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, config["limits"]))\n',
-     '            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, config["limits"])\n',
-     PERSON_IN_FLIGHT),
+     '        ended = needs_person(since_writer(mine, facts), wanted[0]) if wanted is not None else []\n',
+     '        ended = []\n', PERSON_IN_FLIGHT),
     ("an issue's Run that ended person is run again beside a Run in flight", 'kernel/issue.py',
-     '            held = (_decision(facts, t.HELD, "run_needs_person", ended, t.HOLD) if ended\n'
-     '                    else brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits))\n',
-     '            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits)\n',
+     '    ended = needs_person(since_writer(mine, facts), wanted[0]) if flight and isinstance(wanted, tuple) else []\n',
+     '    ended = []\n', ISSUE_PERSON_IN_FLIGHT),
+    ("a Run that ended person beside a Run in flight is read before a writer acted", 'kernel/decide.py',
+     '        ended = needs_person(since_writer(mine, facts), wanted[0]) if wanted is not None else []\n',
+     '        ended = needs_person(mine, wanted[0]) if wanted is not None else []\n', PERSON_IN_FLIGHT),
+    ("an issue's Run that ended person beside a Run in flight is read before a writer acted", 'kernel/issue.py',
+     '    ended = needs_person(since_writer(mine, facts), wanted[0]) if flight and isinstance(wanted, tuple) else []\n',
+     '    ended = needs_person(mine, wanted[0]) if flight and isinstance(wanted, tuple) else []\n',
      ISSUE_PERSON_IN_FLIGHT),
     ("a Run that ended person beside a Run in flight is read after the ceilings", 'kernel/decide.py',
-     '            held = (_decision(facts, t.HELD, "run_needs_person", ended, t.HOLD) if ended\n'
-     '                    else brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, config["limits"]))\n',
-     '            held = (brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, config["limits"])\n'
-     '                    or (_decision(facts, t.HELD, "run_needs_person", ended, t.HOLD) if ended else None))\n',
+     '        ended = needs_person(since_writer(mine, facts), wanted[0]) if wanted is not None else []\n',
+     '        ended = needs_person(since_writer(mine, facts), wanted[0]) if wanted is not None and not '
+     'brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, config["limits"]) else []\n',
      PERSON_IN_FLIGHT),
     ("an issue's Run that ended person beside a Run in flight is read after the ceilings", 'kernel/issue.py',
-     '            held = (_decision(facts, t.HELD, "run_needs_person", ended, t.HOLD) if ended\n'
-     '                    else brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits))\n',
-     '            held = (brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits)\n'
-     '                    or (_decision(facts, t.HELD, "run_needs_person", ended, t.HOLD) if ended else None))\n',
+     '    ended = needs_person(since_writer(mine, facts), wanted[0]) if flight and isinstance(wanted, tuple) else []\n',
+     '    ended = needs_person(since_writer(mine, facts), wanted[0]) if flight and isinstance(wanted, tuple) and not '
+     'brakes.run_ceilings(_decision, facts, evidence, wanted[1], [r for r in since_writer(mine, facts) '
+     'if r["status"] == "completed"], limits) else []\n',
      ISSUE_PERSON_IN_FLIGHT),
-    ("a Run that ended person beside a Run in flight is read before a writer acted", 'kernel/decide.py',
-     '            ended = needs_person(since, wanted[0])\n',
-     '            ended = needs_person(mine, wanted[0])\n', PERSON_IN_FLIGHT),
-    ("an issue's Run that ended person beside a Run in flight is read before a writer acted", 'kernel/issue.py',
-     '            ended = needs_person(since, wanted[0])\n',
-     '            ended = needs_person(mine, wanted[0])\n', ISSUE_PERSON_IN_FLIGHT),
     ("any Run of the Role that ended person holds the item", 'kernel/derive.py',
      'return sorted(r["run"] for r in last if r.get("outcome") == t.ENDED_PERSON)[:1]',
      'return sorted(r["run"] for r in done if r.get("outcome") == t.ENDED_PERSON)[:1]', PERSON_RUN + ISSUE_PERSON_RUN),
