@@ -792,6 +792,65 @@ class Schemas(unittest.TestCase):
             at[path[-1]] = value
             self.assertTrue(jsonschema_lite.validate(result, SCHEMAS["advice"], schemas=SCHEMAS), (path, value))
 
+    def test_an_advisory_results_status_findings_and_texts_agree_as_the_parser_builds_them(self):  # issue 1175
+        # Each way, a counter-example its schema takes and the parser's own agreement refuses, where it is wrong.
+        for name, place in (("findings-on-a-failed-read", "$.findings"), ("a-reason-on-a-completed-read", "$.status"),
+                            ("a-key-not-its-findings-id", "$.findings[0]"), ("a-finding-of-another-lens", "$.findings[0]"),
+                            ("a-text-of-another-finding", "$.texts"), ("two-findings-of-one-id", "$.findings"),
+                            ("a-finding-of-another-reader", "$.findings[0]"), ("findings-of-two-contents", "$.findings"),
+                            ("more-findings-told-of-than-an-answer-holds", "$.off_change")):
+            found = loaded("examples/invalid/advice.%s.json" % name)
+            self.assertEqual(wrong("advice", name), [], name)
+            self.assertEqual([problem.split(":")[0] for problem in advice.unsuited(found)], [place], name)
+        # An id of another Lens than its source's and its Result's is not its own, nor is a status the reason does not give.
+        whole = loaded("examples/advice.json")
+        other = json.loads(json.dumps(whole).replace('"astra:', '"kimi:'))
+        self.assertEqual([problem.split(":")[0] for problem in advice.unsuited(other)], ["$.findings[0]"])
+        for status, reason in (("incomplete", None), ("failed", "budget"), ("incomplete", "unparsed"), ("completed", "budget")):
+            self.assertIn("$.status: not the one its reason gives",
+                          advice.unsuited(dict(whole, status=status, reason=reason, findings=[], texts=[], off_change=0)))
+        for status, reason in (("failed", "no_key"), ("incomplete", "budget"), ("failed", "not_the_model"),
+                               ("incomplete", "cut_short")):
+            self.assertEqual(advice.unsuited(dict(whole, status=status, reason=reason, findings=[], texts=[], off_change=0)), [])
+        not_completed = ["$.findings: a read not completed holds Findings, texts or a count off the change"]
+        self.assertEqual(advice.unsuited(dict(whole, status="failed", reason="unparsed", findings=[], texts=[], off_change=1)),
+                         not_completed)
+        for status, reason in (("failed", "unparsed"), ("incomplete", "budget")):
+            self.assertEqual(advice.unsuited(dict(whole, status=status, reason=reason, off_change=0)), not_completed, reason)
+            self.assertEqual(advice.unsuited(dict(whole, status=status, reason=reason, findings=[], off_change=0)),
+                             not_completed + ["$.texts: not one for each Finding, by its id and in its order"], reason)
+        # Each Finding is held, not the first alone, and the texts are its own in its order, once each.
+        two = loaded("examples/invalid/advice.findings-of-two-contents.json")
+        two["findings"][1]["content_id"] = two["findings"][0]["content_id"]
+        self.assertEqual(advice.unsuited(two), [])
+        for at, field, value in ((1, "source", "kimi"), (1, "actor", "other-reader@astra-model"),
+                                 (1, "actor", "astra-reader@other-model")):
+            other = json.loads(json.dumps(two))
+            other["findings"][at]["source"]["lens" if field == "source" else field] = value
+            self.assertEqual([problem.split(":")[0] for problem in advice.unsuited(other)], ["$.findings[%d]" % at], value)
+        for texts in (two["texts"][::-1], two["texts"][:1] * 2, two["texts"] + two["texts"][:1]):
+            self.assertEqual(advice.unsuited(dict(two, texts=texts)),
+                             ["$.texts: not one for each Finding, by its id and in its order"], texts)
+        self.assertEqual(advice.unsuited(dict(two, off_change=98)), [])
+        self.assertEqual(advice.unsuited(dict(two, off_change=99)), ["$.off_change: more Findings are told of than one answer holds"])
+        # The parser builds none that disagrees: what it was told wrongly is its step's fault, raised.
+        wrong_one = loaded("examples/invalid/advice.findings-on-a-failed-read.json")
+        with self.assertRaises(ValueError):
+            advice._result(dict(TOLD, run=whole["run"]), "unparsed", wrong_one["findings"], wrong_one["texts"], 0,
+                           wrong_one["usage"], SCHEMAS)
+        # The examples are held to it, and so is each counter-example, by tools/check_examples.py.
+        self.assertEqual([problem for problem in check_examples.run() if "advice" in problem], [])
+        with tempfile.TemporaryDirectory() as tmp:
+            for part in ("schemas", "examples", "examples/invalid"):       # the files of each, not a walk of the tree
+                (pathlib.Path(tmp) / part).mkdir()
+                for path in (ROOT / part).glob("*.json"):
+                    (pathlib.Path(tmp) / part / path.name).write_bytes(path.read_bytes())
+            (pathlib.Path(tmp) / "examples" / "advice.json").write_text(json.dumps(dict(whole, reason="budget")))
+            (pathlib.Path(tmp) / "examples" / "invalid" / "advice.a-text-of-another-finding.json").write_text(json.dumps(whole))
+            problems = check_examples.run(pathlib.Path(tmp))
+        self.assertIn("advice.json: $.status: not the one its reason gives", problems)
+        self.assertIn("invalid/advice.a-text-of-another-finding.json: was accepted, and must be rejected", problems)
+
 
 TOLD = {"run": "r_01JA7Q", "release": "factory/v0.3.1", "lens": "astra", "content_id": "sha256:5d0c",
         "changed_paths": ["kernel/decide.py", "tests/test_decide.py"], "api": "responses", "deployment": "astra-reader",
@@ -828,10 +887,7 @@ def read(answer: dict, told: dict = TOLD, asks: int = 1, seconds=12.5) -> dict:
     """The Result the parser builds, which is an advice/1 whatever it was handed, and agrees with itself."""
     result = advice.read(told, answer, asks, seconds, SCHEMAS)
     assert jsonschema_lite.validate(result, SCHEMAS["advice"], schemas=SCHEMAS) == [], result
-    assert (result["status"] == "completed") == (result["reason"] is None), result
-    assert result["status"] == "completed" or not (result["findings"] or result["texts"] or result["off_change"]), result
-    assert [f["id"] for f in result["findings"]] == [t["id"] for t in result["texts"]], result
-    assert all(f["surface"]["key"] == f["id"] for f in result["findings"]), result
+    assert advice.unsuited(result) == [], result
     return result
 
 

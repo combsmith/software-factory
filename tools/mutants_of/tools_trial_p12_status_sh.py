@@ -28,6 +28,12 @@ FAMILY_1215 = {"trial_reader_reads.sh": "ReaderTrialScript", "trial_p54_issue_lo
                "trial_p12_status.sh": "StatusTrial", "trial_p56_comments.sh": "CommentsReadTrial",
                "trial_p80_branch_reads.sh": "BranchReadsTrial", "trial_p58_edits.sh": "EditsReadTrial"}
 SCRIPTS_1215 = tuple(FAMILY_1215) + ("trial_p39_reach.sh", "trial_p4_narrow.sh", "trial_p8_cost.sh")
+TRIALS_ENV = "tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment"
+TRIALS_ROOT = "tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does"
+TRIALS_SHELL = "tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment"
+ROOTS_1215 = SCRIPTS_1215 + ("trial_p13_cli.sh", "trial_p13_ended.sh", "trial_p26_sandbox.sh", "trial_p61_timeline.sh")
+# Not P-59's: trials/P-59.json holds the canary to have run that file as it is in tools/, byte for byte.
+EVERY_1215 = ROOTS_1215 + ("trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh")
 
 def run_1215(script, test):
     """`test` as the class of `script`'s family runs it, or nothing for a script of no family."""
@@ -1152,8 +1158,6 @@ MUTANTS = [
      '    read_one "$1" "repos/$repo/git/ref/heads/$3" "$2" "$3"\n    read_one "$1" "repos/$repo/pulls?$query" "$2" "$3"\n', ('tests.test_tools.BranchReadsTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
     ("P-80 tells nothing of a stop mid-mint", 'tools/trial_p80_branch_reads.sh', '    elif [ -n "${minting:-}" ]; then', '    elif false; then',
      ("tests.test_tools.BranchReadsTrial.test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live",)),
-    ("P-80 takes credentials from the environment", 'tools/trial_p80_branch_reads.sh', 'unset token jwt signature minted minting\n', '',
-     ("tests.test_tools.BranchReadsTrial.test_an_inherited_mint_answer_is_never_revoked",)),
     ("P-80 takes a first attempt alone", 'tools/trial_p80_branch_reads.sh', 'factory-work/issue-[1-9][0-9]*-[1-9][0-9]*", name', 'factory-work/issue-[1-9][0-9]*-1", name',
      ("tests.test_tools.BranchReadsTrial.test_a_later_attempts_branch_is_taken_and_read",)),
     # Issue 1215: what the trials share. Each sh script that mints stops at its first signal, and its clean-up is deaf to
@@ -1172,4 +1176,25 @@ MUTANTS = [
        "exit 1\" HUP INT TERM QUIT PIPE\n", "exit 1\" HUP INT TERM\n", (TRIALS_TRAP,)) for script in SCRIPTS_1215],
     *[("%s's revocation may hang" % script, "tools/" + script, "curl -q --max-time 30 -sS -o /dev/null", "curl -q -sS -o /dev/null",
        (TRIALS_DEAF,)) for script in SCRIPTS_1215],
+    # Issue 1215: and each trial takes nothing of the Maintainer's environment: no credential's name, key log, export
+    # of every assignment, .curlrc or CDPATH, and its root is found physically.
+    *[("%s takes credentials from the environment" % script, "tools/" + script,
+       "unset SSLKEYLOGFILE token jwt signature minted minting\n", "",
+       (TRIALS_ENV,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in SCRIPTS_1215],
+    *[("%s's root follows CDPATH" % script, "tools/" + script, "root=$(CDPATH= cd -P -- ", "root=$(cd -P -- ",
+       (TRIALS_ROOT,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in ROOTS_1215],
+    *[("%s's root is found logically" % script, "tools/" + script, "root=$(CDPATH= cd -P -- ", "root=$(CDPATH= cd -- ",
+       (TRIALS_ROOT,)) for script in ROOTS_1215],
+    *[("%s exports what its environment says to" % script, "tools/" + script, "set +a\nunset CDPATH\n", "unset CDPATH\n",
+       (TRIALS_SHELL,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in EVERY_1215],
+    *[("%s looks along CDPATH" % script, "tools/" + script, "set +a\nunset CDPATH\n", "set +a\n", (TRIALS_SHELL,))
+      for script in EVERY_1215],
+    ("P-26's reach reads a .curlrc", "tools/trial_p26_sandbox.sh", "status=$(curl -q -sS -m 20", "status=$(curl -sS -m 20",
+     (TRIALS_ENV,)),
+    ("P-39's read reads a .curlrc", "tools/trial_p39_reach.sh", '"$token" | curl -q -sS -i -H @-', '"$token" | curl -sS -i -H @-',
+     (TRIALS_ENV,)),
+    ("P-39's revocation reads a .curlrc", "tools/trial_p39_reach.sh", "curl -q --max-time 30 -sS", "curl --max-time 30 -sS",
+     (TRIALS_ENV,)),
+    ("P-39's mint reads a .curlrc", "tools/trial_p39_reach.sh", "| curl -q -sS -w '\\n%{http_code}' -X POST",
+     "| curl -sS -w '\\n%{http_code}' -X POST", (TRIALS_ENV,)),
 ]

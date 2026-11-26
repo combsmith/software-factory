@@ -1609,6 +1609,14 @@ class Push(unittest.TestCase):
         entries = [{"path": path, "mode": FILE, "type": "blob", "sha": MADE} for path in ("docs/a.md", "docs/b.md")]
         self.assertTrue(push.permits(both, "POST", GIT + "trees", {"base_tree": ROOT_TREE, "tree": entries + [
             {"path": "tests/t.py", "mode": FILE, "type": "blob", "sha": None}]}))
+        # Two files of one content are one blob however `apply` encodes each: here as GitHub wraps it, with a newline.
+        twice = dict(same, blobs={"docs/a.md": "QQo=", "docs/b.md": "QQo=\n"})
+        both, _ = push.seen(self.read(twice), "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"},
+                            {"status": "201", "body": {"sha": MADE}})
+        self.assertEqual(both["made"], {"docs/a.md": MADE, "docs/b.md": MADE})
+        self.assertFalse(push.permits(both, "POST", GIT + "blobs", {"content": "QQo=\n", "encoding": "base64"}))
+        self.assertFalse(push.permits(dict(self.read(twice), made={"docs/b.md": MADE}), "POST", GIT + "blobs",
+                                      {"content": "QQo=", "encoding": "base64"}))
         # Files of one content are named by one blob in any state.
         self.assertFalse(push.permits(dict(self.read(same), made={"docs/a.md": MADE}), "POST", GIT + "blobs",
                                       {"content": "QQo=", "encoding": "base64"}))

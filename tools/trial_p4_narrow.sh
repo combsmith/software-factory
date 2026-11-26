@@ -26,6 +26,10 @@
 # exit; a read's status, whatever it is, is the trial's answer and is kept. A token that may be live is told to the
 # Maintainer.
 set -eu
+# Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
+# (issue 1215).
+set +a
+unset CDPATH
 set +x
 unset CURL_HOME
 
@@ -33,7 +37,7 @@ if [ "$#" -ne 4 ]; then
     echo "usage: tools/trial_p4_narrow.sh OUT KEY OWNER/REPO OTHER_OWNER/REPO" >&2
     exit 2
 fi
-root=$(cd "$(dirname "$0")/.." && pwd -P)
+root=$(CDPATH= cd -P -- "$(dirname -- "$0")/.." && pwd -P)
 if [ -e "$1" ] || [ -L "$1" ]; then
     echo "trial_p4_narrow: $1 exists; name a new directory" >&2
     exit 2
@@ -98,6 +102,9 @@ case "$scratch/" in "$root"/*)
     echo "trial_p4_narrow: the scratch directory $scratch is inside the repo; set TMPDIR outside it" >&2
     exit 2 ;;
 esac
+# No credential's name is taken from the environment, where one exported would reach every child, and curl is
+# told of no file to write its TLS keys to (issue 1215).
+unset SSLKEYLOGFILE token jwt signature minted minting
 token=""
 
 revoke() {

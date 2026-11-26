@@ -66,6 +66,10 @@
 # OUT receives only: ran_at, requests.json, clean-N (each redacted answer), redacted-N (where the redaction took
 # something, never what) and checked.json (each part of the pass, per configuration).
 set -euo pipefail
+# Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
+# (issue 1215).
+set +a
+unset CDPATH
 set +x
 export LC_ALL=C
 shopt -s nocasematch    # a path is compared without case: the file system may not tell .claude from .CLAUDE
@@ -101,7 +105,7 @@ refuse() {
 command -v python3 >/dev/null || refuse "python3 is needed"
 command -v dig >/dev/null || refuse "dig is needed, to look the denied host's address up outside the sandbox"
 
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+root=$(CDPATH= cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 [[ -f "$root/tools/redact_trial.py" ]] || refuse "run the copy of this script in a checkout of software-factory"
 
 # OUT: new, and outside the repo, read as the file system resolves it.
