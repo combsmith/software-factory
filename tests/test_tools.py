@@ -6917,6 +6917,9 @@ class Context(unittest.TestCase):
         self.assertEqual(self.budgeted("Status: " + "w " * 39 + "non-`None`-valued"), [])
         self.assertTrue(caught(self.budgeted("Status: " + "w " * 41), "the Status is 41 words"))
         self.assertTrue(caught(self.budgeted("Status: " + "w " * 41 + "\nmore"), "the Status is 42 words"))
+        # A section opened inside an example's fence opens none, so the Status runs on past it (issue 1174).
+        fenced = "Status: accepted.\n\n```\n## sample\n```\n\n" + "w " * 41
+        self.assertTrue(caught(self.budgeted(fenced), "the Status is 42 words"), self.budgeted(fenced))
         self.assertEqual(self.budgeted("Status: " + "w " * 41, before=1), [])
         self.assertTrue(caught(self.budgeted("Status: " + "w " * 41, before=-1), "the Status is 41 words"))
 
@@ -6938,6 +6941,18 @@ class Context(unittest.TestCase):
         # A Status wrapped onto a second line replaces as well, as tools/check_decisions.py reads it.
         wrapped = "Status: accepted.\nReplaces `docs/decisions/0001-x.md`."
         self.assertEqual(self.budgeted(wrapped, decision="w " * 400, why="w " * 50), [])
+        # A Replaces in a paragraph of its own is not the Status that tools/check_decisions.py reads, and replaces
+        # nothing, even after a line of spaces alone (issue 1174).
+        for blank in ("\n\n", "\n \t\n", "\r\r", "\u2028\u2028", "\x0c\x0c", "\r\n\r\n"):
+            split = "Status: accepted.%sReplaces `docs/decisions/0001-x.md`." % blank
+            self.assertTrue(caught(self.budgeted(split, decision="w " * 400, why="w " * 50), "are 450 words, and the most is 300"),
+                            repr(blank))
+        # Only the first paragraph replaces, though a later one says it as the first would; a line of spaces before it
+        # is no paragraph.
+        later = "Status: accepted.\n\nStatus: accepted. Replaces `docs/decisions/0001-x.md`."
+        self.assertTrue(caught(self.budgeted(later, decision="w " * 400, why="w " * 50), "the most is 300"))
+        spaced = " \t\nStatus: accepted. Replaces `docs/decisions/0001-x.md`."
+        self.assertEqual(self.budgeted(spaced, decision="w " * 400, why="w " * 50), [])
         # A section given twice is counted whole, and a letter outside ASCII makes a word.
         twice = self.budgeted(decision="w " * 200 + "\n\n## Decision\n\n" + "w " * 200)
         self.assertTrue(caught(twice, "are 401 words"), twice)
@@ -6947,6 +6962,24 @@ class Context(unittest.TestCase):
         # A table's pipes and a dash alone are no words: 2 + 8 + 289 and the Why's one make 300.
         self.assertEqual(self.budgeted(decision="| a | b |\n|---|---|\n" + "| w — | w |\n" * 4 + "w " * 289), [])
         self.assertEqual(self.budgeted(decision="w " * 301, before=1), [])
+
+    def test_a_new_records_one_heading_of_its_depth_is_its_title(self):
+        # Issue 1174: a heading of one # after the title would end the section above it unread, and its words would be
+        # counted by no budget: from the cutover it is refused, in the Status and in a section alike.
+        for at in ("decision", "why", "status"):
+            noted = {"decision": dict(decision="w " * 10 + "\n\n# Notes\n\n" + "w " * 400),
+                     "why": dict(why="Z.\n\n# Notes\n\n" + "w " * 400),
+                     "status": dict(status="Status: accepted.\n\n# Notes\n\nw")}[at]
+            problems = self.budgeted(**noted)
+            self.assertEqual(problems, ["docs/decisions/%04d-x.md: a heading '# Notes' after the title; a record's one "
+                                        "heading of one # is its title" % check_context.BUDGET_FROM], at)
+            self.assertEqual(self.budgeted(before=1, **noted), [], at)
+        # One in an example's fence is no heading, nor is a deeper one, which the section it is in counts; one after
+        # the fence closes is.
+        self.assertEqual(self.budgeted(decision="```\n# Notes\n```\n\nY."), [])
+        after = self.budgeted(decision="```\n# Example\n```\n\n# Notes\n\n" + "w " * 400)
+        self.assertEqual([problem.split("'")[1] for problem in after], ["# Notes"], after)
+        self.assertTrue(caught(self.budgeted(decision="w " * 10 + "\n\n### Notes\n\n" + "w " * 400), "are 412 words"))
 
     def test_a_new_records_decision_table_is_short(self):
         # Decision 1166: the Decision's tables have at most 8 rows together, and no cell over 40 words.
