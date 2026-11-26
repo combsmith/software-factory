@@ -22,13 +22,17 @@
 # written nowhere, not even to scratch: its token is revoked if it can be found in the answer, and the Maintainer is
 # told it may be live if not; no reach is recorded for that App.
 set -eu
+# Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
+# (issue 1215).
+set +a
+unset CDPATH
 set +x
 
 if [ "$#" -lt 2 ]; then
     echo "usage: tools/trial_p39_reach.sh OUT APP=KEY [APP=KEY ...]" >&2
     exit 2
 fi
-root=$(cd "$(dirname "$0")/.." && pwd -P)
+root=$(CDPATH= cd -P -- "$(dirname -- "$0")/.." && pwd -P)
 if [ -e "$1" ] || [ -L "$1" ]; then
     echo "trial_p39_reach: $1 exists; name a new directory" >&2
     exit 2
@@ -91,6 +95,9 @@ API=https://api.github.com
 VERSION="X-GitHub-Api-Version: 2022-11-28"
 ACCEPT="Accept: application/vnd.github+json"
 scratch=$(mktemp -d)
+# No credential's name is taken from the environment, where one exported would reach every child, and curl is
+# told of no file to write its TLS keys to (issue 1215).
+unset SSLKEYLOGFILE token jwt signature minted minting
 token=""
 
 revoke() {
@@ -166,7 +173,7 @@ reach() {
     signature=$(printf '%s.%s' "$header" "$claims" | openssl dgst -sha256 -sign "$key" -binary | b64url)
     jwt="$header.$claims.$signature"
     # GitHub's answer and its status are held in a variable, never a file, since a minted token is in the answer.
-    minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
+    minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
         -H "$VERSION" -d '{"permissions":{"metadata":"read"}}' \
         "$API/app/installations/$installation/access_tokens" || true)
     jwt=""
@@ -218,7 +225,7 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
     minted=""
     # curl is the last command of the pipeline, so its exit is the pipeline's; nothing after it hides a failure.
     read_ok=1
-    printf 'Authorization: Bearer %s\n' "$token" | curl -sS -i -H @- -H "$ACCEPT" -H "$VERSION" \
+    printf 'Authorization: Bearer %s\n' "$token" | curl -q -sS -i -H @- -H "$ACCEPT" -H "$VERSION" \
         "$API/installation/repositories?per_page=100" > "$scratch/crlf-$n" || read_ok=0
     tr -d '\r' < "$scratch/crlf-$n" > "$scratch/raw-$n"
     rm -f "$scratch/crlf-$n"
