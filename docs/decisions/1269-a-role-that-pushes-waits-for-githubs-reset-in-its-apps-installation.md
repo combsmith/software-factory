@@ -1,4 +1,4 @@
-# 9999. A Role that pushes waits for GitHub's reset in its App's installation
+# 1269. A Role that pushes waits for GitHub's reset in its App's installation
 
 Status: accepted. 2026-11-26, the Solution Architect; issue 838. Extends decision 1224's faults and pull request 1252's `push_rate_limited`; parts 1 and 2 are pull requests in the same issue.
 

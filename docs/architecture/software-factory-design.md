@@ -959,7 +959,7 @@ cost is not known exactly; its duration is the estimate.
 | `environment` | A token expired; an App was uninstalled; GitHub was unavailable | No | Several in a row pause Admission automatically, raise one alert, and clear when a probe Run succeeds. A Run GitHub started no job of counts the same, named `runs_never_started` (decision 0116) |
 | `superseded` | The item was held or changed before `apply`, or a newer Run in its group replaced it while it waited | No | The next pass decides afresh |
 | `person` | A file the patch reads that GitHub will never hand over; the code itself stays in the outcome's reason | No | The item is held as `run_needs_person`, and a writer's action renews it as it renews the attempts. Read before the brakes; it counts toward the Run ceiling, as it reached a model (issue 838) |
-| `github_capacity` | GitHub limited the token a Role pushes with; the outcome carries GitHub's reset | No | Only the Runs of Roles that push wait, in that Role's App's installation, until the reset, held between a least and a most wait after the Run ended. The model's deferral is not set; it counts toward the Run ceiling (decision 9999) |
+| `github_capacity` | GitHub limited the token a Role pushes with; the outcome carries GitHub's reset | No | Only the Runs of Roles that push wait, in that Role's App's installation, until the reset, held between a least and a most wait after the Run ended. The model's deferral is not set; it counts toward the Run ceiling (decision 1269) |
 
 A pass reads `outcome.json` only for Runs that did not succeed, which are few. A killed Run has no
 outcome file; one that ran, its conclusion `failure` or `timed_out`, is read as `item`, an attempt,

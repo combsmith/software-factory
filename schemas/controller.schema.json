@@ -316,7 +316,7 @@
       "minimum": 1
     },
     "github_capacity": {
-      "description": "How long a Role that pushes waits once GitHub limited its Run: until the reset GitHub gave, held to between least_seconds and most_seconds after the Run ended; most_seconds where it gave none (decision 9999)",
+      "description": "How long a Role that pushes waits once GitHub limited its Run: until the reset GitHub gave, held to between least_seconds and most_seconds after the Run ended; most_seconds where it gave none (decision 1269)",
       "type": "object",
       "additionalProperties": false,
       "required": [

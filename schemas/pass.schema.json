@@ -479,7 +479,7 @@
           "minimum": 0
         },
         "github_deferred": {
-          "description": "Each Role and owner whose Runs wait for GitHub's limit to reset, and until when; only a Role that pushes waits on it. Null where the run records were read short, which may hide one; absent in a record written before it (decision 9999)",
+          "description": "Each Role and owner whose Runs wait for GitHub's limit to reset, and until when; only a Role that pushes waits on it. Null where the run records were read short, which may hide one; absent in a record written before it (decision 1269)",
           "type": [
             "array",
             "null"

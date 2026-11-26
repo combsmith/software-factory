@@ -705,7 +705,7 @@ class Context(unittest.TestCase):
         other = passed(reads(runs=[dict(fault, outcome="item")]))
         self.assertIsNone(other["record"]["context"]["model_deferred_until"])
 
-    def test_a_github_limit_defers_a_pushing_roles_runs_in_its_installation_until_its_reset(self):  # decision 9999
+    def test_a_github_limit_defers_a_pushing_roles_runs_in_its_installation_until_its_reset(self):  # decision 1269
         rule = CONTROLLER["github_capacity"]
         def epoch(at: str) -> int:
             return int((shared.moment(at) - shared.moment("1970-01-01T00:00:00Z")).total_seconds())

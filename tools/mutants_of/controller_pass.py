@@ -13,7 +13,7 @@ HAND_PASS = ('tests.test_controller.Record.test_a_hand_approval_merged_between_p
 GITHUB_WAIT = ("tests.test_controller.Context.test_a_github_limit_defers_a_pushing_roles_runs_in_its_installation_until_its_reset",)
 TARGETS = ("controller/pass_.py",)
 MUTANTS = [
-    # A Run GitHub limited holds its Role's Runs in its installation until the reset, clamped (decision 9999).
+    # A Run GitHub limited holds its Role's Runs in its installation until the reset, clamped (decision 1269).
     ("GitHub's reset is not held to the most wait", "controller/pass_.py",
      "min(max(reset, least), most)", "max(reset, least)", GITHUB_WAIT),
     ("GitHub's reset in the past is not held to the least wait", "controller/pass_.py",

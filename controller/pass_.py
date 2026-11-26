@@ -54,7 +54,7 @@ SCHEDULE, OWN_REPO, DISPATCHED = "schedule", "workflow_run", "workflow_dispatch"
 # FACTORY_PAUSED, read exactly as GitHub holds a variable: any other value is unreadable (L-58).
 PAUSED, NOT_PAUSED = "true", "false"
 CAPACITY, ENVIRONMENT = health_.CAPACITY, health_.ENVIRONMENT
-# A Run GitHub limited, and the moment its reset counts from, in seconds since (decision 9999).
+# A Run GitHub limited, and the moment its reset counts from, in seconds since (decision 1269).
 GITHUB_CAPACITY = "github_capacity"
 EPOCH = "1970-01-01T00:00:00Z"
 NOT_RUN = "not_run"
@@ -190,7 +190,7 @@ def capacity_until(runs: list, now: str, window: int):
 
 
 def github_deferred(runs: list, now: str, rule: dict) -> list:
-    """Where Runs wait for GitHub's limit to reset (decision 9999): for each Role and owner a Run of which ended
+    """Where Runs wait for GitHub's limit to reset (decision 1269): for each Role and owner a Run of which ended
     `github_capacity`, `{"role", "owner", "until"}`, the latest of their waits, sorted, and none that is past; an owner
     is one in any case, as GitHub counts it. A wait is until the reset the Run gave, held to between `least_seconds`
     and `most_seconds` after the Run ended, the most never below the least; its start stands in for an end GitHub gave
