@@ -36,7 +36,7 @@
       "body": "A deferral is returned where the facts are whole\n\n`decide` returns `defer` when `checks` is an empty list, which is a whole read of no check."
     }
   ],
-  "off_change": 1,
+  "off_change": 0,
   "usage": {
     "api": "responses",
     "deployment": "astra-reader",
