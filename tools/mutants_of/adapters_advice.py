@@ -107,8 +107,8 @@ MUTANTS = [
      '    if any(isinstance(part, dict) and part.get("type") == "refusal" for part in parts):\n        return "refused", None\n',
      '    if parts and all(isinstance(part, dict) and part.get("type") == "refusal" for part in parts):\n        return "refused", None\n', ADVICE_READ),
     ('a text outside a message is the answer', ADVICE,
-     'if isinstance(item, dict) and item.get("type") == "message"]',
-     'if isinstance(item, dict)]', ADVICE_READ),
+     'for item in output if item["type"] == "message"]',
+     'for item in output]', ADVICE_READ),
     ('a rate limit is a fault of the transport', ADVICE,
      '"rate_limited" if status == 429 else ',
      '', ADVICE_READ),
@@ -163,4 +163,27 @@ MUTANTS = [
     ('a failed read is incomplete', ADVICE,
      '"failed" if reason in FAILED else "incomplete"',
      '"incomplete"', ADVICE_READ),
+    ('an output item of a kind not known is passed over unread', ADVICE,
+     '    if any(not isinstance(item, dict) or item.get("type") not in ("message", "reasoning") for item in output):\n'
+     '        return "unparsed", None             # an item of a kind not known here, a tool\'s call among them, is no answer\n'
+     '    messages = [item for item in output if item["type"] == "message"]\n',
+     '    messages = [item for item in output if isinstance(item, dict) and item.get("type") == "message"]\n', ADVICE_READ),
+    ("a response's reasoning beside its message is no answer", ADVICE,
+     'not in ("message", "reasoning") for item',
+     'not in ("message",) for item', ADVICE_READ),
+    ('a content part of a kind not known is passed over unread', ADVICE,
+     '    if any(not isinstance(part, dict) or part.get("type") != "output_text" for part in parts):\n'
+     '        return "unparsed", None             # a part of a kind not known here is never passed over unread\n'
+     '    said = [part.get("text") for part in parts]\n',
+     '    said = [part.get("text") for part in parts if isinstance(part, dict) and part.get("type") == "output_text"]\n',
+     ADVICE_READ),
+    ("a chat completion beside a tool's call is read", ADVICE,
+     ' or message.get("tool_calls") not in (None, []) \\\n',
+     ' \\\n', ADVICE_READ),
+    ("a chat completion beside an empty list of tool calls is no answer", ADVICE,
+     'message.get("tool_calls") not in (None, [])',
+     'message.get("tool_calls") is not None', ADVICE_READ),
+    ("a chat completion beside a function's call is read", ADVICE,
+     ' \\\n            or message.get("function_call") is not None:\n',
+     ':\n', ADVICE_READ),
 ]

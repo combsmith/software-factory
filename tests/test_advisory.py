@@ -905,6 +905,11 @@ class Parser(unittest.TestCase):
         self.assertEqual(outcome(answered(said(message="n" + "7" * 200))), ("completed", None, 1))
         self.assertEqual(outcome(answered(text=whole_of(63))), ("failed", "unparsed", 0))
         self.assertEqual(outcome(chatted(said()), KIMI), ("completed", None, 1))
+        # No call of a tool, said as none or as an empty list, leaves the text the answer.
+        for none in ({"tool_calls": None}, {"tool_calls": []}, {"function_call": None}):
+            message = dict(chatted(said())["body"]["choices"][0]["message"], **none)
+            self.assertEqual(outcome(chatted(said(), choices=[{"finish_reason": "stop", "message": message}]), KIMI),
+                             ("completed", None, 1), none)
         fenced = "```json\n%s\n```" % json.dumps({"schema": "advice-answer/1", "findings": [said()]})
         self.assertEqual(outcome(chatted(text="\n" + fenced + "\n"), KIMI), ("completed", None, 1))
         self.assertEqual(outcome(chatted(text=fenced.replace("\n", "\r\n")), KIMI), ("completed", None, 1))
@@ -968,6 +973,14 @@ class Parser(unittest.TestCase):
             (answered(text=json.dumps({"schema": "advice-answer/1", "findings": [{}] * 101})), "unparsed"), (answered(said(), output=[]), "unparsed"), (answered(said(), output=None), "unparsed"),
             (answered(said(), output=[{"type": "message", "content": [{"type": "output_text", "text": whole}] * 2}]), "unparsed"),
             (answered(said(), output=[{"type": "message", "content": [{"type": "output_text", "text": 7}]}]), "unparsed"),
+            # An item or a part this file does not know, beside a clean text, is a shape never read: no read at all.
+            (answered(said(), output=answered(said())["body"]["output"] + [{"type": "function_call", "name": "f",
+                                                                            "arguments": "{}"}]), "unparsed"),
+            (answered(said(), output=answered(said())["body"]["output"] + ["text"]), "unparsed"),
+            (answered(said(), output=[{"type": "message", "content": [{"type": "output_text", "text": whole},
+                                                                      {"type": "output_audio"}]}]), "unparsed"),
+            (answered(said(), output=[{"type": "message", "content": [{"type": "output_text", "text": whole}, "text"]}]),
+             "unparsed"),
         ]
         for answer, reason in cases:
             status = "failed" if reason in ("unparsed", "not_the_model", "no_key", "transport") else "incomplete"
@@ -981,7 +994,11 @@ class Parser(unittest.TestCase):
                  (chatted(said(), choices=[{"finish_reason": "stop", "message": {"content": whole, "refusal": []}}]), "refused"),
                  (chatted(said(), choices=[{"finish_reason": "stop", "message": {"role": "user", "content": whole}}]), "unparsed"),
                  (chatted(said(), choices=["stop"]), "unparsed"), (chatted(said(), model="kimi-model-2"), "not_the_model"),
-                 (answered(said(), model="kimi-model"), "unparsed")]
+                 (answered(said(), model="kimi-model"), "unparsed"),
+                 # A call of a tool beside the text, which no reader is offered, is a shape never read.
+                 (chatted(said(), choices=[{"finish_reason": "stop", "message": {"content": whole, "tool_calls": [{}]}}]), "unparsed"),
+                 (chatted(said(), choices=[{"finish_reason": "stop", "message": {"content": whole, "tool_calls": {}}}]), "unparsed"),
+                 (chatted(said(), choices=[{"finish_reason": "stop", "message": {"content": whole, "function_call": {}}}]), "unparsed")]
         for answer, reason in chats:
             status = "failed" if reason in ("unparsed", "not_the_model") else "incomplete"
             self.assertEqual(outcome(answer, KIMI), (status, reason, 0), (reason, answer))
