@@ -15573,7 +15573,7 @@ class SignalTraps(unittest.TestCase):
         # to the next signal (issue 481).
         own_line = {"trial_as_app.sh": "trap \"trap '' HUP INT TERM QUIT PIPE; trap - EXIT; finish 130\" HUP INT TERM QUIT PIPE"}
         # Each sh script that mints is deaf from its first signal on, so a second finds the clean-up deaf at once (issue 1215).
-        own_line.update({script: "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM" for script in (
+        own_line.update({script: "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM QUIT PIPE" for script in (
             "trial_reader_reads.sh", "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh", "trial_p58_edits.sh",
             "trial_p80_branch_reads.sh", "trial_p39_reach.sh", "trial_p4_narrow.sh", "trial_p52_pause.sh", "trial_p8_cost.sh")})
         scripts = sorted((ROOT / "tools").glob("*.sh"))
@@ -15599,12 +15599,12 @@ class SignalTraps(unittest.TestCase):
             self.assertEqual(body[:2], ["    trap '' HUP INT TERM QUIT PIPE", "    set +e"], script.name)
             revoke = text.split("\nrevoke() {\n", 1)[1].split("\n}\n", 1)[0]
             self.assertIn("| curl -q --max-time 30 ", revoke, script.name)
-            self.assertEqual(revoke.count("--max-time"), 1, script.name)
+            self.assertEqual((revoke.count("--max-time"), revoke.count(" -m ")), (1, 0), script.name)
 
     def test_every_token_script_keeps_its_raw_answers_beside_out(self):  # issue 1215
         # TMPDIR is the environment's to choose, and a directory in it another user can write to would let them take the
         # raw answers, or put a link where one is written. Each sh script that mints makes its one scratch directory in
-        # OUT's parent, which its walk holds to be this user's alone, reads no TMPDIR, and hands that directory to its helpers.
+        # OUT's parent, which its walk holds to be this user's or sticky, reads no TMPDIR, and hands that directory to its helpers.
         scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
                    if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
         self.assertEqual(len(scripts), 10)
@@ -15672,7 +15672,8 @@ class SignalTraps(unittest.TestCase):
         for script in sorted((ROOT / "tools").glob("trial_*.sh")):
             lines = script.read_text().splitlines()
             first = next(n for n, line in enumerate(lines) if line.startswith("set -e"))
-            self.assertEqual(lines[first + 3:first + 5], ["set +a", "unset CDPATH"], script.name)
+            then = [line for line in lines[first + 1:] if line.strip() and not line.lstrip().startswith("#")]
+            self.assertEqual(then[:2], ["set +a", "unset CDPATH"], script.name)
 
 
 class ReaderTrialScript(unittest.TestCase):
@@ -15865,7 +15866,7 @@ esac
         self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
 
     def test_the_raw_answers_are_kept_beside_out_whatever_tmpdir_says(self):  # issue 1215
-        # The raw answers are kept in a directory of OUT's parent, which the walk holds to be this user's alone, and
+        # The raw answers are kept in a directory of OUT's parent, which the walk holds to be this user's or sticky, and
         # never where TMPDIR says: here a TMPDIR inside the repo, which the run neither refuses nor writes to. Held
         # mid-read by a pipe, the run shows its one scratch directory beside OUT, private; once done, it is gone.
         # Of its own: this class's clean-up removes what INSIDE names, and a run deals its methods to parts run at once.
@@ -16002,14 +16003,14 @@ esac
 
     def test_the_maintainers_environment_steers_nothing(self):  # issue 1215
         # Run by a path relative to the repo, under a CDPATH that holds a tools/ of its own, with SSLKEYLOGFILE and each
-        # name a credential is held in exported, and bash told to export every assignment: the script finds its own root,
-        # and curl is handed none of them.
+        # name a credential is held in exported, and the shell started exporting every assignment: the script finds its
+        # own root, and curl is handed none of them.
         decoy = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         (decoy / "tools").mkdir()
         env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
-               "CDPATH": str(decoy), "SSLKEYLOGFILE": str(decoy / "keys"), "SHELLOPTS": "allexport",
+               "CDPATH": str(decoy), "SSLKEYLOGFILE": str(decoy / "keys"),
                **{name: self.TOKEN for name in ("token", "jwt", "signature", "minted", "minting")}}
-        ran = subprocess.run(["sh", str(self.SCRIPT.relative_to(ROOT)), str(self.out), str(self.key), *self.GIVEN],
+        ran = subprocess.run(["sh", "-a", str(self.SCRIPT.relative_to(ROOT)), str(self.out), str(self.key), *self.GIVEN],
                              cwd=str(ROOT), capture_output=True, text=True, env=env, timeout=120)
         self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
         calls = self.calls()

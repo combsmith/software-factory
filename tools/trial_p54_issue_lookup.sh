@@ -101,7 +101,7 @@ API=https://api.github.com
 VERSION="X-GitHub-Api-Version: 2022-11-28"
 ACCEPT="Accept: application/vnd.github+json"
 # The raw answers are kept beside OUT, in a directory made in its parent, which the walk above holds to be this
-# user's alone. TMPDIR, which the environment chooses, is not read, and each helper is handed this one (issue 1215).
+# user's, or sticky. TMPDIR, which the environment chooses, is not read, and each helper is handed this one (issue 1215).
 scratch=$(mktemp -d "$parent/.trial-p54.XXXXXX")
 export TMPDIR="$scratch"
 # No credential's name is taken from the environment, where one exported would reach every child, and curl is
@@ -150,7 +150,7 @@ finish() {
     rm -rf "$scratch"
 }
 trap finish EXIT
-trap "trap '' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM
+trap "trap '' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM QUIT PIPE
 
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 
