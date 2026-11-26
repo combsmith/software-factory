@@ -9066,6 +9066,13 @@ class Push(unittest.TestCase):
         self.assertEqual((tree, blobs, why), ({"vendored": "160000", "d/x": "100644"}, {"d/x": (MIXED, 3)}, None))
         self.assertEqual(push.to_read((tree, blobs), ["vendored", "d/x"]), (["d/x"], None))
         self.assertEqual(push.listed(*self.made(("vendored", "100644", "commit", NAMED, None))), (None, patch.TREE_UNREAD))
+        # A type that disagrees with its mode, though the tree's name still holds: a submodule or an empty directory
+        # told as a blob.
+        for path, mode, kind in (("vendored", "160000", "commit"), ("empty", "040000", "tree")):
+            made, name = self.made((path, mode, kind, NAMED, None))
+            self.assertIsNone(push.listed(made, name)[1], path)
+            made["body"]["tree"][0]["type"] = "blob"
+            self.assertEqual(push.listed(made, name), (None, patch.TREE_UNREAD), path)
 
     def test_a_push_reads_whole_within_its_bound_and_past_it_is_the_roles_attempt(self):
         # The bounds are the record's: 1,000 files, 64 MiB in all, and a file whose blob answer the transport takes.

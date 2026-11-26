@@ -343,26 +343,23 @@ def listed(answer, sha):
         return None, TREE_UNFETCHED
     body = answer.get("body") if _said(answer.get("status"), "200") else None
     if type(body) is not dict or body.get("truncated") is not False or not _said(body.get("sha"), sha) \
-            or not _sha(sha) or type(body.get("tree")) is not list:
+            or type(body.get("tree")) is not list:
         return None, patch.TREE_UNREAD
     entries = body["tree"]
     if not all(type(entry) is dict and type(entry.get("path")) is str and _sha(entry.get("sha")) for entry in entries):
         return None, patch.TREE_UNREAD
-    kinds = {}
-    for entry in entries:
-        if entry["path"] in kinds:
-            return None, patch.TREE_UNREAD
-        kinds[entry["path"]] = (entry.get("type"), entry.get("mode"))
+    # A path listed twice, or a sha that is no tree's, makes no tree of `sha`'s name: the names hold both.
     folders = {"": []}
-    folders.update({path: [] for path, kind in kinds.items() if kind == ("tree", DIRECTORY)})
+    folders.update({entry["path"]: [] for entry in entries
+                    if (entry.get("type"), entry.get("mode")) == ("tree", DIRECTORY)})
     named = {"": sha}
     tree, blobs = {}, {}
     for entry in entries:
-        path, (kind, mode), size = entry["path"], kinds[entry["path"]], entry.get("size")
+        path, kind, mode, size = entry["path"], entry.get("type"), entry.get("mode"), entry.get("size")
         parent, _, name = path.rpartition("/")
         if not name or parent not in folders:
             return None, patch.TREE_UNREAD
-        if (kind, mode) == ("tree", DIRECTORY):
+        if path in folders:
             folders[parent].append((TREE_MODE, name, entry["sha"]))
             named[path] = entry["sha"]
             continue
