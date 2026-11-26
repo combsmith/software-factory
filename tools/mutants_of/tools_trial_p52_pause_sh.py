@@ -113,6 +113,8 @@ MUTANTS = [
     ("P-52 marks no mint", "tools/trial_p52_pause.sh", "minting=1\n", "", ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
     ("P-52 says nothing of a stop mid-mint", "tools/trial_p52_pause.sh", 'echo "trial_p52_pause: stopped while a token was being minted;',
      ': "trial_p52_pause: stopped while a token was being minted;', ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
+    ("P-52 keeps an earlier head's status past a malformed one", "tools/trial_p52_pause.sh", 'head && /^HTTP\\// { found = "" } ', "",
+     ("tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head",)),
     ("P-52 keeps a status that is not three digits", "tools/trial_p52_pause.sh", "[0-9][0-9][0-9]( |$)/) found",
      "[0-9]+/) found", ("tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head",)),
 ]

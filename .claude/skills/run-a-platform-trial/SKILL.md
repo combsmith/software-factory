@@ -42,10 +42,11 @@ everything a trial leaves in it: its runs, logs and artifacts.
   Mac's own per-user default, which nothing syncs.
   A new script the Maintainer runs with a key copies `tools/trial_p54_issue_lookup.sh`: OUT made new
   under a parent only he can write to, the raw answers in a private scratch directory of its own,
-  nothing of his environment taken but PATH, and a clean-up deaf to a second signal that tells him of
-  any token it may have left live (issue 1215). `tests/test_tools.py` holds every such script to the
-  same words: add the new one to the lists and counts there. A run killed outright leaves its
-  `trial-*` directory where TMPDIR says, to delete.
+  nothing of his environment taken but PATH and TMPDIR, and a clean-up deaf to a second signal that
+  tells him of any token it may have left live (issue 1215). `tests/test_tools.py` holds every such
+  script to the same words: add the new one to the lists and counts there. A run killed outright
+  leaves its `trial-*` directory where TMPDIR says, to delete, and tells of no token: one it minted
+  may be live for up to an hour, which suspending the App's installation ends sooner.
   P-13 asks the vendor's CLI, not GitHub: `tools/trial_p13_cli.sh` runs it at the pinned version,
   on a configuration directory of its own logged in to the Maintainer's own subscription (decision
   0033), and leaves
