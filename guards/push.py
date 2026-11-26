@@ -24,9 +24,9 @@ What this rests on: the state is the caller's and never the port's, and the port
 holds, never `push`. That `blobs` is the base64 of the bytes `changes` holds is `apply`'s to say, which may import
 what encodes it.
 
-`touched(changes)` gives `(paths, None)`, naming the paths `harness/apply.py` is asked about: a push that touches a
-protected path is refused there. Which files of the admitted commit it changes or removes, FR-14's rule on a test, is
-a later part's, which reads that commit's tree. One matcher reads the base's patterns (`tools/hooks/protected.py`); this names the paths, so
+`touched(changes)` and `existing(changes, tree)` give `(paths, None)`, naming the paths `harness/apply.py` is asked
+about: a push that touches a protected path is refused there, and so is one that changes or removes a test the
+admitted commit holds. One matcher reads the base's patterns (`tools/hooks/protected.py`); this names the paths, so
 what is asked about is what lands.
 
 Every stop gives a code, never None alone, and each code is set here, so that one table can name whose each is
@@ -310,3 +310,29 @@ def touched(changes) -> tuple:
         return None, NOT_PERMITTED
     return (sorted(set(changes["written"]) | set(changes["removed"])), list(changes["read"])), None
 
+
+def existing(changes, tree) -> tuple:
+    """`(files, None)`: the files of the admitted commit, `tree`, that the push changes or removes, each once, in
+    order: what FR-14's rule on a test is asked about. A file the push adds is none of them. `(None, NOT_PERMITTED)`
+    for changes in no shape `applied` gives, or that the tree cannot hold, and `(None, patch.TREE_UNREAD)` for a tree
+    that is no exact mapping of text to a mode git holds, each held to its type before any is compared, or that no
+    tree is: a file under a file, or deeper than any name `patch.named` reads."""
+    if not _changes(changes):
+        return None, NOT_PERMITTED
+    if type(tree) is not dict or not all(type(path) is str and type(mode) is str and mode in patch.TREE_MODES
+                                         for path, mode in tree.items()):
+        return None, patch.TREE_UNREAD
+    # A bound on depth, asked before a path is split, bounds what `_above` builds; no tree holds a file under a file.
+    if (not all(path.count("/") < len(patch.DEEPEST) for path in tree)
+            or any(above in tree for path in tree for above in _above(path))):
+        return None, patch.TREE_UNREAD
+    written, removed = changes["written"], set(changes["removed"])
+    # Changes the tree cannot hold were never `applied`'s: a file removed or read that the tree holds as no file, a
+    # file written over a link or a submodule, over a directory the tree keeps, or under a file it keeps.
+    if (any(tree.get(path) not in patch.FILE_MODES for path in list(removed) + changes["read"])
+            or any(path in tree and tree[path] not in patch.FILE_MODES for path in written)
+            or any(above in written for path in tree if path not in removed for above in _above(path))
+            or any(above in tree and above not in removed for path in written for above in _above(path))):
+        return None, NOT_PERMITTED
+    # Every file removed is one of the tree's, as checked above.
+    return sorted([path for path in written if path in tree] + changes["removed"]), None
