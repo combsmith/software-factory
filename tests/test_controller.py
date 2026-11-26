@@ -1125,7 +1125,8 @@ class Feed(unittest.TestCase):
 
     def test_the_kernel_is_given_the_roles_granted_the_push_from_their_manifests(self):  # issue 838
         # One list: a Role whose Intent permits push_commits, the grant tools/check_authority.py holds; none yet.
-        self.assertEqual((configuration.kernel(ROOT)["pushers"], support.CONFIG["pushers"]), ([], []))
+        live = configuration.pushers(ROOT)
+        self.assertEqual((configuration.kernel(ROOT)["pushers"], support.CONFIG["pushers"]), (live, live))
         with unittest.mock.patch.object(configuration, "pushers", lambda root: ["dev-lead"] if root == ROOT else None):
             self.assertEqual(configuration.kernel(ROOT)["pushers"], ["dev-lead"])
         manifest = json.loads((ROOT / "roles" / "pr-review.json").read_text())
@@ -1133,7 +1134,8 @@ class Feed(unittest.TestCase):
             (pathlib.Path(d) / "roles").mkdir()
             for name, effects in (("dev-lead", ["comment"]), ("pr-review", ["submit_review"]), ("qa-lead", [])):
                 pushing = dict(manifest["intents"][0], permitted_effects=effects + ["push_commits"])
-                intents = [dict(manifest["intents"][0], permitted_effects=effects)] + ([pushing] if name != "qa-lead" else [])
+                plain = dict(manifest["intents"][0], permitted_effects=effects)
+                intents = {"dev-lead": [plain, pushing], "pr-review": [pushing, plain], "qa-lead": [plain]}[name]
                 (pathlib.Path(d) / "roles" / ("%s.json" % name)).write_text(json.dumps(dict(manifest, name=name,
                                                                                          intents=intents)))
             self.assertEqual(configuration.pushers(pathlib.Path(d)), ["dev-lead", "pr-review"])

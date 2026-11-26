@@ -2408,6 +2408,9 @@ class Investigation(unittest.TestCase):
         pushing = dict(config(), pushers=["business-analyst"])
         self.assertEqual(what(decide(TRIAGED, ctx=held, cfg=pushing)), ("defer", "github_capacity", None))
         self.assertEqual(what(decide(TRIAGED, ctx=held)), ("admit", "triage", INVESTIGATE))
+        unread = config()
+        del unread["pushers"]
+        self.assertEqual(what(decide(TRIAGED, ctx=held, cfg=unread)), ("defer", "github_capacity_unreadable", None))
 
     def test_an_active_runs_that_is_no_count_defers_and_raises_nothing(self):  # I-3, issue 218
         # As on a pull request: a count that is no whole number, a bool among them, or is below zero cannot be read, and

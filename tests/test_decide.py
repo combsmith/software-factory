@@ -4430,6 +4430,20 @@ class GitHubsLimit(unittest.TestCase):
                            (held, CONFIG), (held, dict(CONFIG, pushers=["dev-lead"]))):
             self.assertEqual(go(facts(), ctx=waits(entry), cfg=cfg)["outcome"], "admit", (entry, cfg.get("pushers")))
         self.assertEqual(go(facts(), ctx=waits(dict(held, until=NOW), held), cfg=pushing)["reason"], "github_capacity")
+        self.assertEqual(go(facts(), ctx=waits(held, dict(held, owner="combsmith-labs")), cfg=pushing)["reason"],
+                         "github_capacity")
+        self.assertEqual(go(facts(), ctx=waits(dict(held, until="2026-10-11T12:59:59Z")), cfg=pushing)["outcome"], "admit")
+        # The owner is the item's, in any case; and the Role is the one the Run is wanted for.
+        elsewhere = facts(item=dict(facts()["item"], repo="combsmith-labs/x"))
+        self.assertEqual(go(elsewhere, ctx=waits(dict(held, owner="combsmith-labs")), cfg=pushing)["reason"],
+                         "github_capacity")
+        self.assertEqual(go(elsewhere, ctx=waits(held), cfg=pushing)["outcome"], "admit")
+        self.assertEqual(go(facts(), ctx=waits(dict(held, owner="CombSmith")), cfg=pushing)["reason"], "github_capacity")
+        fixing = facts(**AGENT, reviews=[review(state="changes_requested", **MAINTAINER)])
+        fixer = dict(held, role="dev-lead")
+        d = go(fixing, REVIEWED, ctx=waits(fixer), cfg=dict(CONFIG, pushers=["dev-lead"]))
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("addressing", "github_capacity", "defer"))
+        self.assertEqual(go(fixing, REVIEWED, ctx=waits(fixer), cfg=pushing)["outcome"], "admit")
         # The model's own deferral is not read for it, and the whole-scope causes are named first.
         self.assertEqual(go(facts(), ctx=waits(held), cfg=pushing)["reason"], "github_capacity")
         ctx = dict(waits(held), model_deferred_until="2026-10-11T14:00:00Z")
@@ -4441,7 +4455,7 @@ class GitHubsLimit(unittest.TestCase):
         pushing = dict(CONFIG, pushers=["pr-review"])
         held = {"role": "pr-review", "owner": "combsmith", "until": "2026-10-11T13:00:01Z"}
         for bad in (None, "x", [None], [dict(held, until="soon")], [dict(held, role=7)], [dict(held, owner=None)],
-                    [{"role": "pr-review", "owner": "combsmith"}]):
+                    [{"role": "pr-review", "owner": "combsmith"}], [dict(held, owner="")], [dict(held, role="")]):
             ctx = context(github_deferred=bad)
             d = go(facts(), ctx=ctx, cfg=pushing)
             self.assertEqual((d["outcome"], d["reason"]), ("defer", "github_capacity_unreadable"), bad)
@@ -4457,11 +4471,23 @@ class GitHubsLimit(unittest.TestCase):
         del cfg["pushers"]
         self.assertEqual(go(facts(), cfg=cfg)["reason"], "github_capacity_unreadable")
         self.assertEqual(go(facts(), cfg=pushing)["outcome"], "admit")
+        # An item's owner, or a time, that cannot be read defers a Role that pushes, and no other.
+        for item, now in (({"repo": None}, NOW), ({"repo": "software-factory"}, NOW), ({"repo": "/x"}, NOW),
+                          ({"repo": "combsmith/x"}, "later")):
+            self.assertIsNone(derive.github_waiting(context(), item, "pr-review", ["pr-review"], now), (item, now))
+            self.assertIs(derive.github_waiting(context(), item, "pr-review", [], now), False, (item, now))
+        self.assertIs(derive.github_waiting(context(), {"repo": "combsmith/x"}, "pr-review", ["pr-review"], NOW), False)
 
     def test_a_run_github_limited_is_no_attempt(self):  # issue 838
         limited = [run(conclusion="failure", outcome="github_capacity", at="2026-10-11T12:1%d:00Z" % i, name="g%d" % i)
                    for i in range(LIMITS["max_attempts"])]
         self.assertEqual(go(facts(), limited)["outcome"], "admit")
+        # It reached a model, so it counts toward the Run ceiling.
+        spent = [run(conclusion="failure", outcome="github_capacity", at="2026-10-11T12:%02d:00Z" % i, name="s%d" % i)
+                 for i in range(LIMITS["max_runs_per_item"])]
+        self.assertEqual(brakes.run_ceilings(_decision, facts(), [], "review-change", spent, LIMITS)["reason"],
+                         "run_ceiling")
+        self.assertIsNone(brakes.run_ceilings(_decision, facts(), [], "review-change", spent[1:], LIMITS))
 
 
 class Staleness(unittest.TestCase):

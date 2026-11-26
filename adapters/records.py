@@ -52,9 +52,11 @@ JOB_STATUSES = NOT_STARTED | {"in_progress", "completed"}     # a job's, as a ru
 CONCLUSIONS = {"success": "success", "failure": "failure", "startup_failure": "cancelled", "cancelled": "cancelled",
                "skipped": "cancelled", "timed_out": "timed_out"}
 FRESH = {"Cache-Control": "no-cache"}
-# The faults an outcome names, as `outcome/1` holds them: one of these, once read, is that attempt's for good.
 # What an outcome says beside its fault, each a field of the run record, and of what kind (`engines`).
 SAID = (("engine_started", bool), ("github_reset", int))
+# The fault of a Run GitHub limited: only its reset is kept.
+GITHUB_CAPACITY = "github_capacity"
+# The faults an outcome names, as `outcome/1` holds them: one of these, once read, is that attempt's for good.
 CONCLUDED = {"item", "capacity", "github_capacity", "environment", "superseded", "person"}
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 HTTP_DATE = re.compile(r"(Mon|Tue|Wed|Thu|Fri|Sat|Sun), ([0-9]{2}) ([A-Z][a-z]{2}) ([0-9]{4}) "
@@ -178,8 +180,8 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
     # person's cancel and a concurrency group's say nothing here, so only this counts toward the automatic pause (0116).
     if status == "completed" and never_ran:
         record["never_ran"] = never_ran
-    # When it ended, from which GitHub's limit is waited out (issue 838).
-    if status == "completed" and _time(row.get("updated_at")):
+    # When it ended, from which GitHub's limit is waited out (issue 838): never before it started.
+    if status == "completed" and _time(row.get("updated_at")) and row["updated_at"] >= started:
         record["ended_at"] = row["updated_at"]
     # When it was dispatched, which a re-run keeps, and whether the pass job's own token re-ran it: reconciliation reads
     # the dispatch by the one, and a re-run by that token as a write no Effect records (decision 0063).
@@ -345,7 +347,8 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
 
     `engine_started`, where a failed Run's outcome says it, is whether its Engine step started, and `github_reset` when
     GitHub's limit resets; `engines` is what `engines` read of them from the pass records before, kept with an outcome
-    `kept` holds (issues 757 and 838). `ended_at` is when a completed Run ended, GitHub's `updated_at`.
+    `kept` holds (issues 757 and 838). A reset beside any other fault is
+    not kept. `ended_at` is when a completed Run ended, GitHub's `updated_at`, where it is no earlier than its start.
 
     `began` is what `begun` read from the pass records before, and None asks no job: no record then says when it
     began. Given, each Run in progress or completed has its jobs read for `began_at` (`_began`), but one `began`
@@ -402,7 +405,7 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
             lambda answer: reads.append(dict(read_at(answer), read="outcome")), told, reset)
         if told:
             record["engine_started"] = told[0]
-        if reset:
+        if reset and record["outcome"] == GITHUB_CAPACITY:
             record["github_reset"] = reset[0]
         whole = whole and read_whole
     asked = 0
