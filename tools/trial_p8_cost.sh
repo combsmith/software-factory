@@ -333,7 +333,7 @@ json.dump({"query": sys.stdin.read(), "variables": json.loads(sys.argv[1])}, ope
     tr -d '\r' < "$scratch/crlf-$n" > "$scratch/raw-$n"
     rm -f "$scratch/crlf-$n" "$scratch/body-$n"
     # The last head's status: a proxy's block, or an interim answer, comes first and is no answer to this read.
-    status=$(awk 'BEGIN { head = 1 } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
+    status=$(awk 'BEGIN { head = 1 } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
     if [ "$read_ok" = 0 ] || [ "$status" != 200 ]; then
         drop "$scratch/raw-$n"
         echo "trial_p8_cost: read $n ($3) failed (curl ok: $read_ok, status: ${status:-none}); nothing of it is kept." >&2
