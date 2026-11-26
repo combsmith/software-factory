@@ -1203,8 +1203,8 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     # The acts that stop work, read first. Unmerged closes past their bound place a Hold (I-43); a label that stands
     # and does not count is removed, though not while a Run is in flight, whose own label may not count until it ends,
     # nor under a Hold the Run wanted places: it waits for the release, as under a person's Hold, so a label nobody
-    # counts never takes an issue out of held (issue 1216). The act ceiling is no such Hold: it binds no act that
-    # stops work.
+    # counts never takes an issue out of held (issue 1216). The act ceiling's Hold is one too: a removal is an act, and
+    # none runs past that ceiling (issue 1251).
     closes = unmerged_closes(facts)
     if len(closes) > config["limits"]["max_unmerged_closes"]:
         return dict(_stop(facts, state, "unmerged_closes", closes, context, PLACE_HOLD), attention=t.NEEDS_YOU)
@@ -1218,9 +1218,8 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
 
 
 def _run_holds(d: dict) -> bool:
-    """Whether `d` holds the issue on the Run it wants: any Hold but the act ceiling's, which binds no act that stops
-    work (issue 1216)."""
-    return d["state"] == t.HELD and d["outcome"] == t.HOLD and d["reason"] != "act_ceiling"
+    """Whether `d` holds the issue on the Run it wants: any Hold, the act ceiling's among them (issues 1216, 1251)."""
+    return d["state"] == t.HELD and d["outcome"] == t.HOLD
 
 
 def _after_labels(facts: dict, runs: list, context: dict, config: dict, now: str, d: dict, mine: list) -> dict:

@@ -2083,12 +2083,25 @@ class RemoveLabel(unittest.TestCase):
         self.assertEqual(what(decide(linked)), ("nothing", "linked_draft", None))
 
     def test_removing_a_label_is_stopped_by_the_pause_and_waits_for_a_run_in_flight(self):
-        stale = facts(label_events=[labelled(READY, OTHER_APP, 1)], acts_since_writer=LIMITS["max_acts_per_item"])
+        stale = facts(label_events=[labelled(READY, OTHER_APP, 1)], acts_since_writer=LIMITS["max_acts_per_item"] - 1)
         self.assertEqual(decide(stale).get("action"), "remove_label")
         self.assertEqual(what(decide(stale, ctx=context(paused=True))), ("defer", "paused", None))
         # A readiness Run that adds factory:ready completes after its apply: until then its label does not count.
         d = decide(facts(label_events=READIED), [run(status="in_progress")])
         self.assertEqual((what(d), d["attention"]), (("nothing", "triage", None), "working"))
+
+    def test_an_uncounted_label_waits_at_the_act_ceiling(self):  # issue 1251
+        # At the act ceiling the issue is held, with another App's label or without it, and makes no act: the removal
+        # is an act, and waits for the release as under every other Hold. One act below the ceiling it is removed.
+        top = LIMITS["max_acts_per_item"]
+        for events in ([labelled(READY, OTHER_APP, 1)], []):
+            d = decide(facts(label_events=events, acts_since_writer=top))
+            self.assertEqual((d["state"], what(d), d["attention"]), ("held", ("hold", "act_ceiling", None), "needs_you"),
+                             events)
+            self.assertNotIn("action", d)
+            self.assertNotIn("label", d)
+        d = decide(facts(label_events=[labelled(READY, OTHER_APP, 1)], acts_since_writer=top - 1))
+        self.assertEqual((d["state"], what(d), d["label"]), ("new", ("act", "label_not_counted", "remove_label"), READY))
 
 
 class UnmergedCloses(unittest.TestCase):
