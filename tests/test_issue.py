@@ -2094,12 +2094,19 @@ class RemoveLabel(unittest.TestCase):
         # At the act ceiling the issue is held, with another App's label or without it, and makes no act: the removal
         # is an act, and waits for the release as under every other Hold. One act below the ceiling it is removed.
         top = LIMITS["max_acts_per_item"]
-        for events in ([labelled(READY, OTHER_APP, 1)], []):
-            d = decide(facts(label_events=events, acts_since_writer=top))
+        for events, acts, ctx in (([labelled(READY, OTHER_APP, 1)], top, context()), ([], top, context()),
+                                  ([labelled(READY, OTHER_APP, 1)], top + 1, context()),
+                                  ([labelled(READY, OTHER_APP, 1)], top, context(paused=True))):
+            # Past the ceiling too; and under the Pause the spent count holds before the Pause is read, as the brakes do.
+            d = decide(facts(label_events=events, acts_since_writer=acts), ctx=ctx)
             self.assertEqual((d["state"], what(d), d["attention"]), ("held", ("hold", "act_ceiling", None), "needs_you"),
-                             events)
+                             (events, acts, ctx))
             self.assertNotIn("action", d)
             self.assertNotIn("label", d)
+        # Unmerged closes past their bound are read first, and still place their Hold at the ceiling.
+        closes = closed_links(*range(2, 3 + LIMITS["max_unmerged_closes"]))
+        d = decide(facts(label_events=[labelled(READY, OTHER_APP, 1)], acts_since_writer=top, linked=closes))
+        self.assertEqual(what(d), ("act", "unmerged_closes", "place_hold"))
         d = decide(facts(label_events=[labelled(READY, OTHER_APP, 1)], acts_since_writer=top - 1))
         self.assertEqual((d["state"], what(d), d["label"]), ("new", ("act", "label_not_counted", "remove_label"), READY))
         # The record's limit: where the ceiling is not read, as under another App's factory:triage in new, the removal
