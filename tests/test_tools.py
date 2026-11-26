@@ -38,7 +38,7 @@ from sim import world
 from adapters import github
 from tests import support
 from tools import (check_apps, check_authority, commits_are_the_maintainers, pr_title, check_context, check_decisions, check_examples, check_gate_sets, check_lifecycle, context_eval,
-                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, redact_trial,
+                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes, mutants, needs_passed, records, redact_trial,
                    desk, environments_drift, machine_user_drift, rulesets_drift, verify, walk)
 from tools.hooks import protected
 from tools.jsonschema_lite import SchemaError, validate
@@ -7069,6 +7069,93 @@ class Context(unittest.TestCase):
         for words in ("docs/lessons.md: names tools/gone.py", "0001-one-repo-and-a-kernel-that-does-no-io.md: no section",
                       "docs/standards/tests.md states no rule", "kernel/AGENTS.md: no table of rules"):
             self.assertTrue(caught(problems, words), words)
+
+
+    def test_the_records_index_is_made_from_the_records_alone(self):
+        # Decision 0009: tools/records.py prints an index of the records, made from them alone and never committed.
+        body = "\n\n## Decision\n\nX.\n\n## Why\n\nY.\n\n## Boundaries\n\n| Boundary | Check |\n|---|---|\n| b | %s |\n"
+        files = {
+            "docs/decisions/0001-a.md": "# 0001. A\n\nStatus: replaced by `docs/decisions/0002-b.md`." + body % "`tools/x.py`",
+            "docs/decisions/0002-b.md": "# 0002. B\n\nStatus: replaced by `docs/decisions/0003-c.md`, in force." + body % "`kernel/k.py`",
+            "docs/decisions/0003-c.md": "# 0003. C | d\n\nStatus: accepted. Replaces `docs/decisions/0002-b.md`."
+                                        + body % "`tests/test_x.py::test_y`, `adapters/a.py`, `make checks`, `tools/x.py`",
+            "docs/decisions/0004-d.md": "# 0004. D\n\nStatus: accepted." + body % "`tools/x.py`, `effect/1`, `kernel`",
+            "docs/decisions/2000-f.md": "# 2000. F\n\nStatus: accepted." + body % "`tools/x.py`",
+            "docs/decisions/10000-e.md": "# Ten thousand\n\nStatus: accepted." + body % "`kernel/k.py`"}
+        dirs = {"tools/x.py": "", "kernel/k.py": "", "adapters/a.py": "", "tests/test_x.py": ""}
+        made = records.render(tree({**files, **dirs}))
+        # A name with no folder, or whose top is no directory here, names no area; a title with no number before it is read whole.
+        for row in ("| 0001 | A | replaced by 0002 | tools |\n", "| 0002 | B | replaced by 0003 | kernel |\n",
+                    "| 0003 | C \\| d | live | adapters, tools |\n", "| 0004 | D | live | tools |\n",
+                    "| 10000 | Ten thousand | live | kernel |\n"):
+            self.assertIn(row, made)
+        # Records stand in the order of their numbers as numbers.
+        self.assertLess(made.index("| 2000 |"), made.index("| 10000 |"))
+        # Chains stand in the order of their live records' numbers as numbers too; with no record replaced, none is printed.
+        heads = tree({"docs/decisions/1999-g.md": "# 1999. G\n\nStatus: replaced by `docs/decisions/2000-f.md`." + body % "`tools/x.py`",
+                      "docs/decisions/9999-h.md": "# 9999. H\n\nStatus: replaced by `docs/decisions/10000-e.md`." + body % "`tools/x.py`",
+                      "docs/decisions/2000-f.md": files["docs/decisions/2000-f.md"],
+                      "docs/decisions/10000-e.md": files["docs/decisions/10000-e.md"], **dirs})
+        self.assertTrue(records.render(heads).endswith("|---|---|\n| 2000 | 1999 |\n| 10000 | 9999 |\n"), records.render(heads))
+        alone = records.render(tree({"docs/decisions/0004-d.md": files["docs/decisions/0004-d.md"], **dirs}))
+        self.assertNotIn("## Chains", alone)
+        self.assertTrue(alone.endswith("| 0004 | D | live | tools |\n"), alone)
+        # A chain is read from its old end, through each record's "replaced by"; a live record that replaced none has none.
+        self.assertTrue(made.endswith("| Live record | Replaced |\n|---|---|\n| 0003 | 0001, 0002 |\n"), made)
+        self.assertEqual(check_context._cells("| 0003 | C \\| d | live | adapters, tools |"), ["0003", "C | d", "live", "adapters, tools"])
+        # A backslash in a title is its own, and escapes no pipe after it.
+        slash = tree({"docs/decisions/0001-a.md": "# 0001. A \\| b\\\n\nStatus: accepted." + body % "`tools/x.py`", **dirs})
+        self.assertIn("| 0001 | A \\\\\\| b\\\\ | live | tools |\n", records.render(slash))
+        # A link is never followed: a linked record, or a linked folder of them, is not read.
+        linked = tree({"docs/decisions/0004-d.md": files["docs/decisions/0004-d.md"], "elsewhere/0001-a.md": files["docs/decisions/0001-a.md"],
+                       **dirs})
+        (linked / "docs/decisions/0001-a.md").symlink_to(linked / "elsewhere/0001-a.md")
+        self.assertNotIn("| 0001 |", records.render(linked))
+        self.assertIn("| 0004 | D | live | tools |\n", records.render(linked))
+        folder = tree({"elsewhere/0004-d.md": files["docs/decisions/0004-d.md"]})
+        (folder / "docs").mkdir()
+        (folder / "docs/decisions").symlink_to(folder / "elsewhere")
+        self.assertNotIn("| 0004 |", records.render(folder))
+        # It is printed, and nothing is written.
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertEqual(records.main([], linked), 0)
+        self.assertEqual(said.getvalue(), records.render(linked))
+        self.assertFalse((linked / "docs/records.md").exists())
+        # A path is read in either column of a row, and only as a path to a real folder here, linked to none; a command is no path.
+        odd = tree({"docs/decisions/0001-a.md": "# 0001. A\n\nStatus: accepted.\n\n## Decision\n\nX.\n\n## Why\n\nY.\n\n"
+                    "## Boundaries\n\n| Boundary | Check |\n|---|---|\n| b in `kernel/k.py` | `/etc/x`, `../x/y`, `./z/q`, `lent/x.py`, `adapters/a.py --all` |\n",
+                    "elsewhere/x.py": "", **dirs})
+        (odd / "lent").symlink_to(odd / "elsewhere")
+        self.assertIn("| 0001 | A | live | kernel |\n", records.render(odd))
+        # A record replaced by one that is not there heads its chain; a loop of records is followed once round.
+        loop = {"docs/decisions/0001-a.md": "# 0001. A\n\nStatus: replaced by `docs/decisions/0002-b.md`." + body % "`tools/x.py`",
+                "docs/decisions/0002-b.md": "# 0002. B\n\nStatus: replaced by `docs/decisions/0001-a.md`." + body % "`tools/x.py`",
+                "docs/decisions/0003-c.md": "# 0003. C\n\nStatus: replaced by `docs/decisions/0009-gone.md`." + body % "`tools/x.py`"}
+        self.assertTrue(records.render(tree({**loop, **dirs})).endswith("| 0001 | 0002 |\n| 0002 | 0001 |\n| 0009 | 0003 |\n"))
+        # A record whose Status cannot be read is unread, never live; a file not named by a number is no record; and
+        # a linked docs/ is not read.
+        other = tree({"docs/decisions/0001-a.md": "# 0001. A\n" + body % "`tools/x.py`",
+                      "docs/decisions/notes.md": files["docs/decisions/0004-d.md"], **dirs})
+        self.assertIn("| 0001 | A | unread |  |\n", records.render(other))
+        # A record not in UTF-8 is unread, as tools/check_decisions.py reads it; and a chain never ends at an unread record.
+        latin = tree({"docs/decisions/0001-a.md": "# 0001. A\n\nStatus: replaced by `docs/decisions/0002-b.md`." + body % "`tools/x.py`",
+                      "docs/decisions/0002-b.md": "", **dirs})
+        (latin / "docs/decisions/0002-b.md").write_bytes(("# 0002. Caf\xe9\n\nStatus: accepted." + body % "`tools/x.py`").encode("latin-1"))
+        self.assertIn("| 0002 | Caf\ufffd | unread |  |\n", records.render(latin))
+        self.assertNotIn("## Chains", records.render(latin))
+        # A title with no number loses only the mark before it; a path is read as the repo holds it, and one that leaves it names no area.
+        marked = tree({"docs/decisions/10000-e.md": "# #Tag title\n\nStatus: accepted."
+                    + body % "`tools/../kernel/k.py`, `tools/../../outside/x.py`, `adapters/..`", **dirs})
+        self.assertIn("| 10000 | #Tag title | live | kernel |\n", records.render(marked))
+        self.assertNotIn("notes", records.render(other))
+        above = tree({"elsewhere/decisions/0004-d.md": files["docs/decisions/0004-d.md"]})
+        (above / "docs").symlink_to(above / "elsewhere")
+        self.assertNotIn("| 0004 |", records.render(above))
+        # This repo's records all read, each to one row.
+        numbers = sorted(p.name.split("-", 1)[0] for p in (ROOT / "docs/decisions").glob("*.md"))
+        rows = records.render(ROOT).split("\n## Chains")[0].split("|---|---|---|---|\n")[1].splitlines()
+        self.assertEqual(sorted(row.split(" | ")[0][2:] for row in rows), numbers)
+        self.assertFalse(any(" | unread | " in row for row in rows))
 
 
 RECORD = ("# 0001. One thing\n\nStatus: accepted.\n\n## Decision\n\nWe do one thing.\nAnd only that.\n\n"
