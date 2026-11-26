@@ -97,7 +97,7 @@ ROLE, PERSON, PORT, SUPERSEDED = "role", "person", "port", "superseded"
 # Whose each code of the patch guard, the push guard and this port is: the Role's, counted as its attempt; a person's, a Hold on
 # the item, since the same commit reads the same way again; the port's, an environment fault; or none's, the Run
 # overtaken, `superseded`, where someone else wrote the work branch. GitHub's limit on the token has its own code, the
-# port's until a fault of its own defers the Runs that push (decision 9999). Every code is here,
+# port's until a fault of its own defers the Runs that push (decision 1252). Every code is here,
 # and none is read with a default: `WHOSE[code]`. A code's letters begin `push_`, `patch_` or `bundle_`: a test finds
 # every code of the three modules by them.
 WHOSE = {patch.UNREADABLE: ROLE, patch.NOT_APPLIED: ROLE, patch.NOT_A_FILE: ROLE, patch.PATH_TWIN: ROLE,

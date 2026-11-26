@@ -1,4 +1,4 @@
-# 9999. A rate limit on a push has its own code, and a write's 401 is the port's
+# 1252. A rate limit on a push has its own code, and a write's 401 is the port's
 
 Status: accepted. 2026-11-26, the Solution Architect; issue 838. Narrows decision 1225's write 4xx and decision 1222's `push_tree_unfetched`, by name.
 

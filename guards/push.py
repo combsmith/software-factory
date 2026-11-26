@@ -358,7 +358,7 @@ def seen(state, method, path, body, answer) -> tuple:
     if answer is not None and answer["status"] == LIMITED:
         return None, RATE_LIMITED
     # A write's 4xx is GitHub refusing it, but for a token expired; only no answer, or GitHub's own failure, is none
-    # (decisions 1225 and 9999).
+    # (decisions 1225 and 1252).
     if _unanswered(answer, NO_ANSWER if step == BRANCH_READ else NO_ANSWER_AFTER):
         return None, UNANSWERED
     status, got, push = answer["status"], answer["body"], state["push"]
