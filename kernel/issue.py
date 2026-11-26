@@ -1211,10 +1211,16 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     label = not_counted(facts, runs, config, state, reason)
     after = _after_labels(facts, runs, context, config, now, d, mine)
     if label is not None and not in_progress(mine):
-        if after["state"] == t.HELD and after["outcome"] == t.HOLD and after["reason"] != "act_ceiling":
+        if _run_holds(after):
             return after
         return _stop(facts, state, "label_not_counted", [label], context, REMOVE_LABEL, label=label)
     return after
+
+
+def _run_holds(d: dict) -> bool:
+    """Whether `d` holds the issue on the Run it wants: any Hold but the act ceiling's, which binds no act that stops
+    work (issue 1216)."""
+    return d["state"] == t.HELD and d["outcome"] == t.HOLD and d["reason"] != "act_ceiling"
 
 
 def _after_labels(facts: dict, runs: list, context: dict, config: dict, now: str, d: dict, mine: list) -> dict:

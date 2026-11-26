@@ -3385,11 +3385,10 @@ MUTANTS = ISSUE + OUTSIDE + [
      ISSUE_PERSON_RUN),
     # Issue 1216: a Hold the Run wanted places is read before an uncounted label's removal, which waits for the release.
     ("an uncounted label is removed before an issue's Hold", 'kernel/issue.py',
-     '        if after["state"] == t.HELD and after["outcome"] == t.HOLD and after["reason"] != "act_ceiling":\n'
-     '            return after\n', '', HOLD_BEFORE_LABEL),
+     '        if _run_holds(after):\n            return after\n', '', HOLD_BEFORE_LABEL),
     ("the act ceiling keeps an uncounted label", 'kernel/issue.py',
-     ' and after["outcome"] == t.HOLD and after["reason"] != "act_ceiling":\n',
-     ' and after["outcome"] == t.HOLD:\n',
+     '    return d["state"] == t.HELD and d["outcome"] == t.HOLD and d["reason"] != "act_ceiling"\n',
+     '    return d["state"] == t.HELD and d["outcome"] == t.HOLD\n',
      ('tests.test_issue.RemoveLabel.test_removing_a_label_is_stopped_by_the_pause_and_waits_for_a_run_in_flight',)),
     ("any Run of the Role that ended person holds the item", 'kernel/derive.py',
      'return sorted(r["run"] for r in last if r.get("outcome") == t.ENDED_PERSON)[:1]',
