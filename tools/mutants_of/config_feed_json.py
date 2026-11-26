@@ -2,6 +2,11 @@
 
 TARGETS = ("config/feed.json",)
 MUTANTS = [
+    # Issue 838: a Run that ended on a person's code holds its item, and a person is asked what attempts_exhausted asks.
+    ("a person is asked another question of a Run that ended person", "config/feed.json",
+     '"reason": "run_needs_person",\n      "question": "allowance_spent",\n      "choices": [\n        "renew_allowance",\n        "close"\n',
+     '"reason": "run_needs_person",\n      "question": "allowance_spent",\n      "choices": [\n        "close"\n',
+     ("tests.test_decide.Ceilings.test_a_run_that_ended_person_holds_the_item_and_calls_a_person_and_spends_no_attempt",)),
     # Issue 757: a Role's Run that ended environment or never started is counted apart from the Run ceiling.
     ("a person at the bound apart is asked another question", "config/feed.json",
      '"reason": "environment_ceiling",\n      "question": "allowance_spent",\n      "choices": [\n        "renew_allowance",\n        "close"\n',

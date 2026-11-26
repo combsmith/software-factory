@@ -13,8 +13,13 @@ The pull requests that close the issue are read by `adapters/linked.py`, after t
 `linked` as it lists them, each with its keyword spans from the pass records before this pass, and `complete.linked`
 true only where it reads the list and the spans whole, or as that port says where the records break their chain
 (decision 0186). The issue is read once more after them, and refused if it moved, and `read_at` is taken after that: no
-earlier than the closing references are read. Not read yet, and said so: `branch_head`, which needs the count of pull requests
-the Factory opened for the issue, is null. `base_head`, the default branch's head, is read once for each repo in a pass
+earlier than the closing references are read. `branch_head`, the head of the branch the next opening Run would push to,
+is read by `adapters/branches.py` after them: a commit, or null where that branch does not stand, and `complete.branch`
+true only where one of the two was read; false, with a null head, where it was not, the count of pull requests the
+Factory opened for the issue among it (decision 0242, issue 1059). Where a commit stands there, `branch_pushed` tells
+whether an earlier opening Run of the issue recorded pushing it to that branch, by `adapters/applied.py`'s `landed`
+(decision 1208), read only then: true or false, a record past its retention, or none from a Run that did not succeed, false; where those records
+cannot be read whole, the branch is not told, and the head is null. Where no branch stands, it is null. `base_head`, the default branch's head, is read once for each repo in a pass
 by `default_head`, and left out where it could not be read (decisions 0226 and 0242). `complete.runs` is true: the pass
 puts the records port's answer in its place (`controller/pass_.py`'s `asked`), and false here would leave every issue
 unreadable.
@@ -27,7 +32,7 @@ import pathlib
 import re
 import urllib.parse
 
-from adapters import effects, facts, linked, timeline
+from adapters import applied, branches, effects, facts, linked, timeline
 from adapters.github import Unanswered, raw, request
 from kernel import gate
 from tools.jsonschema_lite import validate
@@ -226,7 +231,7 @@ def default_head(transport, repo: str):
 
 
 def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=facts._utc, *, identities: dict,
-         earlier, controller=None, kernel=None, base_head=None) -> tuple:
+         earlier, controller=None, kernel=None, base_head=None, opener=None, runs=None, role=None) -> tuple:
     """`(facts, title)`: `issue-facts/1` for one issue of `repo`, held to its schema, and its title beside the facts,
     never in them, for the view alone. `accounts` tells who acted, the Factory's Apps among them, `identities` the class's
     accounts of a pull request that closes it (`adapters/pull.own`), `earlier` the pass records before this pass, oldest
@@ -234,7 +239,11 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
     Controller's App's account, `(id, type)`: the issue it opened as its tracking issue is refused, `Tracking`, at its
     first read, before any other is sent (decision 0233). `kernel`, the Kernel's configuration, says whether the
     Factory's linked draft's checks are read (`adapters/draft_checks.py`). `base_head` is the pass's `default_head`:
-    None leaves the fact out, unread, and the opening Run of a branch that does not exist defers (decision 0226)."""
+    None leaves the fact out, unread, and the opening Run of a branch that does not exist defers (decision 0226).
+    `opener` is the account of the App that opens the Factory's pull requests, `adapters/facts.py`'s `opener_of`, which
+    names the work branch; with none, the branch is not told (`adapters/branches.py`). `runs` is the records port's list
+    and `role` the Role that opens pull requests, whose opening Runs' records tell whether a head that stands is one
+    the Factory pushed (`adapters/applied.landed`)."""
     issue = own(transport, repo, number)
     if tracking(issue, controller):
         raise Tracking("issue %d of %s is the Controller's tracking issue" % (number, repo))
@@ -256,6 +265,12 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
     # Read whatever the timeline's bound did: a record not whole still opens a span for each keyword it read (0186).
     closing, closing_whole, linked_cut, broken = linked.read(transport, repo, number, edited["updated_at"],
                                                      lived["life_started_at"], identities, accounts, earlier, kernel)
+    branch_head, branch_whole, branch = branches.work_head(transport, repo, number, opener)
+    pushed = None
+    if branch_head is not None:
+        shas, pushed_whole = applied.landed(transport, repo, runs, role, number, branch)
+        pushed = branch_head in shas if pushed_whole else None
+        branch_head, branch_whole = (branch_head, branch_whole) if pushed_whole else (None, False)
     # A merge may have closed it since: read once more, as `adapters/pull.unchanged` does.
     if _field(own(transport, repo, number), "updated_at") != _field(issue, "updated_at"):
         raise facts.Moved("the issue changed while its pull requests were read; it is read again at the next pass")
@@ -277,8 +292,10 @@ def read(transport, repo: str, number: int, accounts: timeline.Accounts, clock=f
         "last_writer_action_at": writer["last_writer_action_at"],
         "last_writer_comment_at": said,
         "acts_since_writer": writer["acts_since_writer"],
-        "branch_head": None,
-        "complete": {"timeline": whole and edited["whole"], "linked": closing_whole, "runs": True},
+        "branch_head": branch_head,
+        "branch_pushed": pushed,
+        "complete": {"timeline": whole and edited["whole"], "linked": closing_whole, "runs": True,
+                     "branch": branch_whole},
         "timeline_bounded": cut or linked_cut,
         "spans_broken": broken,
         "read_at": now,

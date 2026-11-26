@@ -76,11 +76,13 @@ REASONS = frozenset({
     "last_pusher_unreadable", "max_rounds", "mergeable_unreadable", "merged", "model_lens_input_needs_person",
     "outside_not_admitted", "path_needs_person", "paths_unreadable", "pause_unreadable", "paused",
     "proposals_await_owner", "protected_paths_unreadable", "resolve_due", "review_unreadable", "run_ceiling",
+    "run_needs_person",
     "timeline_bounded",
     "run_unidentified", "run_unreadable", "runs_unnamed", "thread_unreadable", "too_large",
 })
 ISSUE_REASONS = frozenset({
-    "acceptance_due", "acceptance_lapsed", "author_unreadable", "base_unreadable", "branch_unreadable",
+    "acceptance_due", "acceptance_lapsed", "author_unreadable", "base_unreadable", "branch_not_pushed",
+    "branch_unreadable",
     "closed_by_outsider_merge", "comments_unreadable", "content_unreadable", "draft_checks_unreadable",
     "intent_undeclared", "intents_share_a_role", "intents_share_an_app", "intents_unreadable", "issues_unreadable",
     "judged", "label_not_counted", "left_out", "life_unreadable", "limits_unreadable", "linked_draft", "linked_ready",
@@ -191,6 +193,11 @@ LABEL_CONTRACT = "factory:contract"
 # binds the pull request to that issue, never its body. Not under `factory/`, the tags' namespace: a branch never shares
 # a short name with a tag.
 WORK_BRANCH = r"factory-work/issue-([1-9][0-9]*)-([1-9][0-9]*)"
+# Its name up to the issue, for the Kernel, which reads no pattern: the issue and the count follow, joined by a dash.
+WORK_PREFIX = "factory-work/issue-"
 
 # The conclusions of a Run that ran and did not report: with no outcome, it is the item's, an attempt (issue 286).
 RAN_AND_DIED = ("failure", "timed_out")
+# The fault of a Run that ended on a code only a person can mend, such as a file the port will never be given: the same
+# commit ends the same way again (issue 838). The code itself stays in the Run's outcome; the Kernel reads no code.
+ENDED_PERSON = "person"

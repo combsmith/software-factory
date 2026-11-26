@@ -68,6 +68,14 @@
       ]
     },
     {
+      "reason": "run_needs_person",
+      "question": "allowance_spent",
+      "choices": [
+        "renew_allowance",
+        "close"
+      ]
+    },
+    {
       "reason": "run_ceiling",
       "question": "allowance_spent",
       "choices": [
@@ -149,6 +157,14 @@
       "question": "fact_unreadable",
       "choices": [
         "fix_the_source"
+      ]
+    },
+    {
+      "reason": "branch_not_pushed",
+      "question": "branch_not_pushed",
+      "choices": [
+        "fix_the_source",
+        "close"
       ]
     },
     {
@@ -507,11 +523,12 @@
     "resolve_due": "A reviewer's thread is settled; the Factory resolves it next.",
     "review_unreadable": "A review on it could not be read; a person checks why.",
     "run_ceiling": "It has used every run it is allowed; a person decides whether to renew them.",
+    "run_needs_person": "Its last run ended on something only a person can fix; a person decides whether to try again.",
     "run_unidentified": "A recent job is not yet matched to its item; the Factory waits before starting another.",
     "run_unreadable": "A run's record could not be read or contradicts itself; a person checks why.",
     "runs_unnamed": "Too many recent jobs are not matched to their items; the Factory waits.",
     "thread_unreadable": "A review thread could not be read; a person checks why.",
-    "timeline_bounded": "It is commented past what the Factory reads; a person checks it.",
+    "timeline_bounded": "It is commented on or reviewed past what the Factory reads; a person checks it.",
     "too_large": "It is too large to review whole; a person splits it or closes it."
   }
 }

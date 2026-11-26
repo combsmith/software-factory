@@ -33,6 +33,18 @@ def runs_on(runs: list, facts: dict) -> list:
     return sorted(mine, key=lambda r: r["started_at"])
 
 
+def needs_person(runs: list, role: str) -> list:
+    """The Run that holds the item for a person, as a list of its id, or none: the latest completed Run of `role` among
+    `runs`, oldest first, ended `person` (issue 838); of two started in its second, either, since no order is read
+    between them, the least id named. A Run superseded, or cancelled with no outcome, ran nothing on the commit and is passed over. It is
+    no attempt and no Run that spent no model; the Runs given start after a writer's action, so that action releases
+    it, as it renews the attempts."""
+    done = [r for r in runs if r["role"] == role and r["status"] == "completed" and r.get("outcome") != "superseded"
+            and not (r.get("outcome") is None and r["conclusion"] == "cancelled")]
+    last = [r for r in done if r["started_at"] == done[-1]["started_at"]] if done else []
+    return sorted(r["run"] for r in last if r.get("outcome") == t.ENDED_PERSON)[:1]
+
+
 def since_writer(runs: list, facts: dict) -> list:
     """Runs started after the last action by a person with write access."""
     mark = facts.get("last_writer_action_at")
@@ -862,8 +874,16 @@ def standing_labels(facts: dict) -> dict:
 
 def timeline_short(facts: dict) -> bool:
     """Whether the timeline was not read whole: its flag not exactly true, or the port says it cut it at its bound, or
-    says so in a form that is no truth value, whatever `complete.timeline` claims (decision 1149)."""
+    says so in a form that is no truth value, whatever `complete.timeline` claims (decision 1149). The flag says a
+    cut of the reviews too, which is read so as well: the side that acts on nothing (decision 1150)."""
     return "timeline" in incomplete(facts) or facts.get("timeline_bounded", False) is not False
+
+
+def cut_reads(facts: dict) -> list:
+    """The reads `timeline_bounded` speaks for: the pull request's own timeline and its reviews, those of them not read
+    whole, or both where each claims to be, in the lists' order (decision 1150)."""
+    short = incomplete(facts)
+    return [name for name in ("reviews", "timeline") if name in short] or ["reviews", "timeline"]
 
 
 def hands_off(facts: dict, config: dict) -> bool:
@@ -1243,12 +1263,13 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
         return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}
     # Its own timeline cut at the port's bound does the same: anyone can comment on a pull request (issue 1009).
     if facts.get("timeline_bounded") is True:
-        return {"state": None, "reason": "timeline_bounded", "evidence": ["timeline"]}
+        return {"state": None, "reason": "timeline_bounded", "evidence": cut_reads(facts)}
     gaps = incomplete(facts)
     if facts.get("acceptance_bounded", False) is not False and "acceptance" not in gaps:
         gaps = ["acceptance"] + gaps
-    if facts.get("timeline_bounded", False) is not False and "timeline" not in gaps:
-        gaps = gaps + ["timeline"]
+    if facts.get("timeline_bounded", False) is not False:
+        cut = cut_reads(facts)
+        gaps = [name for name in t.READ_IN_FULL if name in gaps or name in cut]
     if gaps:
         return {"state": None, "reason": "facts_incomplete", "evidence": gaps}
     if not readable_expired(facts):

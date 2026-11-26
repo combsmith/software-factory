@@ -30,6 +30,8 @@ RAW = {
     "adapters.acceptance.closing": {"pull_requests": R, "issues": R},   # a pull request's closing issues
     "adapters.acceptance.labelled": {"issues": R},
     "adapters.artifacts._listed": {"actions": R}, "adapters.artifacts.read": {"actions": R},
+    # A work branch's pull requests, by the head filter, then the next opening's branch by its ref (issue 1059).
+    "adapters.branches._opened": {"pull_requests": R}, "adapters.branches.work_head": {"contents": R},
     # The head's rollup, with each check suite's App and workflow run, and the pull request's place in the queue.
     "adapters.checks._read": {"pull_requests": R, "checks": R, "actions": R},
     "adapters.edits.last_edited_at": {"pull_requests": R},
@@ -61,6 +63,7 @@ RAW = {
     "adapters.records._list": {"actions": R},
     "adapters.rules._file_at": {"contents": R},                        # a file at the base: what a push may not touch
     "adapters.seen._check_runs": {"pull_requests": R, "checks": R},    # the pull request's head, then its checks
+    "adapters.seen._page": {"issues": R, "pull_requests": R},         # a timeline's page, read back to since (1009)
     "adapters.seen._threads": {"pull_requests": R},
     "adapters.seen._state": {"issues": R},                            # an issue that left, by its own read (0235)
     "adapters.seen.repo_read": {"metadata": R},                       # the repo itself, before a deleted issue ends (1145)
@@ -79,6 +82,8 @@ SITES = {
     "adapters.acceptance.labelled": 1,
     "adapters.artifacts._listed": 1,
     "adapters.artifacts.read": 1,
+    "adapters.branches._opened": 1,
+    "adapters.branches.work_head": 1,
     "adapters.checks._read": 1,
     "adapters.edits.last_edited_at": 1,
     "adapters.effects._check": 3,
@@ -120,6 +125,7 @@ SITES = {
     "adapters.records._list": 1,
     "adapters.rules._file_at": 1,
     "adapters.seen._check_runs": 2,
+    "adapters.seen._page": 1,
     "adapters.seen._state": 1,
     "adapters.seen._threads": 1,
     "adapters.seen.repo_read": 1,

@@ -1,22 +1,39 @@
-"""A Role's patch, read as `git diff` writes it (issue 838; FR-14; decision 0188's residual, "the push's write must
-land exactly that patch, and no other bytes"). What applies the patch that is read here is still to come.
+"""A Role's patch, applied byte for byte to the files it names (issue 838; FR-14; decision 0188's residual, "the push's
+write must land exactly that patch, and no other bytes").
 
-`read(patch)` gives a patch's sections, or None for what it does not read. It reads a narrower patch than
-`harness/bundle.py` does, on purpose, and what it does not read it refuses: a name is read one way only, unquoted, of
-the characters `NAME_CHARS` holds, with no space, so the header alone names both files and every other line that names
-one must agree with it; and of no more parts than `DEEPEST` bounds. `named(path)` is that reading of a name, for text.
-A section's extended lines stand in the order git writes them, and a change of mode is a file's between its two modes.
-No path is on the new side of two sections: git writes a change of a file's type as a removed file and a new one at one
-path, and that is not read. A path a section renames or removes is named by no later section, on either side, and a
-path a section makes, as a new file or a rename's or a copy's, is no later section's old side; a copy's source alone
-may be named again, as `git diff -C` writes a copy and then a rename of one file, and a file changed in place is
-copied after, never renamed. No file made stands where another needs a directory. A section's hunks are as git writes
-them: in their order and apart, each new side where the hunks before it put it, each changing something, under an
-index line; and a rename's or a copy's below 100% alike, and at it where lines only moved.
+`applied(patch, tree, contents)` gives what a push writes: each path's new bytes and mode, and each path it removes, or
+the one reason, a code, why nothing may land. Nothing is searched for and nothing is guessed: a hunk's lines are the
+file's lines at the place the hunk names, or the patch is not this tree's. So what lands is what the patch says, of the
+commit the Decision admitted, and of no other. `git apply` is looser, even with `--unidiff-zero`, and is no stand-in
+for this: where a hunk's lines are not at the place its header names, git searches up and down the file and lands them
+where they read alike; and it joins a new line with no newline at its end to the line that follows it. Here both are
+refused.
+
+It reads a narrower patch than `harness/bundle.py` does, on purpose, and what it does not read it refuses:
+- a name is read one way only: unquoted, of the characters `NAME_CHARS` holds, with no space, so the header alone
+  names both files and every other line that names one must agree with it; and of no more parts than `DEEPEST` bounds;
+- a file is a file: a link, a submodule, a path under a file, and a mode other than a file's two are refused; where a
+  file stands is asked of the tree the push leaves, so a file removed or moved away leaves its place;
+- no file is written where it, or a directory above it, differs by case, canonical form or a character macOS passes
+  over alone from another path the push leaves, as macOS reads names (`_folded`);
+- no file is written twice or copied twice, and none is written where the tree holds one the patch does not say it
+  changes;
+- a section's extended lines stand in the order git writes them, and a change of mode is a file's between its two
+  modes;
+- a section's hunks are as git writes them: in their order and apart, each new side where the hunks before it put
+  it, each changing something, under an index line; and a rename's or a copy's below 100% alike, and at it where lines only moved;
+- no path is on the new side of two sections: git writes a change of a file's type as a removed file and a new one at
+  one path, and that is not read. A path a section renames or removes is named by no later section, on either side,
+  and a path a section makes, as a new file or a rename's or a copy's, is no later section's old side; a copy's source
+  alone may be named again, as `git diff -C` writes a copy and then a rename of one file, and a file changed in place
+  is copied after, never renamed. No file made stands where another needs a directory.
 
 An index line's hashes and how alike a rename or a copy says its files are, are read for their form alone, the second
 for whether it is 100% too, and nothing trusts them: what a patch lands is its hunks applied to the bytes it names,
 and a section whose hashes differ but that has no hunk changes no bytes.
+
+`tree` is every path the admitted commit holds that is not a directory, with its mode as git writes it; `contents` is
+the bytes of each path `sources` names. Both are the port's reads (`adapters/push.py`); this reads nothing itself.
 """
 from __future__ import annotations
 
@@ -42,6 +59,14 @@ INDEX = b"index "
 # The one change of mode git writes in place: a file made runnable, or no longer. A change of a file's type it writes as
 # a removed file and a new one.
 PLAIN_MODES = (b"100644", b"100755")
+# A file's two modes. A link's, 120000, and a submodule's, 160000, are no file's: such a change is a person's to push.
+FILE_MODES = ("100644", "100755")
+# The modes of what a tree holds that is no directory: a file's two, a link's and a submodule's.
+TREE_MODES = ("100644", "100755", "120000", "160000")
+# The first and the last surrogate: no text a name is decoded to holds one alone.
+SURROGATES = ("\ud800", "\udfff")
+# A submodule's mode: what it names is a commit of another repository, with no bytes here to read.
+SUBMODULE = "160000"
 DIGITS = b"0123456789"
 HEX = b"0123456789abcdef"
 # A hash of more characters than this, a SHA-256 name in full, is no hash git writes; nor is one of fewer than this,
@@ -65,6 +90,11 @@ GIT_SHORT = "git~"
 MODES = (b"100644", b"100755", b"120000", b"160000")
 NUL = b"\x00"
 
+UNREADABLE = "bundle_unreadable"        # no patch this reads: the Role's, as decision 0188 has it
+NOT_APPLIED = "patch_does_not_apply"    # a patch, but not of the admitted commit's files
+NOT_A_FILE = "push_not_a_file"          # it writes what is no file, or through one
+PATH_TWIN = "push_path_collision"      # it writes a path another it leaves differs from by case, form or an ignorable alone
+TREE_UNREAD = "push_tree_unreadable"    # the port's reads are in no shape this reads: a person's Hold
 
 
 def _number(said):
@@ -352,3 +382,210 @@ def read(patch):
         sections.append(found[0])
         i = found[1]
     return sections if _apart([s["new"] for s in sections if s["kind"] != "deleted"]) else None
+
+
+def sources(patch):
+    """The paths whose bytes the patch is applied to, each once, in its order, or None for a patch this does not read:
+    every file a section changes, removes, renames or copies. A new file has none."""
+    sections = read(patch)
+    if sections is None:
+        return None
+    out, named = [], {}
+    for section in sections:
+        if section["kind"] != "new" and section["old"] not in named:
+            named[section["old"]] = True
+            out.append(section["old"])
+    return out
+
+
+def content(old: bytes, hunks: list):
+    """The bytes a file holds once `hunks`, a section's as `read` gives them, are applied to `old`, or None where they
+    are not this file's. Each hunk stands where its header says, and each line of its old side is the file's line
+    there, byte for byte; `read` has held the hunks to their order and each new side to where the hunks before it put
+    it. git's marker stands on the file's last line exactly where that line has no newline at its end, and on a new
+    line only where nothing follows it: `read` gives a marker in a section's last hunk alone, and here no line of the
+    file follows that hunk's. An `old` that is no bytes is no file's content, an empty one's least of all, and nor is
+    a subclass of bytes, whose own methods would be read: None.
+    `hunks` are `read`'s own, and no other shape is asked for."""
+    if type(old) is not bytes:
+        return None
+    held = old.split(b"\n") if old else []
+    bare = bool(old) and not old.endswith(b"\n")
+    if held and not bare:
+        held.pop()
+    last = len(held) - 1
+    out, cursor, open_end = [], 0, False
+    for hunk in hunks:
+        count = hunk["old_count"]
+        at = hunk["old_start"] - 1 if count else hunk["old_start"]
+        if at + count > len(held):
+            return None
+        if at > cursor:
+            out += held[cursor:at]
+            open_end = bare and at > last
+        for line in hunk["lines"]:
+            if line["sign"] != b"+":
+                if held[at] != line["text"] or line["bare"] != (bare and at == last):
+                    return None
+                at += 1
+            if line["sign"] != b"-":
+                if open_end:
+                    return None
+                out.append(line["text"])
+                open_end = line["bare"]
+        cursor = at
+    if cursor < len(held):
+        if open_end:
+            return None
+        out += held[cursor:]
+        open_end = bare
+    if not out:
+        return b""
+    return b"\n".join(out) + (b"" if open_end else b"\n")
+
+
+# The two characters whose canonical decomposition is one of `NAME_CHARS`, though case folding leaves them as they are.
+# No other character's decomposition, folded in case and decomposed again, is ASCII where its case folding is not.
+CANONICAL = (("\u037e", ";"), ("\u1fef", "`"))
+# The characters macOS's file systems pass over in a name, as Unicode 13.0 lists them: its Default_Ignorable_Code_Point
+# ranges, first and last, in order. Apple's own table is not this one, and is untested: HFS+ drops fewer.
+IGNORABLE = (("\u00ad", "\u00ad"), ("\u034f", "\u034f"), ("\u061c", "\u061c"), ("\u115f", "\u1160"), ("\u17b4", "\u17b5"),
+             ("\u180b", "\u180e"), ("\u200b", "\u200f"), ("\u202a", "\u202e"), ("\u2060", "\u206f"), ("\u3164", "\u3164"),
+             ("\ufe00", "\ufe0f"), ("\ufeff", "\ufeff"), ("\uffa0", "\uffa0"), ("\ufff0", "\ufff8"),
+             ("\U0001bca0", "\U0001bca3"), ("\U0001d173", "\U0001d17a"), ("\U000e0000", "\U000e0fff"))
+
+
+def _folded(name: str) -> str:
+    """`name` as a file system that ignores case and canonical form reads it, as macOS's does: decomposed, folded in
+    case, and decomposed again. guards/ imports nothing, so no table of decompositions is at hand. But every name a
+    patch writes, and each directory above it, is of `NAME_CHARS`, which are ASCII, and two names are one only where
+    both fold to it. So it is enough to fold each name exactly where its fold is ASCII: case folding, and the two
+    characters `CANONICAL` holds, do that. A test reads every character against the real fold. A character `IGNORABLE`
+    holds is then dropped, as macOS passes over it: `a\u200c.py` is `a.py` there."""
+    folded = name.casefold()
+    for form, plain in CANONICAL:
+        folded = plain.join(folded.split(form))
+    # A name of no character as high as the table's first holds none it names: most names, read without the table.
+    if not folded or max(folded) < IGNORABLE[0][0]:
+        return folded
+    return "".join(c for c in folded if not any(first <= c <= last for first, last in IGNORABLE))
+
+
+def _above(path: str) -> list:
+    """Each directory `path` stands under, the nearest last."""
+    names = path.split("/")
+    return ["/".join(names[:n]) for n in range(1, len(names))]
+
+
+def _placed(path: str, tree: dict, folders: dict) -> bool:
+    """Whether `path` can be a file in `tree`, whose directories are `folders`: nothing above it is a file, and it is no
+    directory there."""
+    return not any(part in tree for part in _above(path)) and path not in folders
+
+
+def _handed(tree, contents) -> bool:
+    """Whether `tree` and `contents` are in a shape a port gives. A tree is a mapping of paths, as text, to the modes
+    git writes of what is no directory. No path of it has more parts than `DEEPEST` has characters, as no name this
+    reads has; nor an empty part, a `.` or `..` part, git's own directory in any case, or a NUL, which git holds in no
+    tree; and none is a directory to another. Contents are a mapping of paths the tree holds, none a submodule, to
+    bytes. Each is of its type exactly: a subclass of
+    `dict`, `str` or `bytes` would be read by its own methods. Each pair is read as it stands, and no key is looked up
+    until every key is known to be plain text, since a lookup compares keys."""
+    if type(tree) is not dict or type(contents) is not dict:
+        return False
+    if not all(type(path) is str and type(mode) is str and mode in TREE_MODES for path, mode in tree.items()):
+        return False
+    # A bound on depth, asked before a path is split, bounds what is built of each path here and in `_above`.
+    if not all(path.count("/") < len(DEEPEST) for path in tree):
+        return False
+    if not all(all(part not in ("", ".", "..") and part.casefold() != GIT_OWN for part in path.split("/"))
+               and str(NUL, "ascii") not in path for path in tree):
+        return False
+    # A surrogate, alone, is no character of a name git holds, as UTF-8 or as any other text a port decodes.
+    if any(SURROGATES[0] <= c <= SURROGATES[1] for path in tree for c in path):
+        return False
+    if not all(type(path) is str and type(said) is bytes for path, said in contents.items()):
+        return False
+    if not all(path in tree and tree[path] != SUBMODULE for path in contents):
+        return False
+    return not any(part in tree for path in tree for part in _above(path))
+
+
+def applied(patch, tree: dict, contents: dict) -> tuple:
+    """`(changes, None)`, or `(None, reason)` where nothing may land. `changes` is `{"written": {path: (mode, bytes)},
+    "removed": [path], "read": [path]}`: what the push writes, what it removes, and what a rename or a copy read, each
+    path once; `harness/apply.py`'s `push_refusal` is asked about what was read as it is about what is written.
+    A tree or contents in no shape a port gives, and a file the tree holds whose bytes it did not hand over, hold the
+    item for a person, under its own code: never the Role's attempt, nor the environment's fault, since the admitted
+    commit is read the same way again. Every other reason is the Role's."""
+    if not _handed(tree, contents):
+        return None, TREE_UNREAD
+    sections = read(patch)
+    if sections is None:
+        return None, UNREADABLE
+    # A file the patch reads, of the tree, whose bytes were not handed over is a person's, whatever else is wrong
+    # with the patch, and in whatever order its sections stand.
+    if any(tree.get(s["old"]) in FILE_MODES and s["old"] not in contents for s in sections if s["kind"] != "new"):
+        return None, TREE_UNREAD
+    written, removed, taken, copied = {}, [], {}, {}
+    for section in sections:
+        kind, old, new = section["kind"], section["old"], section["new"]
+        # A copy writes a file's bytes again: one copy of a file to a patch, so what lands is bounded by what was read.
+        if kind == "copy" and old in copied:
+            return None, UNREADABLE
+        if kind == "new":
+            before, mode = b"", section["new_mode"]
+            if new in tree:
+                return None, NOT_APPLIED
+        else:
+            mode = tree.get(old)
+            if mode is None:
+                return None, NOT_APPLIED
+            if mode not in FILE_MODES:
+                return None, NOT_A_FILE
+            before = contents[old]
+            if section["old_mode"] not in (None, mode) or section["index_mode"] not in (None, mode):
+                return None, NOT_APPLIED
+            if kind in ("rename", "copy") and new in tree:
+                return None, NOT_APPLIED
+            mode = section["new_mode"] or mode
+        if mode not in FILE_MODES:
+            return None, NOT_A_FILE
+        # A section of no hunk leaves the bytes as they are: the same bytes, not a copy of them.
+        after = content(before, section["hunks"]) if section["hunks"] else before
+        if after is None or (kind == "deleted" and after != b""):
+            return None, NOT_APPLIED
+        if kind in ("deleted", "rename"):
+            removed.append(old)
+        if kind == "deleted":
+            continue
+        written[new] = (mode, after)
+        if kind in ("rename", "copy"):
+            taken[old] = True
+        if kind == "copy":
+            copied[old] = True
+    # Where a file may stand is asked of the tree the push leaves: a file removed or moved away leaves its place, as
+    # git writes a file made where one was removed, and a directory whose every file left is no directory.
+    gone = {path: True for path in removed}
+    left = {path: mode for path, mode in tree.items() if path not in gone}
+    folders = {}
+    for path in left:
+        for part in _above(path):
+            folders[part] = True
+    for path in written:
+        if not _placed(path, left, folders):
+            return None, NOT_A_FILE
+    # Nor may a file written, or a directory above it, differ by case, canonical form or an ignorable character alone
+    # from another path or directory the push leaves: where those are not told apart, as on macOS's default file
+    # system, git checks both out as one. A file renamed to its own name in another case leaves its old name, and lands.
+    cases, twins = {}, {}
+    for path in list(left) + list(written):
+        for name in _above(path) + [path]:
+            key = _folded(name)
+            if cases.get(key, name) != name:
+                twins[key] = True
+            cases[key] = name
+    for path in written:
+        if any(_folded(name) in twins for name in _above(path) + [path]):
+            return None, PATH_TWIN
+    return {"written": written, "removed": removed, "read": list(taken)}, None

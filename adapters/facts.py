@@ -87,10 +87,13 @@ def _snapshot(transport, repo, number, identities, accounts, runs_whole, clock, 
     part[0] = "paths"
     paths = pull.changed_paths(transport, first, branch["head"])
     part[0] = "timeline"
-    events, timeline_whole = timeline.events(transport, first)
+    events, timeline_whole, timeline_cut = timeline.bounded(transport, first)
     raw["events"] = (events, timeline_whole)
     part[0] = "reviews"
-    reviews, reviews_whole = timeline.reviews(transport, first, events, accounts, branch["head"], raw)
+    reviews, reviews_whole, reviews_cut = timeline.reviews(transport, first, events, accounts, branch["head"], raw,
+                                                           timeline_whole)
+    # What was cut at its bound, for the seen port, which reads those lists again from their end (issue 1009).
+    raw["cut"] = {"events": timeline_cut, "reviews": reviews_cut}
     part[0] = "writer"
     writer = timeline.since_writer(events, accounts)
     part[0] = "labels"
@@ -135,8 +138,7 @@ def _snapshot(transport, repo, number, identities, accounts, runs_whole, clock, 
         "acceptance": contract,
         "opened_for": acceptance.opened_for(first, opener, opened),
         "acceptance_bounded": contract_cut,
-        # The pull request's own timeline and reviews are read whole, never cut at a bound, as yet (issue 1009).
-        "timeline_bounded": False,
+        "timeline_bounded": timeline_cut or reviews_cut,
         "complete": {"acceptance": contract_whole, "reviews": reviews_whole, "threads": threads_whole,
                      "checks": read["complete"], "diff": content["complete"],
                      "changed_paths": paths["complete"], "runs": runs_whole is True, "timeline": timeline_whole},

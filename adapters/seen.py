@@ -4,8 +4,9 @@ identity matched to a recorded Effect (I-33)", issue 306).
 
 `read(transport, item, kept, identities, apps, since)` gives them for one item. A pull request's reviews, timeline,
 review threads and the check runs on its head are what the facts port already read in the same pass, kept by the
-snapshot of `adapters/facts.py`, so no read is made twice; a pull request whose snapshot could not be read has
-nothing kept, and what was seen of it is short. An issue's timeline is read here. Each item's comments since `since`
+snapshot of `adapters/facts.py`, so no read is made twice, but a timeline it cut at its bound, which is read here
+again from its end; a pull request whose snapshot could not be read has nothing kept, and what was seen of it
+is short. An issue's timeline is read here, from its end. Each item's comments since `since`
 are read here, with the Controller's App. `pushes(transport, repo, approver, since)` reads the repo's activity by the machine user.
 
 Each write is told by the account that made it, by id and type, never a login's spelling (`identities`,
@@ -73,14 +74,102 @@ ACTIVITY = {"push": "push", "force_push": "force_push", "branch_creation": "bran
 # the end of the issue only where the same token read its repo in the same pass; else access may be what was lost, and
 # what was seen is short. A transfer's 301 is not among them: the transport keeps no redirect's code (decision 0235).
 ENDED = (404, 410)
+# The last page a list's link header names, as trials/P-43.json recorded one: `<...&page=12>; rel="last"`.
+LAST = re.compile(r'<[^>]*[?&]page=([0-9]+)[^>]*>;\s*rel="last"')
 
 
 def _pages(transport, path: str) -> tuple:
-    """Every item of a list GitHub gives page by page, and whether it was read whole; nothing, not whole, if not."""
+    """Every item of a list GitHub gives page by page, to `timeline.BOUND` pages, and whether it was read whole. Past
+    the bound it is the items read and not whole; a page not answered is nothing and not whole. Anyone can comment, so
+    what was seen of a list past the bound is short, never silent (issue 1009, decision 0234). It serves the comments,
+    which GitHub gives from `since` on."""
     try:
-        return timeline._pages(transport, path)
+        items, whole, _ = timeline._paged(transport, path, timeline.BOUND)
+        return items, whole
     except (Unanswered, KeyError, TypeError):
         return [], False
+
+
+def _page(transport, path: str, page: int) -> tuple:
+    """`(items, link)` of one page of a list: refused where GitHub answers anything but a list."""
+    answer = transport.send(request("GET", path if page == 1 else "%s&page=%d" % (path, page)))
+    if answer["status"] != 200 or not isinstance(answer["body"], list):
+        raise Unanswered("%s answered %d" % (path.split("?")[0], answer["status"]))
+    return answer["body"], str((answer.get("headers") or {}).get("link", ""))
+
+
+def _before(items: list, since: str) -> bool:
+    """Whether a page holds an item from before `since`, by its `created_at` or `submitted_at`: only a moment that can
+    be read counts, so one that cannot never says the read reached `since` (Astra)."""
+    for item in items:
+        one = _object(item)
+        at = one.get("submitted_at") if one.get("event") == "reviewed" else one.get("created_at")
+        if isinstance(at, str) and AT.fullmatch(at) and at < since:
+            return True
+    return False
+
+
+def _mark(item):
+    """What tells one item of a list from another while it is read: its kind, its ids, a commit's sha, and its time."""
+    one = _object(item)
+    return (one.get("event"), one.get("id"), one.get("node_id"), one.get("sha"), one.get("created_at"),
+            one.get("submitted_at"))
+
+
+def _tail(transport, path: str, since: str, ends=()) -> tuple:
+    """`(items, whole)`: a list GitHub gives oldest first, read from its end back to `since`, so that the writes since
+    then and an item's close, which are at its end, are read however long it is (issue 1009, decision 0234). The first
+    page names the last; the last pages are read back until one reaches before `since`, or the second, so the first
+    is joined: `timeline.BOUND` pages at most, the last read again among them, and the first too where it is joined.
+    An event that lands while it is read moves the pages, so the last page is read again at the end, and one whose
+    number or items changed leaves the read not whole (the Factory Builder's ruling of 2026-11-20); an item deleted
+    from the first page moves them the other way, so a joined first page must read the same again (Claude). Items are
+    kept once each, by their kind and id where they carry one. It serves a list GitHub gives in the order of the time
+    it reads, a timeline's; not the reviews, which it gives in the order they were started. Given `ends`, an item read
+    as gone, whose close may be older than `since`, it reads on back, within the same bound, until one of them is
+    found (Claude)."""
+    try:
+        items, link = _page(transport, path, 1)
+        last = LAST.search(link)
+        if not timeline.NEXT.search(link):
+            # One page: whole, unless it names a last page it does not lead to (Astra).
+            found, joined, reached, steady = [], True, False, last is None
+        elif last is None:
+            return [], False
+        else:
+            end = int(last.group(1))
+            tail, end_link = _page(transport, path, end)
+            found, page, reached = [tail], end, _before(tail, since)
+            while not (reached and _ended(found, ends)) and page > 2 and len(found) < timeline.BOUND - 3:
+                page -= 1
+                got, _ = _page(transport, path, page)
+                found.insert(0, got)
+                reached = reached or _before(got, since)
+            joined = page == 2
+            again, again_link = _page(transport, path, end)
+            # An empty page before the end is no page GitHub would give (Astra), the first among them (Muse).
+            steady = (bool(items) and all(found) and [_mark(i) for i in again] == [_mark(i) for i in tail]
+                      and not timeline.NEXT.search(again_link) and not timeline.NEXT.search(end_link))
+            if joined:
+                first, first_link = _page(transport, path, 1)
+                steady = steady and first_link == link and [_mark(i) for i in first] == [_mark(i) for i in items]
+    except (Unanswered, KeyError, TypeError, ValueError):
+        return [], False
+    kept, seen = [], set()
+    for item in ([items] if joined else []) + found:
+        for one in item:
+            key = (_object(one).get("event"), _object(one).get("id"))
+            if not all(k is None or isinstance(k, (str, int)) and not isinstance(k, bool) for k in key):
+                return [], False
+            if key[1] is None or key not in seen:
+                seen.add(key)
+                kept.append(one)
+    return kept, (reached or joined) and steady
+
+
+def _ended(pages: list, ends) -> bool:
+    """Whether `pages` hold one of the events `ends`, or none is asked for."""
+    return not ends or any(_object(e).get("event") in ends for page in pages for e in page)
 
 
 def _readable(actor) -> bool:
@@ -219,14 +308,22 @@ def read(transport, item: dict, kept, identities: dict, apps: dict, since: str, 
         if state is None:
             return [], [], False
         ending = state == "closed"
+    # One read as gone is whole only with its close, of any age: its timeline is read back until the close is found.
+    # One read as gone that is open again has no close to find, and is read back to `since` alone (Carbon).
+    gone = ((("closed", "merged") if item["type"] == "pull_request" else ("closed",)) if kept == GONE and ending else ())
     if item["type"] == "pull_request" and kept not in (LEFT, GONE):
         parts = dict(kept) if isinstance(kept, dict) else {}
+        # A timeline the snapshot cut at its bound is read again from its end, where the writes are; a reviews list
+        # cut stays short, since GitHub lists reviews in the order they were started, not submitted (Claude).
+        cut = kept.get("cut") if isinstance(kept, dict) and isinstance(kept.get("cut"), dict) else {}
+        if cut.get("events") is True:
+            parts["events"] = _tail(transport, issue + "/timeline?per_page=%d" % PAGE, since)
     elif item["type"] == "pull_request":
-        parts = {"events": _pages(transport, issue + "/timeline?per_page=%d" % PAGE),
+        parts = {"events": _tail(transport, issue + "/timeline?per_page=%d" % PAGE, since, gone),
                  "reviews": _pages(transport, "/repos/%s/pulls/%d/reviews?per_page=%d" % (repo, number, PAGE)),
                  "threads": _threads(transport, item), "check_runs": _check_runs(transport, item)}
     else:
-        parts = {"events": _pages(transport, issue + "/timeline?per_page=%d" % PAGE), "reviews": ([], True),
+        parts = {"events": _tail(transport, issue + "/timeline?per_page=%d" % PAGE, since, gone), "reviews": ([], True),
                  "threads": ([], True), "check_runs": ([], True)}
     parts["comments"] = _pages(transport, issue + "/comments?since=%s&per_page=%d" % (since, PAGE))
     whole = True

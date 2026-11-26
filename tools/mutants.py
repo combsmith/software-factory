@@ -62,6 +62,14 @@ DEQUEUE = ('        return _decision(facts, state, reason, evidence, t.ACT, acti
 # Decision 0232's tests: a pull request stands with its issue, and how the issue stands.
 STOOD = ('tests.test_decide.OnlyAPersonEnds.test_a_pull_request_whose_issue_a_person_held_or_closed_is_held_and_leaves_the_queue',)
 STANDS_READ = ('tests.test_issue.Stands.test_an_issue_stands_open_held_or_closed_from_its_state_and_its_own_labels',)
+# Issue 838's tests: a Run that ended on a person's code holds the item, a pull request or an issue.
+# The lines with which an issue's implementing Run reads that Hold before the rounds' brake.
+PERSON_BLOCK = ("    # The author Role's last Run ended on a code only a person can mend: held for a person before the rounds' brake, as\n"
+                "    # every Run wanted is before the brakes (issue 838).\n"
+                '    ended = needs_person(since_writer(mine, facts), config["author_role"])\n    if ended:\n'
+                '        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)\n')
+PERSON_RUN = ('tests.test_decide.Ceilings.test_a_run_that_ended_person_holds_the_item_and_calls_a_person_and_spends_no_attempt',)
+ISSUE_PERSON_RUN = ('tests.test_issue.Investigation.test_an_issues_run_that_ended_person_holds_the_issue_and_calls_a_person_and_spends_no_attempt',)
 STANDS_UNREAD = ('tests.test_issue.Stands.test_what_cannot_be_read_gives_none',)
 F849_KERNEL = ("tests.test_issue.Unreadable.test_a_timeline_past_the_ports_bound_defers_on_its_own_code_and_calls_a_person",)
 STALE = "tests.test_decide.Staleness."
@@ -85,6 +93,8 @@ COVERAGE = "tests.test_coverage.Coverage."
 # An issue's State (kernel/issue.py, decision 0028), in a list of its own so that the pull request's work, which adds
 # to MUTANTS below, never touches the same lines. Each is run against tests.test_issue first.
 ISSUE_PY, ISSUE_TESTS = "kernel/issue.py", ("tests.test_issue",)
+HEAD_HOLD = ("tests.test_issue.Opening.test_a_work_branch_head_no_opening_run_pushed_holds_the_issue_for_a_person",)
+WORK_TOLD = ("tests.test_issue.Opening.test_the_work_branch_is_read_as_a_commit_as_no_branch_or_not_told_and_only_no_branch_carries_a_base",)  # issue 1059
 MERGE_UNDER_STOP_TESTS = ("tests.test_issue.Done.test_a_merge_read_while_a_person_closed_or_held_the_issue_is_never_done",)
 PLATFORM_CLOSE_TESTS = ("tests.test_issue.Done.test_a_platform_close_keeps_the_state_a_person_set",)
 CLOSE_TIME_TESTS = ("tests.test_issue.Done.test_a_close_or_a_reopening_without_its_time_cannot_be_read",)
@@ -921,7 +931,7 @@ ISSUE = [
      'brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"], unreadable)',
      'brakes.implementing_rounds(_decision, facts, mine, config["limits"], unreadable)',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
-    ("the implementing Run is not told its draft", ISSUE_PY, '{"pull_request": draft["number"]}', '{}',
+    ("the implementing Run is not told its draft", ISSUE_PY, '{"pull_request": draft["number"], ', '{',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("the first pull request linked is read as the draft", ISSUE_PY, 'if str(p["number"]) == evidence[0]]', 'if True]',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
@@ -955,17 +965,17 @@ ISSUE = [
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("the implementing rounds are spent whatever the draft's checks", ISSUE_PY,
      '    if draft["checks"] != "failing":\n        return _decision(facts, state, reason, evidence, t.NOTHING)\n'
-     '    unreadable = _decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)\n'
+     + PERSON_BLOCK + '    unreadable = _decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)\n'
      '    held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"], unreadable)\n'
      '    if held:\n        return held\n',
-     '    unreadable = _decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)\n'
+     PERSON_BLOCK + '    unreadable = _decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)\n'
      '    held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"], unreadable)\n'
      '    if held:\n        return held\n'
      '    if draft["checks"] != "failing":\n        return _decision(facts, state, reason, evidence, t.NOTHING)\n',
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("the implementing rounds are not asked of the brakes", ISSUE_PY,
-     '    if held:\n        return held\n    return (config["author_role"], IMPLEMENT,',
-     '    return (config["author_role"], IMPLEMENT,', ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
+     '    if held:\n        return held\n    # The Run pushes to the draft',
+     '    # The Run pushes to the draft', ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("Intents that cannot be read are trusted", ISSUE_PY,
      "    if not readable_intents(intents):\n", "    if False:\n", ISSUE_TESTS),
     ("an Intent left out of the Intents is read", ISSUE_PY,
@@ -1087,8 +1097,8 @@ ISSUE = [
     ("an unreadable branch head is admitted", ISSUE_PY,
      "    if not readable_head(facts):\n", "    if False:\n", ISSUE_TESTS),
     ("a branch head that is no whole sha is read", ISSUE_PY,
-     'facts["branch_head"] is None or is_commit(facts["branch_head"]))',
-     'facts["branch_head"] is None or (isinstance(facts["branch_head"], str) and facts["branch_head"] != ""))',
+     '        or is_commit(facts["branch_head"]) and type(',
+     '        or isinstance(facts["branch_head"], str) and facts["branch_head"] != "" and type(',
      ("tests.test_issue.Opening.test_an_unreadable_branch_head_defers_the_opening_run_alone",)),
     ("a branch head not as long as a commit's name is read", ISSUE_PY,
      "isinstance(value, str) and len(value) == len(COMMIT_SHAPE) and all(", "isinstance(value, str) and all(", ISSUE_TESTS),
@@ -1104,6 +1114,38 @@ ISSUE = [
     ("a branch not told defers every decision on the issue", ISSUE_PY,
      'ISSUE_READ_IN_FULL = ("linked", "runs", "timeline")', 'ISSUE_READ_IN_FULL = ("branch", "linked", "runs", "timeline")',
      ("tests.test_issue.Opening.test_the_work_branch_is_read_as_a_commit_as_no_branch_or_not_told_and_only_no_branch_carries_a_base",)),
+    # The implementing Run is admitted at its draft's own head, never the next opening's branch (issue 1059).
+    ("an implementing Run defers on the next opening's branch", ISSUE_PY,
+     '    if not draft_head(draft, facts["item"]["number"]):\n', '    if not readable_head(facts):\n', WORK_TOLD),
+    ("an implementing Run is admitted with the draft's head unread", ISSUE_PY,
+     '    if not draft_head(draft, facts["item"]["number"]):\n        return _decision(facts, state, "branch_unreadable", evidence, t.DEFER)\n    return (config["author_role"], IMPLEMENT, {"pull_request": draft["number"], "branch_head": draft["head"]["sha"]})',
+     '    return (config["author_role"], IMPLEMENT, {"pull_request": draft["number"], "branch_head": draft["head"].get("sha") if isinstance(draft.get("head"), dict) else None})',
+     WORK_TOLD),
+    ("a draft's head not told holds the implementing Run", ISSUE_PY,
+     '    if not draft_head(draft, facts["item"]["number"]):\n        return _decision(facts, state, "branch_unreadable", evidence, t.DEFER)\n',
+     '    if not draft_head(draft, facts["item"]["number"]):\n        return _decision(facts, state, "branch_unreadable", evidence, t.HOLD)\n', WORK_TOLD),
+    ("the implementing Run carries no head", ISSUE_PY, ', "branch_head": draft["head"]["sha"]})', '})',
+     ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
+    ("a draft head that is no whole sha is read", ISSUE_PY,
+     'and is_commit(head.get("sha")) and', 'and isinstance(head.get("sha"), str) and', WORK_TOLD),
+    ("a draft head with no branch is read", ISSUE_PY, 'and work_branch_of(head.get("ref"), number)\n', '\n', WORK_TOLD),
+    ("a draft's branch of another issue is read", ISSUE_PY, '    return issue == str(number) and all(', '    return all(', WORK_TOLD),
+    ("a draft's count of any letters is read", ISSUE_PY, ' and all(c in t.DIGITS for c in p) for p in (issue, count))',
+     ' for p in (issue, count))', WORK_TOLD),
+    ("a draft's count with a leading zero is read", ISSUE_PY, 'p != "" and p[0] != "0" and all(', 'p != "" and all(', WORK_TOLD),
+    ("a draft's branch with no count is read", ISSUE_PY, 'all(p != "" and p[0] != "0"', 'all(p == "" or p[0] != "0"', WORK_TOLD),
+    ("a draft's branch of any prefix is read", ISSUE_PY,
+     'if not (isinstance(ref, str) and ref.startswith(t.WORK_PREFIX)):', 'if not isinstance(ref, str):', WORK_TOLD),
+    # A head no opening Run of the issue recorded pushing holds the issue for a person (the head match, 2026-11-25).
+    ("a head the Factory never pushed is opened from", ISSUE_PY,
+     '        if facts["branch_pushed"] is False:\n            return _decision(facts, t.HELD, "branch_not_pushed", [facts["branch_head"]], t.HOLD)\n',
+     '', HEAD_HOLD),
+    ("a head the Factory never pushed calls no one", ISSUE_PY,
+     '    "limits_unreadable",\n    "branch_not_pushed",\n', '    "limits_unreadable",\n', HEAD_HOLD),
+    ("a push told of no branch is read", ISSUE_PY,
+     'facts["branch_head"] is None and facts.get("branch_pushed") is None\n', 'facts["branch_head"] is None\n', HEAD_HOLD),
+    ("a head is told without whether it was pushed", ISSUE_PY,
+     ' and type(facts.get("branch_pushed")) is bool)', ')', HEAD_HOLD),
     ("the opening Run is admitted for no branch head", ISSUE_PY,
      '{"branch_head": facts["branch_head"]}', "{}", ISSUE_TESTS),
     # Issue 838: where the branch does not exist, the opening Run is admitted for the commit it lands on.
@@ -2199,6 +2241,11 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("a person's Finding is read as a Lens's", "kernel/derive.py",
      '            if any(g["by"]["kind"] == "human" for g in open_gates if g["id"] in for_author):\n',
      "            if False:\n", ("tests.test_decide.HumanControl",)),
+    # Issue 1137: a set of strings iterates in the hash seed's order, so a replay in another process decides otherwise.
+    ("the open gates' ids are read in a set's order", "kernel/derive.py",
+     '        for_author = [gid for gid, who in turns.items() if who == "author"]\n',
+     '        for_author = [gid for gid in set(turns) if turns[gid] == "author"]\n',
+     ("tests.test_decide.Derived.test_the_same_inputs_give_the_same_decision_under_another_hash_seed",)),
     ("the States that admit nothing are only the ends", "kernel/terms.py",
      "ADMITS_NOTHING = frozenset({MERGED, CLOSED, NOT_SERVED})", "ADMITS_NOTHING = frozenset({MERGED, CLOSED})",
      ("tests.test_decide.Classes",)),
@@ -3295,6 +3342,92 @@ MUTANTS = ISSUE + OUTSIDE + [
      '    "path_needs_person",\n',
      '',
      ('tests.test_decide.TheFactorysOwnRules.test_a_change_to_a_path_only_a_person_decides_waits_for_a_person',)),
+    # Issue 838: a Run that ended on a code only a person can mend, its fault `person`, holds the item for a person.
+    ("a Run that ended person is run again", 'kernel/decide.py',
+     '    if ended:\n        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)\n', '',
+     PERSON_RUN),
+    ("an issue's Run that ended person is run again", 'kernel/issue.py',
+     '    ended = needs_person(since_writer(mine, facts), role)\n    if ended:\n'
+     '        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)\n', '',
+     ISSUE_PERSON_RUN),
+    ("an implementing Run that ended person is read after the rounds' brake", 'kernel/issue.py',
+     '    ended = needs_person(since_writer(mine, facts), config["author_role"])\n    if ended:\n'
+     '        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)\n    unreadable', '    unreadable',
+     ISSUE_PERSON_RUN),
+    ("a Run that ended person is read before a writer acted", 'kernel/decide.py',
+     'ended = needs_person(since_writer(mine, facts), role)', 'ended = needs_person(mine, role)', PERSON_RUN),
+    ("an issue's Run that ended person is read before a writer acted", 'kernel/issue.py',
+     'ended = needs_person(since_writer(mine, facts), role)', 'ended = needs_person(mine, role)', ISSUE_PERSON_RUN),
+    ("a Run that ended person is read after the brakes", 'kernel/decide.py',
+     '    ended = needs_person(since_writer(mine, facts), role)\n    if ended:\n'
+     '        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)\n\n'
+     '    # The brakes on a Run, in kernel/brakes.py: the Pause, the loop counts and the Run ceiling. The Pause stops an act\n'
+     '    # above, too.\n    limits = config["limits"]\n'
+     '    brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since_writer(mine, facts), limits)\n'
+     '    if brake:\n        return brake\n',
+     '    limits = config["limits"]\n'
+     '    brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since_writer(mine, facts), limits)\n'
+     '    if brake:\n        return brake\n'
+     '    ended = needs_person(since_writer(mine, facts), role)\n    if ended:\n'
+     '        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)\n',
+     PERSON_RUN),
+    ("an issue's Run that ended person is read after the brakes", 'kernel/issue.py',
+     '    ended = needs_person(since_writer(mine, facts), role)\n    if ended:\n'
+     '        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)\n\n'
+     '    # The brakes on a Run (decision 0003): the Pause, the attempts and the Run ceiling.\n'
+     '    brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since_writer(mine, facts), limits)\n'
+     '    if brake:\n        return brake\n',
+     '    brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since_writer(mine, facts), limits)\n'
+     '    if brake:\n        return brake\n'
+     '    ended = needs_person(since_writer(mine, facts), role)\n    if ended:\n'
+     '        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)\n',
+     ISSUE_PERSON_RUN),
+    ("any Run of the Role that ended person holds the item", 'kernel/derive.py',
+     'return sorted(r["run"] for r in last if r.get("outcome") == t.ENDED_PERSON)[:1]',
+     'return sorted(r["run"] for r in done if r.get("outcome") == t.ENDED_PERSON)[:1]', PERSON_RUN + ISSUE_PERSON_RUN),
+    ("tied Runs that ended person name the first listed", 'kernel/derive.py',
+     'return sorted(r["run"] for r in last if r.get("outcome") == t.ENDED_PERSON)[:1]',
+     'return [r["run"] for r in last if r.get("outcome") == t.ENDED_PERSON][:1]', PERSON_RUN),
+    ("a cancelled Run that reported person lifts the Hold", 'kernel/derive.py',
+     '            and not (r.get("outcome") is None and r["conclusion"] == "cancelled")]',
+     '            and r["conclusion"] != "cancelled"]', PERSON_RUN),
+    ("an implementing Run that ended person is read before a writer acted", 'kernel/issue.py',
+     'ended = needs_person(since_writer(mine, facts), config["author_role"])', 'ended = needs_person(mine, config["author_role"])',
+     ISSUE_PERSON_RUN),
+    ("a draft whose checks do not fail is held for a person", 'kernel/issue.py',
+     '    if draft["checks"] != "failing":\n        return _decision(facts, state, reason, evidence, t.NOTHING)\n' + PERSON_BLOCK,
+     PERSON_BLOCK + '    if draft["checks"] != "failing":\n        return _decision(facts, state, reason, evidence, t.NOTHING)\n',
+     ISSUE_PERSON_RUN),
+    ("the Role's first Run is read in place of its latest", 'kernel/derive.py',
+     'last = [r for r in done if r["started_at"] == done[-1]["started_at"]] if done else []',
+     'last = [r for r in done if r["started_at"] == done[0]["started_at"]] if done else []', PERSON_RUN),
+    ("a tie in the Role's latest second is read by list order", 'kernel/derive.py',
+     'last = [r for r in done if r["started_at"] == done[-1]["started_at"]] if done else []', 'last = done[-1:]',
+     PERSON_RUN),
+    ("the latest Run of any Role is read", 'kernel/derive.py',
+     '    last = [r for r in done if r["started_at"] == done[-1]["started_at"]] if done else []',
+     '    done = [r for r in runs if r["status"] == "completed"]\n'
+     '    last = [r for r in done if r["started_at"] == done[-1]["started_at"] and r["role"] == role] if done else []',
+     PERSON_RUN),
+    ("another Role's Run that ended person holds the item", 'kernel/derive.py',
+     'done = [r for r in runs if r["role"] == role and r["status"] == "completed"',
+     'done = [r for r in runs if r["status"] == "completed"', PERSON_RUN + ISSUE_PERSON_RUN),
+    ("a Run of the Role still in flight lifts the Hold", 'kernel/derive.py',
+     'r["role"] == role and r["status"] == "completed" and', 'r["role"] == role and', ISSUE_PERSON_RUN),
+    ("a superseded Run of the Role lifts the Hold", 'kernel/derive.py',
+     ' and r.get("outcome") != "superseded"\n', '\n', PERSON_RUN),
+    ("a cancelled Run of the Role with no outcome lifts the Hold", 'kernel/derive.py',
+     '            and not (r.get("outcome") is None and r["conclusion"] == "cancelled")]', ']', PERSON_RUN),
+    ("a Run of the Role that died with no outcome is passed over", 'kernel/derive.py',
+     'and r["conclusion"] == "cancelled")]', ')]', PERSON_RUN),
+    ("a Run that ended person is an attempt", 'kernel/brakes.py',
+     '(r.get("outcome") == "item" or (r.get("outcome") is None', '(r.get("outcome") in ("item", "person") or (r.get("outcome") is None',
+     PERSON_RUN),
+    ("a Run that ended for the item holds it for a person", 'kernel/terms.py',
+     'ENDED_PERSON = "person"', 'ENDED_PERSON = "item"', PERSON_RUN + ISSUE_PERSON_RUN),
+    ("a Run that ended person is nobody's to see", 'kernel/decide.py', '    "run_needs_person",\n', '', PERSON_RUN),
+    ("an issue's Run that ended person is nobody's to see", 'kernel/issue.py', '    "run_needs_person",\n', '',
+     ISSUE_PERSON_RUN),
     # Issue 749: the fake GitHub starts another run of a Lens on the head, as P-65 recorded, and the Kernel never lets a
     # stopped run pass a Lens a completed failure fails.
     ("the latest run alone is read", 'kernel/derive.py',
@@ -3664,7 +3797,7 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("a cut acceptance read defers as any read short", 'kernel/derive.py',
      '    if facts.get("acceptance_bounded") is True:\n        return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}\n', '', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
     ('a cut acceptance read is read after the lists read short', 'kernel/derive.py',
-     '    if facts.get("acceptance_bounded") is True:\n        return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}\n    # Its own timeline cut at the port\'s bound does the same: anyone can comment on a pull request (issue 1009).\n    if facts.get("timeline_bounded") is True:\n        return {"state": None, "reason": "timeline_bounded", "evidence": ["timeline"]}\n    gaps = incomplete(facts)\n', '    # Its own timeline cut at the port\'s bound does the same: anyone can comment on a pull request (issue 1009).\n    if facts.get("timeline_bounded") is True:\n        return {"state": None, "reason": "timeline_bounded", "evidence": ["timeline"]}\n    gaps = incomplete(facts)\n    if not [g for g in gaps if g != "acceptance"] and facts.get("acceptance_bounded") is True:\n        return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}\n', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+     'if facts.get("acceptance_bounded") is True:', 'if facts.get("acceptance_bounded") is True and incomplete(facts) == ["acceptance"]:', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
     ("a cut acceptance read names no evidence", 'kernel/derive.py',
      '"reason": "acceptance_bounded", "evidence": ["acceptance"]}', '"reason": "acceptance_bounded", "evidence": []}', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
     ("any truthy flag is a cut acceptance read", 'kernel/derive.py',
@@ -3676,27 +3809,38 @@ MUTANTS = ISSUE + OUTSIDE + [
     ('a cut timeline calls no one', 'kernel/decide.py',
      '"acceptance_bounded", "timeline_bounded", "paths_unreadable"', '"acceptance_bounded", "paths_unreadable"', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
     ('a cut timeline defers as any read short', 'kernel/derive.py',
-     '    if facts.get("timeline_bounded") is True:\n        return {"state": None, "reason": "timeline_bounded", "evidence": ["timeline"]}\n', '', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+     '    if facts.get("timeline_bounded") is True:\n        return {"state": None, "reason": "timeline_bounded", "evidence": cut_reads(facts)}\n', '', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
     ('a cut timeline is said before a cut acceptance read', 'kernel/derive.py',
-     '    if facts.get("acceptance_bounded") is True:\n        return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}\n    # Its own timeline cut at the port\'s bound does the same: anyone can comment on a pull request (issue 1009).\n    if facts.get("timeline_bounded") is True:\n        return {"state": None, "reason": "timeline_bounded", "evidence": ["timeline"]}\n', '    # Its own timeline cut at the port\'s bound does the same: anyone can comment on a pull request (issue 1009).\n    if facts.get("timeline_bounded") is True:\n        return {"state": None, "reason": "timeline_bounded", "evidence": ["timeline"]}\n    if facts.get("acceptance_bounded") is True:\n        return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}\n', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+     'if facts.get("acceptance_bounded") is True:', 'if facts.get("acceptance_bounded") is True and facts.get("timeline_bounded") is not True:', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
     ('any truthy flag is a cut timeline', 'kernel/derive.py',
      'if facts.get("timeline_bounded") is True:', 'if facts.get("timeline_bounded"):', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
     ('a cut timeline names no evidence', 'kernel/derive.py',
-     '"reason": "timeline_bounded", "evidence": ["timeline"]}', '"reason": "timeline_bounded", "evidence": []}', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+     '"reason": "timeline_bounded", "evidence": cut_reads(facts)}', '"reason": "timeline_bounded", "evidence": []}', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
     ('a timeline flag that is no truth value is read as not cut', 'kernel/derive.py',
-     '    if facts.get("timeline_bounded", False) is not False and "timeline" not in gaps:\n        gaps = gaps + ["timeline"]\n', '', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+     '    if facts.get("timeline_bounded", False) is not False:\n        cut = cut_reads(facts)\n        gaps = [name for name in t.READ_IN_FULL if name in gaps or name in cut]\n', '', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
     ('a second flag that is no truth value is no gap beside the first', 'kernel/derive.py',
-     '\n    if facts.get("timeline_bounded", False) is not False and "timeline" not in gaps:',
-     '\n    elif facts.get("timeline_bounded", False) is not False and "timeline" not in gaps:', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+     '\n    if facts.get("timeline_bounded", False) is not False:\n        cut',
+     '\n    elif facts.get("timeline_bounded", False) is not False:\n        cut', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
     ('an absent timeline flag is a short timeline', 'kernel/derive.py',
      '    return "timeline" in incomplete(facts) or facts.get("timeline_bounded", False) is not False\n',
      '    return "timeline" in incomplete(facts) or facts.get("timeline_bounded") is not False\n', ('tests.test_decide.HumanControl.test_an_item_is_left_alone_for_a_persons_hands_off_or_labels_that_cannot_be_read',)),
     ('an absent timeline flag is a gap', 'kernel/derive.py',
      'if facts.get("timeline_bounded", False) is not False', 'if facts.get("timeline_bounded") is not False', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
     ("a timeline flag that is no truth value and falsy is read as not cut", 'kernel/derive.py',
-     'if facts.get("timeline_bounded", False) is not False and', 'if facts.get("timeline_bounded", False) and', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
-    ("a timeline flag that is no truth value adds the timeline twice", 'kernel/derive.py',
-     'is not False and "timeline" not in gaps:', 'is not False:', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+     'if facts.get("timeline_bounded", False) is not False:\n        cut', 'if facts.get("timeline_bounded", False):\n        cut', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+    ("a timeline flag that is no truth value adds a read twice", 'kernel/derive.py',
+     'gaps = [name for name in t.READ_IN_FULL if name in gaps or name in cut]', 'gaps = gaps + cut', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+    ("a timeline flag that is no truth value is a gap in the timeline alone", 'kernel/derive.py',
+     '    if facts.get("timeline_bounded", False) is not False:\n        cut = cut_reads(facts)\n        gaps = [name for name in t.READ_IN_FULL if name in gaps or name in cut]\n',
+     '    if facts.get("timeline_bounded", False) is not False and "timeline" not in gaps:\n        gaps = gaps + ["timeline"]\n', ('tests.test_decide.Readability.test_a_timeline_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
+    ("a cut reviews list is named as a cut timeline", 'kernel/derive.py',
+     '"evidence": cut_reads(facts)}', '"evidence": ["timeline"]}', ('tests.test_decide.Readability.test_a_reviews_list_cut_at_its_bound_defers_as_a_cut_timeline_and_names_the_reviews',)),
+    ("a cut flag beside whole reads names the timeline alone", 'kernel/derive.py',
+     'if name in short] or ["reviews", "timeline"]', 'if name in short] or ["timeline"]', ('tests.test_decide.Readability.test_a_reviews_list_cut_at_its_bound_defers_as_a_cut_timeline_and_names_the_reviews',)),
+    ("a reviews list read short is not named for a cut", 'kernel/derive.py',
+     'for name in ("reviews", "timeline") if name in short]', 'for name in ("timeline",) if name in short]', ('tests.test_decide.Readability.test_a_reviews_list_cut_at_its_bound_defers_as_a_cut_timeline_and_names_the_reviews',)),
+    ("a cut names every read short", 'kernel/derive.py',
+     'return [name for name in ("reviews", "timeline") if name in short] or', 'return short or', ('tests.test_decide.Readability.test_a_reviews_list_cut_at_its_bound_defers_as_a_cut_timeline_and_names_the_reviews',)),
     ("a cut flag that is no truth value and falsy is read as not cut", 'kernel/derive.py',
      'if facts.get("acceptance_bounded", False) is not False and', 'if facts.get("acceptance_bounded", False) and', ('tests.test_decide.Acceptance.test_an_acceptance_read_cut_at_its_bound_defers_on_its_own_code_and_calls_a_person',)),
     ("implementing rounds read max_attempts", "kernel/brakes.py",

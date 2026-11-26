@@ -7,7 +7,9 @@ only what CONFINED allows, and no module binds a name either of them owns but as
 no function it is given but the parameters CALLABLE_PARAMETERS names, and on a value only the built-in
 types' methods BUILTIN_METHODS names, so that no function handed in can read the world for it. It calls a module only
 at a function the module defines or imports, raises nothing and names no special name, and where Python would
-import another module than the one it reads, it refuses that (issue 593).
+import another module than the one it reads, it refuses that (issue 593). It writes no function into text, by `str`,
+an f-string or `%`, which would give its address in memory (issue 1137). That mark assumes good faith, as decision
+0215's limit row says: a function reached through another name, a container or a parameter is for review.
 """
 from __future__ import annotations
 
@@ -69,6 +71,12 @@ KEYED_BUILTINS = frozenset({"map", "filter", "sorted", "max", "min"})
 # The builtins never handed to be called: each calls what it is then given, `type` given three as a class's bases, so
 # `map(map, [f], [xs])` would call f unread (issue 593).
 UNHANDED_BUILTINS = frozenset({"map", "filter", "type"})
+# The builtins whose value is written into text as its address in memory, those that make a set, written in the hash
+# seed's order, the operators that make a set of sets, and the builtins that keep a set's order (issue 1202).
+ADDRESS_BUILTINS = frozenset({"map", "filter", "zip", "enumerate"})
+SET_BUILTINS = frozenset({"set", "frozenset"})
+SET_OPERATORS = (ast.BitOr, ast.BitAnd, ast.Sub, ast.BitXor)
+ORDER_KEEPING_BUILTINS = frozenset({"list", "tuple"})
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 
 
@@ -453,6 +461,11 @@ def _calls(name: str, tree, trees: dict, takers: dict, tops: dict) -> list:
             target = detail
         return None
 
+    def builtin_call(node, names, chain) -> bool:
+        """Whether an expression calls a builtin of these names, by a name the module does not bind."""
+        return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in names \
+            and resolve(node.func.id, chain)[0] == "builtin"
+
     def kernel_function(node, chain):
         """The (file, function) a name or a module's attribute is, at a module's top in the Kernel, or None."""
         if isinstance(node, ast.Name):
@@ -579,6 +592,54 @@ def _calls(name: str, tree, trees: dict, takers: dict, tops: dict) -> list:
                             % (name, node.lineno, node.module or "." * node.level))
         if isinstance(node, ast.Call):
             call(node, chain)
+        # A function written into text is its address in memory, which another process gives otherwise (issue 1137).
+        shown = []
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "str":
+            shown = node.args + [k.value for k in node.keywords]
+        elif isinstance(node, ast.FormattedValue):
+            shown = [node.value]
+        elif isinstance(node, (ast.BinOp, ast.AugAssign)) and isinstance(node.op, ast.Mod):
+            right = node.right if isinstance(node, ast.BinOp) else node.value
+            shown = [right] + (right.elts if isinstance(right, ast.Tuple) else right.values if isinstance(right, ast.Dict)
+                               else [])
+        # What an expression picks is written as itself: either branch of `a if c else b`, each of `a or b`, and what
+        # `(k := a)` binds (Astra, Kimi, Carbon).
+        for value in shown:
+            shown += [value.body, value.orelse] if isinstance(value, ast.IfExp) else \
+                value.values if isinstance(value, ast.BoolOp) else [value.value] if isinstance(value, ast.NamedExpr) else []
+        if any(isinstance(value, ast.Lambda) or kernel_function(value, chain) is not None
+               or (isinstance(value, ast.Name) and resolve(value.id, chain)[0] == "function") for value in shown):
+            problems.append("%s:%d writes a function into text, which is its address in memory, and so another "
+                            "process's replay reads other text; the Kernel writes no function into text"
+                            % (name, node.lineno))
+        # So is a map, filter, zip or enumerate object or a generator expression, and a set is its elements in the hash
+        # seed's order, each written out where it is made (issue 1202). A container's or a comprehension's elements are
+        # written whole; what `list`, `tuple`, `.join`, `*` or a comprehension's `for` consumes keeps only its items'
+        # order, a set's among them (Claude, security, Astra, Muse, Carbon, Kimi).
+        made = [(value, True) for value in shown]
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "join" \
+                and not module(node.func.value, chain):
+            made = [(value, False) for value in node.args]
+        for value, whole in made:
+            made += [(part, True) for part in (
+                value.elts if isinstance(value, (ast.List, ast.Tuple)) else
+                [part for part in value.keys + value.values if part is not None] if isinstance(value, ast.Dict) else
+                [value.elt] if isinstance(value, (ast.ListComp, ast.GeneratorExp)) else
+                [value.key, value.value] if isinstance(value, ast.DictComp) else [])]
+            made += [(part, whole) for part in (
+                [value.left, value.right] if isinstance(value, ast.BinOp) and isinstance(value.op, SET_OPERATORS) else
+                [value.body, value.orelse] if isinstance(value, ast.IfExp) else value.values if isinstance(value, ast.BoolOp)
+                else [value.value] if isinstance(value, ast.NamedExpr) else [])]
+            made += [(part, False) for part in (
+                value.args if builtin_call(value, ORDER_KEEPING_BUILTINS, chain) else
+                [value.value] if isinstance(value, ast.Starred) else
+                [taken.iter for taken in value.generators] if isinstance(value, (ast.ListComp, ast.GeneratorExp, ast.DictComp))
+                else [])]
+        if any(isinstance(value, (ast.Set, ast.SetComp)) or builtin_call(value, SET_BUILTINS, chain) or whole and (
+                isinstance(value, ast.GeneratorExp) or builtin_call(value, ADDRESS_BUILTINS, chain)) for value, whole in made):
+            problems.append("%s:%d writes an address or a set's order into text, which another process or hash seed "
+                            "writes otherwise; the Kernel writes no map, filter, zip or enumerate object, generator "
+                            "expression or set into text" % (name, node.lineno))
         if isinstance(node, ast.Attribute):
             bases.add(id(node.value))
         if isinstance(node, (ast.Name, ast.Attribute)) and isinstance(node.ctx, ast.Load) and id(node) not in bases \
@@ -832,8 +893,18 @@ def run(root: pathlib.Path = ROOT, package: str = "kernel") -> list:
         problems += wrong
         held = frozenset(bound[name])
         scopes = _scopes(tree, held)
+        # Python runs an annotation where it stands, at import for a function's or a module's, unless the module turns
+        # every annotation into text with this import (issue 1136). So a module that annotates anything starts with it.
+        textual = any(isinstance(node, ast.ImportFrom) and node.module == "__future__" and not node.level
+                      and any(alias.name == "annotations" for alias in node.names) for node in tree.body)
         for node in ast.walk(tree):
             line = getattr(node, "lineno", 0)
+            annotated = (isinstance(node, ast.arg) and node.annotation is not None) or isinstance(node, ast.AnnAssign) \
+                or (isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.returns is not None)
+            if annotated and not textual:
+                problems.append("%s:%d annotates in a module without `from __future__ import annotations`; Python runs "
+                                "a function's or a module's annotation when the module is imported, unless that import "
+                                "keeps it as text" % (name, line))
             mods = []
             if isinstance(node, ast.Import):
                 mods = [alias.name for alias in node.names]

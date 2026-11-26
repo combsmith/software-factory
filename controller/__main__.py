@@ -294,9 +294,12 @@ def writes_seen(transport, config: dict, numbers: list, kept: dict, before, sinc
     apps = seen_.apps_of(accounts_held, config["apps"])
     last = before[-1]["pull_requests"] if before else []
     # One owed that a record before read as left is read as gone, and keeps its stamp; past the window it is read no
-    # more (issue 787). Any other no longer open has left since the last pass.
+    # more (issue 787). Any other no longer open has left since the last pass, one it left out too (issue 1194).
     held = set(reconcile.left(before))
-    newly = ({e["facts"]["item"]["number"] for e in last} - set(numbers)) | (set(reconcile.owed(before)) - set(numbers) - held)
+    left_out = {e["item"]["number"] for e in ((before[-1].get("left_out") or []) if before else [])
+                if isinstance(e.get("item"), dict) and e["item"].get("type") == "pull_request"}
+    newly = (({e["facts"]["item"]["number"] for e in last} | left_out) - set(numbers)) \
+        | (set(reconcile.owed(before)) - set(numbers) - held)
     gone = set(reconcile.left(before, since)) - set(numbers) - newly
     parts, unread, tally, served = [], [], {}, set(numbers)
     for number, held in ([(n, kept.get(n)) for n in numbers] + [(n, seen_.LEFT) for n in sorted(newly)]
@@ -548,7 +551,8 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
                                "unread": reads_.BUDGET})
                 continue
             facts, title = issues_.read(through, home, number, asking, lambda: utc(clock), identities=identities,
-                                        earlier=before, kernel=config["kernel"], base_head=head,
+                                        earlier=before, kernel=config["kernel"], base_head=head, opener=opens,
+                                        runs=runs, role=facts_.opener_role(config["kernel"]),
                                         controller=(own_app["id"], own_app["type"]) if own_app else None)
             issues.append({"facts": facts, "title": title})
             facts_reads += dated(through.first)
