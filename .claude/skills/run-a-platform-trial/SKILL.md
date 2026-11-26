@@ -36,6 +36,10 @@ everything a trial leaves in it: its runs, logs and artifacts.
   What the trial-author App writes, the Maintainer runs as `tools/trial_as_app.sh`, with the App's
   key: it revokes its token, and leaves only redacted exchanges in a scratch directory, with `finish.log`
   where it says a token it left live. Read that first.
+  A new script the Maintainer runs with a key copies `tools/trial_p54_issue_lookup.sh`: OUT made new
+  under a parent only he can write to, the raw answers beside it, nothing taken from his environment,
+  and a clean-up deaf to a second signal that tells him of any token it may have left live (issue
+  1215). `tests/test_tools.py` holds every such script to the same words.
   P-13 asks the vendor's CLI, not GitHub: `tools/trial_p13_cli.sh` runs it at the pinned version,
   on a configuration directory of its own logged in to the Maintainer's own subscription (decision
   0033), and leaves
