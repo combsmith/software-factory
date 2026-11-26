@@ -15,6 +15,7 @@ PUSH_LISTED = ('tests.test_adapters.Push.test_a_trees_listing_is_taken_whole_or_
 PUSH_BOUND = ('tests.test_adapters.Push.test_a_push_reads_whole_within_its_bound_and_past_it_is_the_roles_attempt',)
 PUSH_403 = ('tests.test_adapters.Push.test_a_rate_limits_403_is_no_answer_and_a_blobs_other_403_is_a_persons',)
 PUSH_LIMIT = PUSH_BOUND + PUSH_403
+PUSH_NAMED = ('tests.test_adapters.Push.test_a_trees_name_is_the_one_git_gives_it',)
 PUSH_WHOSE = ('tests.test_adapters.Push.test_every_code_of_the_patch_guard_and_the_port_names_whose_it_is',)
 
 TARGETS = ("adapters/push.py",)
@@ -229,6 +230,8 @@ MUTANTS = [
      'if any(_tree_name(held) != named[path] for path, held in folders.items()):', 'if _tree_name(folders[""]) != named[""]:', PUSH_LISTED),
     ("a tree's entries are named in the order they were listed", PUSH_PY,
      'for mode, name, sha in sorted(entries, key=order))', 'for mode, name, sha in entries)', PUSH_LISTED),
+    ("a tree is named by its entries without git's header", PUSH_PY,
+     'hashlib.sha1(b"tree %d\\0" % len(body) + body,', 'hashlib.sha1(body,', PUSH_NAMED),
     ("a directory sorts by its bare name", PUSH_PY,
      'return entry[1].encode() + (b"/" if entry[0] == TREE_MODE else b"")', 'return entry[1].encode()', PUSH_LISTED),
     ("a file is asked for after one gave a code", PUSH_PY,
