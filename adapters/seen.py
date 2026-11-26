@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import datetime
 import re
+import urllib.parse
 
 from adapters import records, threads, timeline
 from adapters.github import Unanswered, request
@@ -74,8 +75,14 @@ ACTIVITY = {"push": "push", "force_push": "force_push", "branch_creation": "bran
 # the end of the issue only where the same token read its repo in the same pass; else access may be what was lost, and
 # what was seen is short. A transfer's 301 is not among them: the transport keeps no redirect's code (decision 0235).
 ENDED = (404, 410)
-# The last page a list's link header names, as trials/P-43.json recorded one: `<...&page=12>; rel="last"`.
-LAST = re.compile(r'<[^>]*[?&]page=([0-9]+)[^>]*>;\s*rel="last"')
+# A list's link header, as trials/P-43.json recorded one: entries `<...&page=12>; rel="last"`, each with its
+# parameters, quoted, as GitHub's deprecation notice has more (trials/P-1.json), and no white space in its address,
+# which urllib would drop (Carbon); the relations that page a list.
+ENTRY = re.compile(r'\s*<([^<>\s]*)>((?:\s*;\s*[a-z-]+="(?:[^"\\]|\\.)*")+)\s*(?:,|$)')
+PARAM = re.compile(r'\s*;\s*([a-z-]+)="((?:[^"\\]|\\.)*)"')
+PAGING = ("next", "last", "prev", "first")
+PAGE_NUMBER = re.compile(r"[0-9]{1,9}")
+KIND = re.compile(r"[a-z][a-z0-9_-]*")      # an event's kind as GitHub names one, `added_to_project_v2` among them
 
 
 def _pages(transport, path: str) -> tuple:
@@ -98,22 +105,72 @@ def _page(transport, path: str, page: int) -> tuple:
     return answer["body"], str((answer.get("headers") or {}).get("link", ""))
 
 
-def _before(items: list, since: str) -> bool:
-    """Whether a page holds an item from before `since`, by its `created_at` or `submitted_at`: only a moment that can
-    be read counts, so one that cannot never says the read reached `since` (Astra)."""
+def _moments(items: list) -> list:
+    """The moments a page's items can be read at, by their `created_at` or `submitted_at`: only an item whose kind
+    and moment can be read has one, so one that cannot never says where the read is (Astra, issue 1206)."""
+    out = []
     for item in items:
         one = _object(item)
         at = one.get("submitted_at") if one.get("event") == "reviewed" else one.get("created_at")
-        if isinstance(at, str) and AT.fullmatch(at) and at < since:
-            return True
-    return False
+        if isinstance(one.get("event"), str) and KIND.fullmatch(one["event"]) and isinstance(at, str) \
+                and AT.fullmatch(at):
+            out.append(at)
+    return out
+
+
+def _links(link: str, size) -> dict:
+    """`{rel: page}` of the relations that page a list in a link header, read whole: every entry `<address>` with its
+    quoted parameters, one `rel` among them; each paging relation once, its address naming one page, and the page size
+    `size`, in its query. One read in part raises ValueError, so that it never says where a list ends (Astra, Muse,
+    Kimi, issue 1206); a relation that pages nothing is passed over (Claude)."""
+    out, at = {}, 0
+    while link[at:].strip():
+        one = ENTRY.match(link, at)
+        rels = [value for name, value in PARAM.findall(one.group(2)) if name == "rel"] if one else []
+        if len(rels) != 1:
+            raise ValueError("a link header that cannot be read whole")
+        at = one.end()
+        if rels[0] not in PAGING:
+            # A relation that pages nothing; one that names a paging relation among others, or in capitals, is
+            # read in part (Astra, Kimi, Claude).
+            if set(rels[0].lower().split()) & set(PAGING):
+                raise ValueError("a link header that cannot be read whole")
+            continue
+        query = urllib.parse.parse_qsl(urllib.parse.urlsplit(one.group(1)).query, keep_blank_values=True)
+        pages = [value for name, value in query if name == "page"]
+        if len(pages) != 1 or not PAGE_NUMBER.fullmatch(pages[0]) or rels[0] in out \
+                or [value for name, value in query if name == "per_page"] != [size]:
+            raise ValueError("a link header that cannot be read whole")
+        out[rels[0]] = int(pages[0])
+    return out
+
+
+def _agrees(named: dict, page: int, end: int) -> bool:
+    """Whether a page's links say it is page `page` of `end`: the next and the last before the end, no next there and
+    no last past it; the page before and the first past the first page, and neither on it; and past the first page,
+    some link, as GitHub gives every page but a list's only one (Astra, Claude, issue 1206)."""
+    return (named.get("next") == (page + 1 if page < end else None)
+            and (named.get("last") == end if page < end else named.get("last", end) == end)
+            and named.get("prev", page - 1) == page - 1 and named.get("first", 1) == 1
+            and (page > 1 or not {"prev", "first"} & set(named)) and (page == 1 or bool(named)))
+
+
+def _before(items: list, since: str) -> bool:
+    """Whether a page holds an item from before `since`."""
+    return any(at < since for at in _moments(items))
 
 
 def _mark(item):
     """What tells one item of a list from another while it is read: its kind, its ids, a commit's sha, and its time."""
     one = _object(item)
-    return (one.get("event"), one.get("id"), one.get("node_id"), one.get("sha"), one.get("created_at"),
-            one.get("submitted_at"))
+    # Each with its type, so that an id read again as a truth value is not the number it was; and who made it, its
+    # label and the review it dismissed, so that a write read again as another is not the same (Astra, Muse, issue
+    # 1206).
+    by = [_object(one.get(field)).get(key) for field in ("actor", "user") for key in ("id", "type")]
+    dismissed = [_object(one.get("dismissed_review")).get(key) for key in ("review_id", "state")]
+    return tuple((type(v), v) for v in [one.get("event"), one.get("id"), one.get("node_id"), one.get("sha"),
+                                         one.get("created_at"), one.get("submitted_at"),
+                                         _object(one.get("label")).get("name")] + by + dismissed)
 
 
 def _tail(transport, path: str, since: str, ends=()) -> tuple:
@@ -129,40 +186,62 @@ def _tail(transport, path: str, since: str, ends=()) -> tuple:
     as gone, whose close may be older than `since`, it reads on back, within the same bound, until one of them is
     found (Claude)."""
     try:
+        size = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(path).query)).get("per_page")
         items, link = _page(transport, path, 1)
-        last = LAST.search(link)
-        if not timeline.NEXT.search(link):
-            # One page: whole, unless it names a last page it does not lead to (Astra).
-            found, joined, reached, steady = [], True, False, last is None
-        elif last is None:
+        named = _links(link, size)
+        if "next" not in named:
+            # One page: whole, unless it names another, a last it does not lead to or one before it (Astra, Claude).
+            found, joined, reached, steady = [], True, False, not named
+        elif not _agrees(named, 1, named.get("last", 0)):
+            # A first page that does not say it is the first of a last past it cannot be read from its end (Carbon,
+            # issue 1206).
             return [], False
         else:
-            end = int(last.group(1))
+            end = named["last"]
             tail, end_link = _page(transport, path, end)
-            found, page, reached = [tail], end, _before(tail, since)
+            found, page, reached, links = [tail], end, _before(tail, since), []
             while not (reached and _ended(found, ends)) and page > 2 and len(found) < timeline.BOUND - 3:
                 page -= 1
-                got, _ = _page(transport, path, page)
+                got, got_link = _page(transport, path, page)
                 found.insert(0, got)
+                links.append((page, _links(got_link, size)))
                 reached = reached or _before(got, since)
             joined = page == 2
             again, again_link = _page(transport, path, end)
             # An empty page before the end is no page GitHub would give (Astra), the first among them (Muse).
             steady = (bool(items) and all(found) and [_mark(i) for i in again] == [_mark(i) for i in tail]
-                      and not timeline.NEXT.search(again_link) and not timeline.NEXT.search(end_link))
+                      and all(_agrees(_links(got, size), end, end) for got in (end_link, again_link)))
+            # Each page read back says where it is (Astra, issue 1206).
+            steady = steady and all(_agrees(got, at, end) for at, got in links)
             if joined:
                 first, first_link = _page(transport, path, 1)
-                steady = steady and first_link == link and [_mark(i) for i in first] == [_mark(i) for i in items]
+                steady = steady and _links(first_link, size) == named and [_mark(i) for i in first] == [
+                    _mark(i) for i in items]
+        # The moments read run in order, the skipped pages' with them, and a first page left out holds nothing that
+        # could be a write and cannot be placed: else the answers contradict (Astra, Muse, issue 1206).
+        order = [at for one in [items] + found for at in _moments(one)]
+        steady = steady and order == sorted(order)
+        steady = steady and (joined or all(_moments([i]) or _object(i).get("event") in NOT_WRITES for i in items))
     except (Unanswered, KeyError, TypeError, ValueError):
         return [], False
-    kept, seen = [], set()
-    for item in ([items] if joined else []) + found:
+    kept, seen, marks = [], set(), {}
+    for number, item in enumerate([items] + found):
         for one in item:
             key = (_object(one).get("event"), _object(one).get("id"))
             if not all(k is None or isinstance(k, (str, int)) and not isinstance(k, bool) for k in key):
                 return [], False
-            if key[1] is None or key not in seen:
-                seen.add(key)
+            # One event read twice as two, by its id or its node, on any pages read: the answers contradict (Astra,
+            # Muse, issue 1206).
+            node = _object(one).get("node_id")
+            by_node = (key[0], "node", node) if isinstance(node, str) else None
+            names = ([(key[0], _id(key[1]))] if key[1] is not None else []) + ([by_node] if by_node else [])
+            for told in names:
+                if marks.setdefault(told, _mark(one)) != _mark(one):
+                    return [], False
+            # Kept once each, by its kind and id, or its node where it has no id (Astra).
+            once = key if key[1] is not None else by_node
+            if (number or joined) and (once is None or once not in seen):
+                seen.add(once)
                 kept.append(one)
     return kept, (reached or joined) and steady
 
@@ -216,6 +295,15 @@ def _positive(value) -> bool:
 
 def _key(value):
     return value if isinstance(value, str) and KEY.fullmatch(value) else None
+
+
+def _id(value) -> str:
+    """An id as the number it names however it is written, "01" or " 1" as 1, so that one event read under two
+    spellings of its id is one (Muse, issue 1206)."""
+    try:
+        return str(int(value))
+    except ValueError:
+        return str(value)
 
 
 def _object(value) -> dict:
