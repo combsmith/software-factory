@@ -475,8 +475,13 @@ MUTANTS = [
      '\n            and len(set(blobs.values())) == len({(blobs[path], changes["written"][path][1]) for path in blobs}))',
      ')', PUSH_BLOBS),
     ("a state's blobs are one to each base64, not to each file's bytes", 'guards/push.py',
-     '    names = {changes["written"][path][1]: made[path] for path in made}',
-     '    names = {state["push"]["blobs"][path]: made[path] for path in made}', PUSH_BLOBS),
+     '    names = {changes["written"][path][1]: made[path] for path in made}\n'
+     '    if made and (len(set(names.values())) != len(names)\n'
+     '                 or any(changes["written"][path][1] in names and made.get(path) != names[changes["written"][path][1]]\n',
+     '    names = {state["push"]["blobs"][path]: made[path] for path in made}\n'
+     '    if made and (len(set(names.values())) != len(names)\n'
+     '                 or any(state["push"]["blobs"][path] in names and made.get(path) != names[state["push"]["blobs"][path]]\n',
+     PUSH_BLOBS),
     ("a state's blob names may be anything", 'guards/push.py',
      'all(_sha(name) for name in made.values())',
      'True', PUSH_BLOBS),

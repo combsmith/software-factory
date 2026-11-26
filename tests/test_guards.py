@@ -1613,6 +1613,8 @@ class Push(unittest.TestCase):
                             {"status": "201", "body": {"sha": MADE}})
         self.assertEqual(both["made"], {"docs/a.md": MADE, "docs/b.md": MADE})
         self.assertFalse(push.permits(both, "POST", GIT + "blobs", {"content": "QQo=\n", "encoding": "base64"}))
+        self.assertTrue(push.permits(both, "POST", GIT + "trees", {"base_tree": ROOT_TREE, "tree": entries + [
+            {"path": "tests/t.py", "mode": FILE, "type": "blob", "sha": None}]}))
         self.assertEqual(push.seen(both, "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"},
                                    {"status": "201", "body": {"sha": MADE}}), (None, push.NOT_PERMITTED))
         # Each blob names the files of the content it was made of, in whatever order the blobs are made.
