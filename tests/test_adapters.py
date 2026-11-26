@@ -9143,8 +9143,9 @@ class Push(unittest.TestCase):
 
     def test_a_trees_name_is_the_one_git_gives_it(self):
         # `made` names its trees with `_tree_name`, so these names are git's own, from `git write-tree` on an index of
-        # each tree: the empty tree, one file, one file git runs, and a directory beside a file whose name sorts
-        # before the directory's only as git sorts it, as if a `/` followed the directory's name.
+        # each tree: the empty tree, one file, one file git runs, a directory beside a file whose name sorts before
+        # the directory's only as git sorts it, as if a `/` followed the directory's name, and two files, where no `/`
+        # follows either.
         one = "5626abf0f72e58d7a153368ba57db4c673c0e171"
         self.assertEqual(hashlib.sha1(b"blob 4\0one\n").hexdigest(), one)
         a_file = "b1ea253509c6004817f83cd7659ab4e6c38b2981"
@@ -9153,7 +9154,8 @@ class Push(unittest.TestCase):
                               ([("100755", "run", one)], "be8dca15050011b510eb70f535adada9005d64e9"),
                               ([("40000", "a", a_file), ("100644", "a.b", one)], "6b252a8ed528320520dc1e328b59422a95040a51"),
                               ([("100755", "run", one), ("40000", "a", a_file), ("100644", "a.b", one)],
-                               "48614e7e191b98b217823e28108422b4275268c8")):
+                               "48614e7e191b98b217823e28108422b4275268c8"),
+                              ([("100644", "a.b", one), ("100644", "a", one)], "01209b322f27596690a1e6285f48e6da5d375fd4")):
             self.assertEqual(push._tree_name(entries), name, entries)
 
     def test_a_trees_listing_is_taken_whole_or_not_at_all(self):
