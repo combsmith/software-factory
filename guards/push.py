@@ -66,8 +66,8 @@ BRANCH_MOVED = "push_branch_moved"
 ANSWER_REFUSED = "push_answer_refused"
 # No answer, or one read as none, a write's 401 among them: the port's, an environment fault.
 UNANSWERED = "push_unanswered"
-# GitHub's limit on the token, a 429, as `send` also gives a rate limit's 403 (decision 1138): capacity, on a read or a
-# write, never the item's.
+# GitHub's limit on the token, a 429, as `send` also gives a rate limit's 403 (decision 1138), on a read or a write: a
+# code of its own, never the item's, which the port owns until a fault of its own takes it.
 RATE_LIMITED = "push_rate_limited"
 # GitHub's answers, as text, as the port gives them: a number here would be a limit, and these are a protocol's names.
 OK = "200"
@@ -392,7 +392,7 @@ def seen(state, method, path, body, answer) -> tuple:
     if answer is not None and answer["status"] == LIMITED:
         return None, RATE_LIMITED
     # A write's 4xx is GitHub refusing it, but for a token expired; only no answer, or GitHub's own failure, is none
-    # (decisions 1225 and 9999).
+    # (decisions 1225 and 1252).
     if _unanswered(answer, NO_ANSWER if step == BRANCH_READ else NO_ANSWER_AFTER):
         return None, UNANSWERED
     status, got = answer["status"], answer["body"]

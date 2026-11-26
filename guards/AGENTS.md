@@ -35,6 +35,6 @@ A guard binds the Role that writes this repo's code. So it lives here, never in 
 | A push reads its branch, its commit, the commit's tree and its files, once each and in order | `tests/test_guards.py::test_a_push_reads_its_branch_commit_tree_and_files_once_each_in_order` |
 | A state in no shape `began` or `seen` gives lets nothing leave | `tests/test_guards.py::test_a_state_in_no_shape_lets_nothing_leave` |
 | The tree's listing is the port's, marked whole, at the tree the commit names | `tests/test_guards.py::test_a_listing_the_port_did_not_mark_whole_or_read_at_another_tree_is_refused` |
-| Every stop of a read or a write gives the code of its class: a 429 capacity's, a write's 401 the port's | `tests/test_guards.py::test_each_read_says_whose_a_stop_is`, `tests/test_guards.py::test_each_write_says_whose_a_stop_is` |
+| Every stop of a read or a write gives the code of its class: a 429 its own, a write's 401 the port's | `tests/test_guards.py::test_each_read_says_whose_a_stop_is`, `tests/test_guards.py::test_each_write_says_whose_a_stop_is` |
 | A push writes after its reads: blobs, a tree, a commit, the branch, each read back | `tests/test_guards.py::test_nothing_is_written_before_the_branch_and_the_listing_were_read`, `tests/test_guards.py::test_a_push_lands_its_commit_and_branch_read_back` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |

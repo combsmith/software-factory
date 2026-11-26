@@ -9193,7 +9193,7 @@ class Push(unittest.TestCase):
         self.assertEqual(tree, {"README.md": "100644", "bin/link": "120000", "bin/run.sh": "100755",
                                 "docs/notes.md": "100644", "gone.txt": "100644"})
         self.assertEqual(blobs["bin/run.sh"], ("85ba14df52f8c72688537de6e7555fb402217b1e", 19))
-        # No answer, or one the port reads as none, is the port's; GitHub's limit on the token, capacity; GitHub's answer
+        # No answer, or one the port reads as none, is the port's; GitHub's limit on the token, a code of its own; GitHub's answer
         # of any other kind is a person's.
         for status in ("500", "502", "401", "403"):
             self.assertEqual(push.listed(dict(answer, status=status), sha), (None, push.TREE_UNFETCHED), status)
@@ -9332,7 +9332,7 @@ class Push(unittest.TestCase):
             for answers in ({"a": one, "b": refused}, {"a": refused, "b": None}):
                 self.assertEqual(push.read_whole(listing, ["a", "b"], answers.get), (None, patch.TREE_UNREAD), answers)
         # Each file is asked for in order, and none after the first that gives a code.
-        for first_answer in (wrong, None):
+        for first_answer in (wrong, None, {"status": "429", "body": {}}):
             asked = []
             push.read_whole(listing, ["a", "b"], lambda path: asked.append(path) or {"a": first_answer, "b": other}[path])
             self.assertEqual(asked, ["a"])
@@ -9354,15 +9354,18 @@ class Push(unittest.TestCase):
         blob = push.read_blob(PUSHED, NAMED)
         # A 403 with no request left or a time to wait is a rate limit's (decision 1138): `send` gives it as GitHub's
         # other answer of a limit, a 429, so that the guard and the port tell it from a refusal.
+        made = push.make_blob(PUSHED, "QQo=")
         for headers in ({"x-ratelimit-remaining": "0"}, {"x-ratelimit-remaining": 0}, {"retry-after": "60"}):
-            self.assertEqual(sent(Answering(403, headers), blob), {"status": "429", "body": {"message": "limited"}}, headers)
+            for req in (blob, made):
+                self.assertEqual(sent(Answering(403, headers), req), {"status": "429", "body": {"message": "limited"}}, headers)
         # Any other 403, and another status with a time to wait, is an answer.
         for status, headers in ((403, {}), (403, {"x-ratelimit-remaining": "5"}), (404, {"retry-after": "60"}),
-                                (200, {"retry-after": "60"}), (403, None), (403, ["retry-after"])):
+                                (200, {"retry-after": "60"}), (403, None), (403, ["retry-after"]),
+                                (201, {"x-ratelimit-remaining": "0"})):
             self.assertEqual(sent(Answering(status, headers), blob), {"status": str(status), "body": {"message": "limited"}},
                              (status, headers))
         # A listing's 403 is the port's; a blob's, read after the listing by the same token, a person's; a blob's rate
-        # limit, capacity.
+        # limit, a code of its own.
         one, first = self.blob(b"one\n")
         listing = marked({"a": FILE_MODE}, {"a": (first, 4)})
         answer, sha = self.listing()
@@ -9393,12 +9396,10 @@ class Push(unittest.TestCase):
                                       "push_tree_unreadable": "person", "push_tree_unfetched": "port",
                                       "push_not_permitted": "person", "push_branch_moved": "superseded",
                                       "push_answer_refused": "person", "push_unanswered": "port",
-                                      "push_rate_limited": "capacity"})
+                                      "push_rate_limited": "port"})
         self.assertEqual((push.READS_TOO_LARGE, push.TREE_UNFETCHED), ("push_reads_too_large", "push_tree_unfetched"))
         # A person's code is the Kernel's `person` fault, which holds the item for a person (decision 1224).
         self.assertEqual(push.PERSON, terms.ENDED_PERSON)
-        # Capacity is outcome/1's own fault of that name, which spends no attempt of the item's.
-        self.assertIn(push.CAPACITY, records.CONCLUDED)
 
 if __name__ == "__main__":
     unittest.main()

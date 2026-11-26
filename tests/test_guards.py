@@ -1352,6 +1352,9 @@ class Push(unittest.TestCase):
             self.assertEqual(push.existing(said, tree_said), NOT_PERMITTED, (said, tree_said))
         self.assertEqual(push.existing({"written": {"r": ("100755", b"")}, "removed": ["x"], "read": ["x"]},
                                        {"r": FILE, "x": "100755"}), (["r", "x"], None))
+        # A file written over an executable one is a file written over a file.
+        self.assertEqual(push.existing({"written": {"r": (FILE, b"")}, "removed": [], "read": []}, {"r": "100755"}),
+                         (["r"], None))
         # Changes that the tree they land on cannot hold were never `applied`'s: a file over a directory the tree keeps,
         # at any depth, or under a file it keeps. Where the push removes what stood in the way, they land.
         for wrote, tree_said in (({"tests": (FILE, b"x")}, {"tests/t.py": FILE}), ({"a/b": (FILE, b"")}, {"a": FILE}),
@@ -1429,7 +1432,8 @@ class Push(unittest.TestCase):
         # A blob refused, or not answered, is a stop of its own, whoever judges the bytes given.
         for answer, why in ((None, push.UNANSWERED), ({"status": "503", "body": {}}, push.UNANSWERED),
                             ({"status": "404", "body": {}}, push.ANSWER_REFUSED), ({"status": "206", "body": {}}, push.ANSWER_REFUSED),
-                            ({"status": "403", "body": {}}, push.ANSWER_REFUSED)):
+                            ({"status": "403", "body": {}}, push.ANSWER_REFUSED), ({"status": "401", "body": {}}, push.UNANSWERED),
+                            ({"status": "429", "body": {}}, push.RATE_LIMITED)):
             self.assertEqual(push.seen(state, "GET", blob, None, answer), (None, why), answer)
         self.assertEqual([push.permits(once, "GET", GIT + "blobs/" + sha, None) for sha in (BLOB_A, BLOB_T)], [False, True])
         self.assertEqual(push.seen(once, "GET", blob, None, None), NOT_PERMITTED)
@@ -1675,7 +1679,7 @@ class Push(unittest.TestCase):
         for answer, why in (
                 # GitHub refused the write, or answered with what was not made.
                 ({"status": "422", "body": {}}, push.ANSWER_REFUSED), ({"status": "403", "body": {}}, push.ANSWER_REFUSED),
-                # A token expired is the port's; GitHub's limit on it, capacity.
+                # A token expired is the port's; GitHub's limit on it, a code of its own.
                 ({"status": "401", "body": {}}, push.UNANSWERED), ({"status": "429", "body": {}}, push.RATE_LIMITED),
                 ({"status": "200", "body": {"sha": MADE}}, push.ANSWER_REFUSED),
                 ({"status": "201", "body": {"sha": "x"}}, push.ANSWER_REFUSED), ({"status": "201", "body": None}, push.ANSWER_REFUSED),
