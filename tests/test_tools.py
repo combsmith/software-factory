@@ -16628,7 +16628,7 @@ class ReviewOrderTrial(IssueLookupTrial):
     FIRST = "issues: read and pull_requests: write"
     NOT_A_NUMBER = "is not a pull request's number"
     # The stand-in answers the review, the comments, the timeline and the reviews list, keeping each body sent for the
-    # test to read. Two a page, the timeline has three pages, or no end; the reviews list is empty. Files beside it refuse
+    # test to read. Two a page, the timeline has three pages, or as many as a file says; the reviews list is empty. Files beside it refuse
     # a read, the review's start or the comments, start it submitted, or list a review before it.
     CURL = BranchReadsTrial.CURL.replace('elif "/issues/" in url:', """elif "/timeline" in url or "/reviews" in url or "/comments" in url:
     if os.path.exists(os.path.join(here, "read.broke")):
@@ -16663,10 +16663,11 @@ class ReviewOrderTrial(IssueLookupTrial):
         status, answer = 201, {"id": 9, "created_at": "2026-11-26T12:00:20Z"}
     elif query.get("per_page") == "2":
         page = int(query.get("page", "1"))
-        named = '<https://api.github.com/x?per_page=2&page=%d>; rel="next"' % (page + 1) if page < 3 or os.path.exists(os.path.join(here, "endless")) else \\
+        last = int(open(os.path.join(here, "last.page")).read()) if os.path.exists(os.path.join(here, "last.page")) else 3
+        named = '<https://api.github.com/x?per_page=2&page=%d>; rel="next"' % (page + 1) if page < last else \\
             '<https://api.github.com/x?per_page=2&page=1>; rel="first"'
         sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\nlink: %s\\r\\n\\r\\n%s" % (named, json.dumps(
-            [{"event": "commented", "id": page, "created_at": "2026-11-26T12:00:0%dZ" % page, "leak": leak}])))
+            [{"event": "commented", "id": page, "created_at": "2026-11-26T12:00:%02dZ" % page, "leak": leak}])))
         sys.exit(0)
     else:
         status, answer = 200, [{"event": "reviewed", "id": 81, "submitted_at": "2026-11-26T12:01:40Z", "leak": leak}]
@@ -16751,8 +16752,17 @@ elif "/issues/" in url:""", 1)
                 self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
                 self.assertFalse((self.out / "requests.json").exists())
 
+    def test_a_timeline_of_thirty_pages_is_read_whole(self):
+        (self.stand_in / "last.page").write_text("30")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        urls = [c["url"] for c in self.calls()]
+        self.assertEqual(sum("per_page=2" in u for u in urls), 30)
+        self.assertTrue(urls[-2].endswith("/reviews/81/comments?per_page=100"), urls[-2])
+        self.assertIn("Done.", ran.stdout)
+
     def test_a_timeline_past_the_page_bound_stops_the_run_with_no_done(self):
-        (self.stand_in / "endless").write_text("")
+        (self.stand_in / "last.page").write_text("31")
         ran = self.run_script()
         self.assertNotEqual(ran.returncode, 0, ran.stdout)
         self.assertIn("page 30 of two still names a next page; the rest is unread, so the run is not whole", ran.stderr)
