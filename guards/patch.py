@@ -93,7 +93,7 @@ NUL = b"\x00"
 UNREADABLE = "bundle_unreadable"        # no patch this reads: the Role's, as decision 0188 has it
 NOT_APPLIED = "patch_does_not_apply"    # a patch, but not of the admitted commit's files
 NOT_A_FILE = "push_not_a_file"          # it writes what is no file, or through one
-PATH_TWIN = "push_path_collision"      # it writes a path another it leaves differs from by case or form alone
+PATH_TWIN = "push_path_collision"      # it writes a path another it leaves differs from by case, form or an ignorable alone
 TREE_UNREAD = "push_tree_unreadable"    # the port's reads are in no shape this reads: a person's Hold
 
 
@@ -465,6 +465,9 @@ def _folded(name: str) -> str:
     folded = name.casefold()
     for form, plain in CANONICAL:
         folded = plain.join(folded.split(form))
+    # A name of no character as high as the table's first holds none it names: most names, read without the table.
+    if not folded or max(folded) < IGNORABLE[0][0]:
+        return folded
     return "".join(c for c in folded if not any(first <= c <= last for first, last in IGNORABLE))
 
 
@@ -572,15 +575,16 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
     for path in written:
         if not _placed(path, left, folders):
             return None, NOT_A_FILE
-    # Nor may a file written, or a directory above it, differ by case or canonical form alone from another path or
-    # directory the push leaves: where those are not told apart, as on macOS's default file system, git checks both
-    # out as one. A file renamed to its own name in another case leaves its old name, and lands.
+    # Nor may a file written, or a directory above it, differ by case, canonical form or an ignorable character alone
+    # from another path or directory the push leaves: where those are not told apart, as on macOS's default file
+    # system, git checks both out as one. A file renamed to its own name in another case leaves its old name, and lands.
     cases, twins = {}, {}
     for path in list(left) + list(written):
         for name in _above(path) + [path]:
-            if cases.get(_folded(name), name) != name:
-                twins[_folded(name)] = True
-            cases[_folded(name)] = name
+            key = _folded(name)
+            if cases.get(key, name) != name:
+                twins[key] = True
+            cases[key] = name
     for path in written:
         if any(_folded(name) in twins for name in _above(path) + [path]):
             return None, PATH_TWIN

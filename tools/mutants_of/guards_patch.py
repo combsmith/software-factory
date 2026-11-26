@@ -1014,6 +1014,9 @@ MUTANTS = [
     ("a range of ignorable characters is passed over a character late", 'guards/patch.py',
      '("\\u202a", "\\u202e")',
      '("\\u202b", "\\u202f")', PATCH_FOLD),
+    ("a name below the last ignorable character is read without the table", 'guards/patch.py',
+     'max(folded) < IGNORABLE[0][0]',
+     'max(folded) < IGNORABLE[-1][-1]', PATCH_CASE),
     # guards/patch.py lands what git itself lands.
     ('every file lands as a plain one, whatever its mode', 'guards/patch.py',
      '= (mode, after)',
