@@ -2310,6 +2310,11 @@ class Investigation(unittest.TestCase):
         self.assertEqual((d["state"], what(d), d["evidence"]), ("held", ("hold", "run_needs_person", None), ["p8"]))
         d = decide(failing, [round_, dict(person, outcome="item")], cfg=cfg)
         self.assertEqual((what(d)[:2], d["evidence"]), (("hold", "attempts_exhausted"), ["m0", "p8"]))
+        # It holds with a Run in flight, as the rounds' brake does: a Run waiting is none of the Role's completed Runs.
+        cfg["limits"] = dict(cfg["limits"], max_implementing_rounds=3)
+        flying = run(intent=issue.IMPLEMENT, status="in_progress", role="dev-lead", name="m9", minute=9)
+        d = decide(failing, [round_, person, flying], cfg=cfg)
+        self.assertEqual((what(d), d["evidence"]), (("hold", "run_needs_person", None), ["p8"]))
 
     def test_an_issues_run_that_ran_and_left_no_outcome_is_an_attempt(self):  # issue 286's ruling
         # An investigating Run that failed or timed out with no outcome is the item's; one cancelled with none is not.

@@ -36,9 +36,11 @@ def runs_on(runs: list, facts: dict) -> list:
 def needs_person(runs: list, role: str) -> list:
     """The Run that holds the item for a person, as a list of its id, or none: the latest completed Run of `role` among
     `runs`, oldest first, ended `person` (issue 838); of two started in its second, either, since no order is read
-    between them. It is no attempt and no Run that spent no model; the Runs given start after a writer's action, so
-    that action releases it, as it renews the attempts."""
-    done = [r for r in runs if r["role"] == role and r["status"] == "completed"]
+    between them. A Run superseded, or cancelled with no outcome, ran nothing on the commit and is passed over. It is
+    no attempt and no Run that spent no model; the Runs given start after a writer's action, so that action releases
+    it, as it renews the attempts."""
+    done = [r for r in runs if r["role"] == role and r["status"] == "completed" and r.get("outcome") != "superseded"
+            and not (r.get("outcome") is None and r["conclusion"] == "cancelled")]
     last = [r for r in done if r["started_at"] == done[-1]["started_at"]] if done else []
     return [r["run"] for r in last if r.get("outcome") == t.ENDED_PERSON][:1]
 

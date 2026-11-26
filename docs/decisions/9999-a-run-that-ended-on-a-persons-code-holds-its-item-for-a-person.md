@@ -6,7 +6,7 @@ Status: accepted. 2026-11-26, the Solution Architect; issue 838. Extends decisio
 
 `outcome/1` gains the fault `person`: the Run ended on a code only a person can mend. The code itself stays in the outcome's `reason`, for the notice. The Kernel reads the fault, never the code; the push port's `WHOSE` says which codes are a person's.
 
-Where the Role whose Run is wanted last ended `person`, among its Runs since a writer acted, the item is held as `run_needs_person` and calls a person (`kernel/decide.py`, `kernel/issue.py`, `needs_person` in `kernel/derive.py`). It is read before the brakes, an issue's implementing rounds among them, so a Pause leaves it standing. Design section 3.10 gains the fault. A writer's action releases it, as it renews `attempts_exhausted`. A person is asked what `attempts_exhausted` asks (`config/feed.json`).
+Where the Role whose Run is wanted last ended `person`, among its Runs since a writer acted, passing over one superseded or cancelled with no outcome, the item is held as `run_needs_person` and calls a person (`kernel/decide.py`, `kernel/issue.py`, `needs_person` in `kernel/derive.py`). It is read before the brakes, an issue's implementing rounds among them, so a Pause leaves it standing. Design section 3.10 gains the fault. A writer's action releases it, as it renews `attempts_exhausted`. A person is asked what `attempts_exhausted` asks (`config/feed.json`).
 
 `kernel/brakes.py` is unchanged. A Run that ended `person` is no attempt and no Run that spent no model. It reached a model, so it counts toward the Run ceiling, the cost ceiling.
 

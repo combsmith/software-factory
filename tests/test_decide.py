@@ -3157,6 +3157,11 @@ class Ceilings(unittest.TestCase):
         fixer = run(role=CONFIG["author_role"], intent="fix-findings", conclusion="failure", outcome="person", at=at(5),
                     name="d1")
         self.assertEqual(go(facts(), [fixer])["admit"], REVIEW_IT)
+        # A later Run of the Role superseded, or cancelled with no outcome, ran nothing on the commit: the Hold stands.
+        for gone in ({"outcome": "superseded", "conclusion": "failure"}, {"outcome": None, "conclusion": "cancelled"}):
+            d = go(facts(), [ended, dict(other, **gone)])
+            self.assertEqual((d["reason"], d["evidence"]), ("run_needs_person", ["p1"]), gone)
+        self.assertEqual(go(facts(), [ended, dict(other, outcome=None, conclusion="timed_out")])["reason"], "awaiting_review")
         # Nor does another Role's later Run lift this Role's Hold.
         d = go(facts(), [ended, dict(fixer, outcome="item", started_at=at(11), began_at=at(11))])
         self.assertEqual((d["reason"], d["evidence"]), ("run_needs_person", ["p1"]))

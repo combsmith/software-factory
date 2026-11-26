@@ -63,6 +63,11 @@ DEQUEUE = ('        return _decision(facts, state, reason, evidence, t.ACT, acti
 STOOD = ('tests.test_decide.OnlyAPersonEnds.test_a_pull_request_whose_issue_a_person_held_or_closed_is_held_and_leaves_the_queue',)
 STANDS_READ = ('tests.test_issue.Stands.test_an_issue_stands_open_held_or_closed_from_its_state_and_its_own_labels',)
 # Issue 838's tests: a Run that ended on a person's code holds the item, a pull request or an issue.
+# The lines with which an issue's implementing Run reads that Hold before the rounds' brake.
+PERSON_BLOCK = ("    # The author Role's last Run ended on a code only a person can mend: held for a person before the rounds' brake, as\n"
+                "    # every Run wanted is before the brakes (issue 838).\n"
+                '    ended = needs_person(since_writer(mine, facts), config["author_role"])\n    if ended:\n'
+                '        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)\n')
 PERSON_RUN = ('tests.test_decide.Ceilings.test_a_run_that_ended_person_holds_the_item_and_calls_a_person_and_spends_no_attempt',)
 ISSUE_PERSON_RUN = ('tests.test_issue.Investigation.test_an_issues_run_that_ended_person_holds_the_issue_and_calls_a_person_and_spends_no_attempt',)
 STANDS_UNREAD = ('tests.test_issue.Stands.test_what_cannot_be_read_gives_none',)
@@ -960,10 +965,10 @@ ISSUE = [
      ("tests.test_issue.Outcomes.test_while_the_factorys_draft_fails_its_checks_another_implementing_run_is_admitted",)),
     ("the implementing rounds are spent whatever the draft's checks", ISSUE_PY,
      '    if draft["checks"] != "failing":\n        return _decision(facts, state, reason, evidence, t.NOTHING)\n'
-     '    unreadable = _decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)\n'
+     + PERSON_BLOCK + '    unreadable = _decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)\n'
      '    held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"], unreadable)\n'
      '    if held:\n        return held\n',
-     '    unreadable = _decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)\n'
+     PERSON_BLOCK + '    unreadable = _decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)\n'
      '    held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"], unreadable)\n'
      '    if held:\n        return held\n'
      '    if draft["checks"] != "failing":\n        return _decision(facts, state, reason, evidence, t.NOTHING)\n',
@@ -3387,14 +3392,21 @@ MUTANTS = ISSUE + OUTSIDE + [
      'last = [r for r in done if r["started_at"] == done[-1]["started_at"]] if done else []', 'last = done[-1:]',
      PERSON_RUN),
     ("the latest Run of any Role is read", 'kernel/derive.py',
-     'done = [r for r in runs if r["role"] == role and r["status"] == "completed"]\n'
      '    last = [r for r in done if r["started_at"] == done[-1]["started_at"]] if done else []',
-     'done = [r for r in runs if r["status"] == "completed"]\n'
+     '    done = [r for r in runs if r["status"] == "completed"]\n'
      '    last = [r for r in done if r["started_at"] == done[-1]["started_at"] and r["role"] == role] if done else []',
      PERSON_RUN),
     ("another Role's Run that ended person holds the item", 'kernel/derive.py',
-     'done = [r for r in runs if r["role"] == role and r["status"] == "completed"]',
-     'done = [r for r in runs if r["status"] == "completed"]', PERSON_RUN + ISSUE_PERSON_RUN),
+     'done = [r for r in runs if r["role"] == role and r["status"] == "completed"',
+     'done = [r for r in runs if r["status"] == "completed"', PERSON_RUN + ISSUE_PERSON_RUN),
+    ("a Run of the Role still in flight lifts the Hold", 'kernel/derive.py',
+     'r["role"] == role and r["status"] == "completed" and', 'r["role"] == role and', ISSUE_PERSON_RUN),
+    ("a superseded Run of the Role lifts the Hold", 'kernel/derive.py',
+     ' and r.get("outcome") != "superseded"\n', '\n', PERSON_RUN),
+    ("a cancelled Run of the Role with no outcome lifts the Hold", 'kernel/derive.py',
+     '            and not (r.get("outcome") is None and r["conclusion"] == "cancelled")]', ']', PERSON_RUN),
+    ("a Run of the Role that died with no outcome is passed over", 'kernel/derive.py',
+     'and r["conclusion"] == "cancelled")]', ')]', PERSON_RUN),
     ("a Run that ended person is an attempt", 'kernel/brakes.py',
      '(r.get("outcome") == "item" or (r.get("outcome") is None', '(r.get("outcome") in ("item", "person") or (r.get("outcome") is None',
      PERSON_RUN),
