@@ -104,4 +104,6 @@ MUTANTS = [
     ("P-52's root is found logically", "tools/trial_p52_pause.sh", "root=$(CDPATH= cd -P -- ", "root=$(CDPATH= cd -- ", ("tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does",)),
     ("P-52 exports what its environment says to", "tools/trial_p52_pause.sh", "set +a\nunset CDPATH\n", "unset CDPATH\n", ("tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment",)),
     ("P-52 looks along CDPATH", "tools/trial_p52_pause.sh", "set +a\nunset CDPATH\n", "set +a\n", ("tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment",)),
+    ("P-52 keeps a status that is not three digits", "tools/trial_p52_pause.sh", "[0-9][0-9][0-9]( |$)/) found",
+     "[0-9]+/) found", ("tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head",)),
 ]
