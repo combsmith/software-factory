@@ -46,6 +46,7 @@ import re
 from adapters.effects import Allowed
 from adapters.github import JSON, LARGEST, Unanswered, request
 from guards import patch
+from guards import push as guard
 
 SHA = re.compile(r"[0-9a-f]{40}")
 REPO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9_.-]{1,100}")
@@ -92,12 +93,12 @@ SURROGATES = ("\ud800", "\udfff")
 READS_TOO_LARGE = "push_reads_too_large"
 TREE_UNFETCHED = "push_tree_unfetched"
 ROLE, PERSON, PORT = "role", "person", "port"
-# Whose each code of the patch guard and of this port is: the Role's, counted as its attempt; a person's, a Hold on
+# Whose each code of the patch guard, the push guard and this port is: the Role's, counted as its attempt; a person's, a Hold on
 # the item, since the same commit reads the same way again; or the port's, an environment fault. Every code is here,
 # and none is read with a default: `WHOSE[code]`. A code's letters begin `push_`, `patch_` or `bundle_`: a test finds
-# every code of both modules by them.
+# every code of the three modules by them.
 WHOSE = {patch.UNREADABLE: ROLE, patch.NOT_APPLIED: ROLE, patch.NOT_A_FILE: ROLE, patch.PATH_TWIN: ROLE,
-         patch.TREE_UNREAD: PERSON, READS_TOO_LARGE: ROLE, TREE_UNFETCHED: PORT}
+         patch.TREE_UNREAD: PERSON, READS_TOO_LARGE: ROLE, TREE_UNFETCHED: PORT, guard.NOT_PERMITTED: PERSON}
 
 
 def _plain(value) -> bool:

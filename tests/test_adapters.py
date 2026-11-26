@@ -25,8 +25,9 @@ from adapters import acceptance, applied, artifacts, branches, checks, draft_che
     passes, pull, push, records, pause, rules, texts, threads, timeline
 from controller import shared
 from guards import patch
+from guards import push as guard
 from harness import task
-from kernel import brakes
+from kernel import brakes, terms
 from tests.support import pending
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -9146,6 +9147,26 @@ class Push(unittest.TestCase):
         name = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
         return {"status": "200", "body": {"content": base64.b64encode(data).decode() + "\n", "encoding": "base64"}}, name
 
+    def test_a_trees_name_is_the_one_git_gives_it(self):
+        # `made` names its trees with `_tree_name`, so these names are git's own, from `git write-tree` on an index of
+        # each tree: the empty tree, one file, one file git runs, a directory beside a file whose name sorts before
+        # the directory's only as git sorts it, as if a `/` followed the directory's name, and two files, where no `/`
+        # follows either; and a directory between names on either side of `/`.
+        one = "5626abf0f72e58d7a153368ba57db4c673c0e171"
+        self.assertEqual(hashlib.sha1(b"blob 4\0one\n").hexdigest(), one)
+        a_file = "b1ea253509c6004817f83cd7659ab4e6c38b2981"
+        for entries, name in (([], "4b825dc642cb6eb9a060e54bf8d69288fbee4904"),
+                              ([("100644", "a", one)], a_file),
+                              ([("100755", "run", one)], "be8dca15050011b510eb70f535adada9005d64e9"),
+                              ([("40000", "a", a_file), ("100644", "a.b", one)], "6b252a8ed528320520dc1e328b59422a95040a51"),
+                              ([("100755", "run", one), ("40000", "a", a_file), ("100644", "a.b", one)],
+                               "48614e7e191b98b217823e28108422b4275268c8"),
+                              ([("100644", "a.b", one), ("100644", "a", one)], "01209b322f27596690a1e6285f48e6da5d375fd4"),
+                              # A directory sorts after `a.b` and `a.b.c`, and before `a0`: as if `/` followed it.
+                              ([("100644", "a0", one), ("40000", "a", a_file), ("100644", "a.b.c", one), ("100644", "a.b", one)],
+                               "1c3fd4a816b516aa9cf14d89ccfb5b81e62df0a7")):
+            self.assertEqual(push._tree_name(entries), name, entries)
+
     def test_a_trees_listing_is_taken_whole_or_not_at_all(self):
         # Every listing P-71 recorded is the tree git names: each directory rebuilt, the whole named as asked.
         for name, at in (("P-71", 1), ("P-71", 8), ("P-71.moved", 2)):
@@ -9348,12 +9369,12 @@ class Push(unittest.TestCase):
     def test_every_code_of_the_patch_guard_and_the_port_names_whose_it_is(self):
         # Every code, of either module, is in the table, and nothing else: none is read with a default.
         coded = re.compile(r"(?:push|patch|bundle)_[a-z_]+")
-        codes = {value for module in (patch, push) for value in vars(module).values()
+        codes = {value for module in (patch, guard, push) for value in vars(module).values()
                  if type(value) is str and coded.fullmatch(value)}
         self.assertEqual(set(push.WHOSE), codes)
         # No code is written in place in either module, where the table would not see it.
         import ast
-        for module in (patch, push):
+        for module in (patch, guard, push):
             tree = ast.parse(pathlib.Path(module.__file__).read_text())
             written = {node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and type(node.value) is str
                        and coded.fullmatch(node.value)}
@@ -9362,8 +9383,11 @@ class Push(unittest.TestCase):
         # environment's fault, which is a read with no answer alone.
         self.assertEqual(push.WHOSE, {"bundle_unreadable": "role", "patch_does_not_apply": "role", "push_not_a_file": "role",
                                       "push_path_collision": "role", "push_reads_too_large": "role",
-                                      "push_tree_unreadable": "person", "push_tree_unfetched": "port"})
+                                      "push_tree_unreadable": "person", "push_tree_unfetched": "port",
+                                      "push_not_permitted": "person"})
         self.assertEqual((push.READS_TOO_LARGE, push.TREE_UNFETCHED), ("push_reads_too_large", "push_tree_unfetched"))
+        # A person's code is the Kernel's `person` fault, which holds the item for a person (decision 1224).
+        self.assertEqual(push.PERSON, terms.ENDED_PERSON)
 
 if __name__ == "__main__":
     unittest.main()

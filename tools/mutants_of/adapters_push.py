@@ -15,6 +15,7 @@ PUSH_LISTED = ('tests.test_adapters.Push.test_a_trees_listing_is_taken_whole_or_
 PUSH_BOUND = ('tests.test_adapters.Push.test_a_push_reads_whole_within_its_bound_and_past_it_is_the_roles_attempt',)
 PUSH_403 = ('tests.test_adapters.Push.test_a_rate_limits_403_is_no_answer_and_a_blobs_other_403_is_a_persons',)
 PUSH_LIMIT = PUSH_BOUND + PUSH_403
+PUSH_NAMED = ('tests.test_adapters.Push.test_a_trees_name_is_the_one_git_gives_it',)
 PUSH_WHOSE = ('tests.test_adapters.Push.test_every_code_of_the_patch_guard_and_the_port_names_whose_it_is',)
 
 TARGETS = ("adapters/push.py",)
@@ -237,6 +238,12 @@ MUTANTS = [
      '    if not _sha(sha):\n        return None, patch.TREE_UNREAD\n    if _unanswered(answer):', '    if _unanswered(answer):', PUSH_LISTED),
     ("a listing is marked at no tree", PUSH_PY,
      '"blobs": blobs, "sha": sha, "whole"', '"blobs": blobs, "sha": None, "whole"', PUSH_LISTED),
+    ("a tree is named by its entries without git's header", PUSH_PY,
+     'hashlib.sha1(b"tree %d\\0" % len(body) + body,', 'hashlib.sha1(body,', PUSH_NAMED),
+    ("a file sorts as if a / followed its name", PUSH_PY,
+     'return entry[1].encode() + (b"/" if entry[0] == TREE_MODE else b"")', 'return entry[1].encode() + b"/"', PUSH_NAMED),
+    ("a directory sorts last among its prefixes", PUSH_PY,
+     'return entry[1].encode() + (b"/" if entry[0] == TREE_MODE else b"")', 'return entry[1].encode() + (b"\\xff" if entry[0] == TREE_MODE else b"")', PUSH_NAMED),
     ("a directory sorts by its bare name", PUSH_PY,
      'return entry[1].encode() + (b"/" if entry[0] == TREE_MODE else b"")', 'return entry[1].encode()', PUSH_LISTED),
     ("a file is asked for after one gave a code", PUSH_PY,
@@ -285,4 +292,6 @@ MUTANTS = [
      'patch.TREE_UNREAD: PERSON,', 'patch.TREE_UNREAD: ROLE,', PUSH_WHOSE),
     ("a code of the guard is left out of the table", PUSH_PY,
      'patch.PATH_TWIN: ROLE,\n', '\n', PUSH_WHOSE),
+    ("a push told wrongly is the Role's attempt", PUSH_PY,
+     'guard.NOT_PERMITTED: PERSON}', 'guard.NOT_PERMITTED: ROLE}', PUSH_WHOSE),
 ]
