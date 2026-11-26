@@ -253,7 +253,7 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
     if [ "$read_ok" = 0 ] || [ "$status" != 200 ]; then
         drop "$scratch/raw-$n"
         echo "trial_p39_reach: $slug: GET /installation/repositories failed (curl ok: $read_ok, status: ${status:-none});" \
-            "its token is revoked, and nothing of it is kept. Run the trial again." >&2
+            "its token is revoked, and nothing of it reaches OUT. Run the trial again." >&2
         exit 1
     fi
     (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
