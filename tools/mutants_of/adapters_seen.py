@@ -437,7 +437,7 @@ MUTANTS = [
      'if isinstance(one.get("event"), str) and KIND.fullmatch(one["event"]) and isinstance(at, str)', 'if isinstance(at, str)',
      ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_trusts_no_answer_that_contradicts_itself',)),
     ('an item of an empty or blank kind is placed', 'adapters/seen.py',
-     'str) and KIND.fullmatch(one["event"]) and isinstance(at', 'str) and one["event"].strip() and isinstance(at',
+     'str) and KIND.fullmatch(one["event"]) and isinstance(at', 'str) and (not one["event"].strip() or KIND.fullmatch(one["event"])) and isinstance(at',
      ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_trusts_no_answer_that_contradicts_itself',)),
     ('an item of a numbered kind is placed', 'adapters/seen.py',
      'and KIND.fullmatch(one["event"]) and', 'and one["event"].strip() and',
@@ -576,5 +576,8 @@ MUTANTS = [
      ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_trusts_no_answer_that_contradicts_itself',)),
     ('an item read again under another node is the same', 'adapters/seen.py',
      'one.get("id"), one.get("node_id"), one.get("sha")', 'one.get("id"), one.get("sha")',
+     ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_trusts_no_answer_that_contradicts_itself',)),
+    ('a first page that names a first beside its next is trusted', 'adapters/seen.py',
+     'not {"prev", "first"} & set(named)', '"prev" not in named',
      ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_trusts_no_answer_that_contradicts_itself',)),
 ]
