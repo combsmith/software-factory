@@ -319,9 +319,9 @@ def content(answer, sha):
 
 def _unanswered(answer) -> bool:
     """Whether `send` gave no answer, or one the port reads as none: a status `UNANSWERED` names, or 500 and above."""
-    status = answer.get("status") if type(answer) is dict else None
-    if type(status) is not str:
+    if type(answer) is not dict or type(answer.get("status")) is not str:
         return True
+    status = answer["status"]
     return status in UNANSWERED or status.startswith("5")
 
 

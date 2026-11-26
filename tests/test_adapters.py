@@ -9026,6 +9026,9 @@ class Push(unittest.TestCase):
         for status in ("500", "502", "401", "403", "429"):
             self.assertEqual(push.listed(dict(answer, status=status), sha), (None, push.TREE_UNFETCHED), status)
         self.assertEqual(push.listed(None, sha), (None, push.TREE_UNFETCHED))
+        for status in (200, None):      # a status that is not text, as `send` writes it, is no answer
+            self.assertEqual(push.listed(dict(answer, status=status), sha), (None, push.TREE_UNFETCHED), status)
+        self.assertEqual(push.listed({"body": answer["body"]}, sha), (None, push.TREE_UNFETCHED))
         for status in ("404", "422", "201"):
             self.assertEqual(push.listed(dict(answer, status=status), sha), (None, patch.TREE_UNREAD), status)
         self.assertEqual(push.listed(answer, NAMED), (None, patch.TREE_UNREAD))

@@ -193,7 +193,7 @@ MUTANTS = [
     ("an expired token is a person's", PUSH_PY,
      'UNANSWERED = ("401", "403", "429")', 'UNANSWERED = ("403", "429")', PUSH_LISTED),
     ("a status that is no text is an answer", PUSH_PY,
-     '    if type(status) is not str:\n        return True\n', '', PUSH_LISTED),
+     ' or type(answer.get("status")) is not str:\n        return True', ':\n        return True', PUSH_LISTED),
     ("GitHub's own failure is a person's", PUSH_PY,
      'or status.startswith("5")', 'or status == "500"', PUSH_LISTED),
     ("an entry of a kind not read here is taken as a file", PUSH_PY,
