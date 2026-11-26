@@ -1184,6 +1184,10 @@ MUTANTS = [
        (TRIALS_SHELL,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in EVERY_1215],
     *[("%s looks along CDPATH" % script, "tools/" + script, "set +a\nunset CDPATH\n", "set +a\n", (TRIALS_SHELL,))
       for script in EVERY_1215],
+    ("P-39's read reads a .curlrc", "tools/trial_p39_reach.sh", '"$token" | curl -q -sS -i -H @-', '"$token" | curl -sS -i -H @-',
+     (TRIALS_ENV,)),
+    ("P-39's revocation reads a .curlrc", "tools/trial_p39_reach.sh", "curl -q --max-time 30 -sS", "curl --max-time 30 -sS",
+     (TRIALS_ENV,)),
     ("P-39's mint reads a .curlrc", "tools/trial_p39_reach.sh", "| curl -q -sS -w '\\n%{http_code}' -X POST",
      "| curl -sS -w '\\n%{http_code}' -X POST", (TRIALS_ENV,)),
 ]
