@@ -349,11 +349,12 @@ class IssueWorld:
         self.note("pass: %s / %s -> %s %s%s" % (d["state"], d["reason"], d["outcome"],
                                                  d.get("action") or d.get("admit", {}).get("intent", ""),
                                                  " [%s]" % d["attention"]))
-        # A Role whose last listed Run ended on a person's code is admitted again only once a person acts, or its record
-        # expires, unless the pass read the list late (issue 1223); a Run admitted so supersedes itself as it starts.
+        # A Role whose last Run the pass read ended on a person's code is admitted again only once a person acts, or
+        # its record expires. A pass that read the list late may miss that Run; a Run admitted so supersedes itself as
+        # it starts (issue 1223).
         self.person_holds += d["reason"] == "run_needs_person"
-        self.check(not exact or d["outcome"] != t.ADMIT
-                   or not held_for_a_person(self.records(), d["admit"]["role"], self.last_writer),
+        self.check(d["outcome"] != t.ADMIT
+                   or not held_for_a_person(runs, d["admit"]["role"], facts["last_writer_action_at"]),
                    "a Run admitted for a Role held for a person")
         if self.pausing():
             self.paused(facts, runs, d, ctx)

@@ -2328,11 +2328,18 @@ class Investigation(unittest.TestCase):
         ended = failed(INVESTIGATE, 2, "p1", outcome="person")
         for status in ("queued", "in_progress"):
             flying = run(intent=INVESTIGATE, status=status, role="business-analyst", name="q3", minute=3)
-            d = decide(TRIAGED, [ended, flying])
-            self.assertEqual((d["state"], what(d), d["evidence"]), ("held", ("hold", "run_needs_person", None), ["p1"]),
-                             status)
-            # Another fault leaves the issue working on the Run in flight; a writer's action releases the Hold.
+            for other in (flying, dict(flying, role="readiness", intent=JUDGE)):
+                d = decide(TRIAGED, [ended, other])
+                self.assertEqual((d["state"], what(d), d["attention"], d["evidence"]),
+                                 ("held", ("hold", "run_needs_person", None), "needs_you", ["p1"]), (status, other["role"]))
+            # Read before the ceilings: spent attempts before it give no other Hold.
+            spent = [failed(INVESTIGATE, 1, "f1"), failed(INVESTIGATE, 1, "f2"), failed(INVESTIGATE, 1, "f3")]
+            self.assertEqual(what(decide(TRIAGED, spent + [ended, flying]))[1], "run_needs_person", status)
+            # Another fault, or another Role's Run that ended so, leaves the issue working on the Run in flight; a
+            # writer's action releases the Hold.
             self.assertEqual(what(decide(TRIAGED, [dict(ended, outcome="item"), flying]))[0], "nothing", status)
+            judge = failed(JUDGE, 2, "p2", outcome="person", role="readiness")
+            self.assertEqual(what(decide(TRIAGED, [judge, flying]))[0], "nothing", status)
             renewed = facts(label_events=ACCEPTED, last_writer_action_at=at(2))
             self.assertEqual(what(decide(renewed, [ended, flying]))[0], "nothing", status)
 

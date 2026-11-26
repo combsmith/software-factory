@@ -9,6 +9,14 @@ SIM_ENQUEUE = ("tests.test_simulator.Simulation.test_the_factorys_own_enqueue_ho
 TARGETS = ("sim/world.py",)
 MUTANTS = [
     # Issue 1223: a Run killed past its limit may end on a person's code, and the item is held for a person.
+    ("the world holds no Role for a person", 'sim/world.py',
+     '    return any(r.get("outcome") == t.ENDED_PERSON for r in ran if r["started_at"] == latest)\n',
+     '    return False\n',
+     ("tests.test_simulator.Simulation.test_the_world_breaks_on_a_run_started_for_a_role_held_for_a_person",)),
+    ("the world reads a Role's first Run for a person", 'sim/world.py',
+     '    latest = max((r["started_at"] for r in ran), default=None)\n',
+     '    latest = min((r["started_at"] for r in ran), default=None)\n',
+     ("tests.test_simulator.Simulation.test_the_world_breaks_on_a_run_started_for_a_role_held_for_a_person",)),
     ("the world never ends a Run on a person's code", 'sim/world.py',
      '                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None, t.ENDED_PERSON]))\n',
      '                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None]))\n',

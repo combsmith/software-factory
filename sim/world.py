@@ -195,7 +195,8 @@ def held_for_a_person(runs: list, role: str, last_writer) -> bool:
     ran = [r for r in runs if r["role"] == role and r["status"] == "completed" and r.get("outcome") != "superseded"
            and not (r.get("outcome") is None and r["conclusion"] == "cancelled")
            and (last_writer is None or r["started_at"] > last_writer)]
-    return any(r.get("outcome") == t.ENDED_PERSON for r in ran if r["started_at"] == max(x["started_at"] for x in ran))
+    latest = max((r["started_at"] for r in ran), default=None)
+    return any(r.get("outcome") == t.ENDED_PERSON for r in ran if r["started_at"] == latest)
 
 
 def spent_no_model(run: dict, count: int) -> None:
@@ -778,11 +779,11 @@ class World:
         wrong = validate(d, DECISION_SCHEMA)
         self.check(not wrong, "every Decision is valid: %s" % "; ".join(wrong))
         self.note("pass: %s %s -> %s" % (d["state"], d["reason"], d["outcome"]))
-        # A Role whose last Run ended on a person's code is admitted again only once a person acts, unless the pass
-        # read the list late (issue 1223); a Run it admits so supersedes itself as it starts (I-38).
+        # A Role whose last Run the pass read ended on a person's code is admitted again only once a person acts. A
+        # pass that read the list late may miss that Run; a Run it admits so supersedes itself as it starts (I-38).
         self.person_holds += d["reason"] == "run_needs_person"
-        self.check(not exact or d["outcome"] != t.ADMIT
-                   or not held_for_a_person(self.runs, d["admit"]["role"], self.last_writer),
+        self.check(d["outcome"] != t.ADMIT
+                   or not held_for_a_person(runs, d["admit"]["role"], facts["last_writer_action_at"]),
                    "a Run admitted for a Role held for a person")
         # A Run listed before its run-name may be the Run in flight on this item: while one is listed inside
         # max_unnamed_run_seconds of its creation, no Run is admitted and no approval issued (I-46). One past the window

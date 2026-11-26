@@ -692,6 +692,28 @@ class Simulation(unittest.TestCase):
                 w.step()
             self.assertGreater(w.person_holds, 0, seed)
 
+    def test_the_world_breaks_on_a_run_started_for_a_role_held_for_a_person(self):  # issue 1223
+        # The world's own reading: the Role's latest Run since a writer acted ended `person`, of those that ran.
+        def ran(name, minute, outcome, conclusion="failure"):
+            return {"run": name, "role": "pr-review", "status": "completed", "conclusion": conclusion, "outcome": outcome,
+                    "started_at": World.at(minute)}
+        ended = ran("p1", 10, terms.ENDED_PERSON)
+        self.assertTrue(world.held_for_a_person([ended], "pr-review", None))
+        self.assertTrue(world.held_for_a_person([ended, ran("s1", 11, "superseded")], "pr-review", World.at(9)))
+        self.assertTrue(world.held_for_a_person([ran("i0", 10, "item"), ended], "pr-review", None))
+        for runs, role, writer in (([ended, ran("i1", 11, "item")], "pr-review", None), ([ended], "pr-review", World.at(10)),
+                                   ([ended], "dev-lead", None)):
+            self.assertFalse(world.held_for_a_person(runs, role, writer), (runs, role, writer))
+        # A Kernel that let such a Run start would break the world at its start.
+        w = World(2, faults=False, people=False)
+        w.runs = [dict(ended, item=dict(world.ITEM), intent="review-change", content_id=w.cid()),
+                  dict(ended, run="q1", item=dict(world.ITEM), intent="review-change", content_id=w.cid(),
+                       status="queued", conclusion=None, outcome=None, started_at=w.now())]
+        admits = {"outcome": "admit", "admit": {"role": "pr-review", "intent": "review-change", "content_id": w.cid()}}
+        with mock.patch.object(world, "decide", lambda *a: admits), \
+                self.assertRaisesRegex(world.Broken, "a Run started for a Role held for a person"):
+            w.start_next()
+
     def test_the_seeds_list_a_new_run_unnamed(self):  # I-46, decision 0036
         # On one seed in eight a Run is listed unnamed at the pass after its admission, and that pass defers what it
         # would admit or approve; every invariant holds throughout.

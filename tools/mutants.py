@@ -3395,11 +3395,23 @@ MUTANTS = ISSUE + OUTSIDE + [
      '                    else brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits))\n',
      '            held = brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits)\n',
      ISSUE_PERSON_IN_FLIGHT),
+    ("a Run that ended person beside a Run in flight is read after the ceilings", 'kernel/decide.py',
+     '            held = (_decision(facts, t.HELD, "run_needs_person", ended, t.HOLD) if ended\n'
+     '                    else brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, config["limits"]))\n',
+     '            held = (brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, config["limits"])\n'
+     '                    or (_decision(facts, t.HELD, "run_needs_person", ended, t.HOLD) if ended else None))\n',
+     PERSON_IN_FLIGHT),
+    ("an issue's Run that ended person beside a Run in flight is read after the ceilings", 'kernel/issue.py',
+     '            held = (_decision(facts, t.HELD, "run_needs_person", ended, t.HOLD) if ended\n'
+     '                    else brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits))\n',
+     '            held = (brakes.run_ceilings(_decision, facts, evidence, wanted[1], done, limits)\n'
+     '                    or (_decision(facts, t.HELD, "run_needs_person", ended, t.HOLD) if ended else None))\n',
+     ISSUE_PERSON_IN_FLIGHT),
     ("a Run that ended person beside a Run in flight is read before a writer acted", 'kernel/decide.py',
-     '            ended = needs_person(since_writer(mine, facts), wanted[0])\n',
+     '            ended = needs_person(since, wanted[0])\n',
      '            ended = needs_person(mine, wanted[0])\n', PERSON_IN_FLIGHT),
     ("an issue's Run that ended person beside a Run in flight is read before a writer acted", 'kernel/issue.py',
-     '            ended = needs_person(since_writer(mine, facts), wanted[0])\n',
+     '            ended = needs_person(since, wanted[0])\n',
      '            ended = needs_person(mine, wanted[0])\n', ISSUE_PERSON_IN_FLIGHT),
     ("any Run of the Role that ended person holds the item", 'kernel/derive.py',
      'return sorted(r["run"] for r in last if r.get("outcome") == t.ENDED_PERSON)[:1]',
