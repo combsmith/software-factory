@@ -725,31 +725,50 @@ class Context(unittest.TestCase):
                             (epoch("2026-10-11T12:00:00Z"), least), (-1, least), ("1760190000", most), (True, most),
                             (1760190000.5, most), (None, most), ("none", most)):
             self.assertEqual([w["until"] for w in until(limited(reset))], [want], reset)
-        # The Run's start stands in for an end GitHub gave none of; once the wait is past, or for a Run said to end after
-        # the pass, nothing waits. The latest of a scope's waits holds, each owner and Role apart; no other outcome waits.
+        # The Run's start stands in for an end GitHub gave none of, and the pass's now for one said to be after it, and
+        # at the end itself the wait holds; once it is past, nothing waits. The latest of a scope's waits holds in either
+        # order, each Role and owner apart, an owner in any case; no other outcome waits.
         self.assertEqual([w["until"] for w in until(limited(ended=None))], ["2026-10-11T13:40:00Z"])
         self.assertEqual(until(limited(), now=most), [])
-        self.assertEqual(until(limited(ended="2026-10-11T13:00:01Z")), [])
+        self.assertEqual([w["until"] for w in until(limited(ended="2026-10-11T13:00:01Z"))], ["2026-10-11T14:00:00Z"])
+        self.assertEqual([w["until"] for w in until(limited(epoch("2026-10-11T13:15:00Z"), ended=NOW))],
+                         ["2026-10-11T13:15:00Z"])
+        early, late = limited(epoch("2026-10-11T13:10:00Z")), limited(epoch("2026-10-11T13:50:00Z"))
+        for order in ((early, late), (late, early)):
+            self.assertEqual([w["until"] for w in until(*order)], ["2026-10-11T13:50:00Z"])
         elsewhere = dict(limited(), item=dict(support.ITEM, repo="combsmith-labs/x"))
-        other = dict(limited(epoch("2026-10-11T13:10:00Z")), role="dev-lead")
-        self.assertEqual(until(limited(epoch("2026-10-11T13:10:00Z")), limited(), elsewhere, other),
+        other = dict(early, role="dev-lead")
+        upper = dict(early, item=dict(support.ITEM, repo="CombSmith/x"))
+        self.assertEqual(until(early, limited(), elsewhere, other, upper),
                          [{"role": "dev-lead", "owner": "combsmith", "until": "2026-10-11T13:10:00Z"},
                           {"role": "pr-review", "owner": "combsmith", "until": most},
                           {"role": "pr-review", "owner": "combsmith-labs", "until": most}])
         self.assertEqual(until(dict(limited(), outcome="capacity"), dict(limited(), status="in_progress")), [])
-        # The pass gives the Kernel the waits and never the model's deferral, so a Role that pushes waits alone; it is
-        # no attempt, and raises no alert.
+        # The configuration's own waits are read, and a most below the least is the least.
+        for policy, past, none in (({"least_seconds": 300, "most_seconds": 900}, "13:04:30", "13:14:30"),
+                                   ({"least_seconds": 3600, "most_seconds": 1}, "13:59:30", "13:59:30")):
+            got = [pass_.github_deferred([limited(reset)], NOW, policy)[0]["until"] for reset in (-1, None)]
+            self.assertEqual(got, ["2026-10-11T%sZ" % past, "2026-10-11T%sZ" % none], policy)
+        # The pass gives the Kernel the waits, the reset among them, and never the model's deferral, so a Role that
+        # pushes waits alone; it is no attempt, raises no alert, and Runs of it on two items pause nothing.
         cfg = config()
         cfg["kernel"]["pushers"] = ["pr-review"]
-        for r in (limited(), dict(limited(), ended_at="2026-10-11T12:59:30Z")):
+        unended = {k: v for k, v in limited().items() if k != "ended_at"}
+        for r, want in ((limited(), most), (unended, "2026-10-11T13:40:00Z"),
+                        (limited(epoch("2026-10-11T13:05:00Z")), "2026-10-11T13:05:00Z")):
             out = passed(reads(runs=[r]), cfg=cfg)
             context = out["record"]["context"]
             self.assertEqual((context["github_deferred"], context["model_deferred_until"]),
-                             ([{"role": "pr-review", "owner": "combsmith", "until": most}], None))
+                             ([{"role": "pr-review", "owner": "combsmith", "until": want}], None))
             self.assertEqual((decisions(out)[0]["reason"], out["alerts"]), ("github_capacity", []))
+        many = [dict(limited(), run="r_0000G%d" % i, item=dict(support.ITEM, number=7 + i % 2)) for i in range(3)]
+        out = passed(reads(runs=many))
+        self.assertEqual((out["record"]["context"]["model_deferred_until"], out["alerts"]), (None, []))
         self.assertEqual(decisions(passed(reads(runs=[limited()])))[0]["outcome"], "admit")
         short = passed(reads(runs=[limited()], complete=False), cfg=cfg)["record"]["context"]
         self.assertEqual((short["github_deferred"], short["active_runs"]), (None, None))
+        empty = passed(reads(runs=[]), cfg=cfg)
+        self.assertEqual((empty["record"]["context"]["github_deferred"], decisions(empty)[0]["outcome"]), ([], "admit"))
 
     def test_runs_that_never_ran_pause_admission_and_are_named_as_themselves(self):  # decision 0116
         # A Run GitHub started no job of writes no outcome, so one cause doing it to every dispatch would run each open

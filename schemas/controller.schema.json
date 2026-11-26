@@ -326,11 +326,14 @@
       "properties": {
         "least_seconds": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 86400
         },
         "most_seconds": {
+          "description": "Read as least_seconds where it is the smaller",
           "type": "integer",
-          "minimum": 1
+          "minimum": 1,
+          "maximum": 86400
         }
       }
     },

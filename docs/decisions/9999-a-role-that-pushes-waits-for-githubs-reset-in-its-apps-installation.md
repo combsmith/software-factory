@@ -4,21 +4,21 @@ Status: accepted. 2026-11-26, the Solution Architect; issue 838. Extends decisio
 
 ## Decision
 
-`outcome/1` gains the fault `github_capacity`, with an optional `github_reset`: GitHub's `x-ratelimit-reset`, a whole number of seconds. The records port carries it to the run record, with when the Run ended (`adapters/records.py`).
+`outcome/1` gains the fault `github_capacity` and an optional `github_reset`, GitHub's `x-ratelimit-reset`. The run record carries it, and when the Run ended (`adapters/records.py`).
 
-The pass gives the Kernel `github_deferred`: each Role and repo owner whose Run ended so, until the latest reset. A reset is held between `least_seconds` and `most_seconds` after the Run ended; a missing or malformed one waits `most_seconds` (`github_deferred` in `controller/pass_.py`, `config/controller.json`).
+The pass gives the Kernel `github_deferred`: each Role and repo owner whose Run ended so, until the latest reset. A reset is held between `least_seconds` and `most_seconds` after the Run ended; a missing one waits `most_seconds`. Owners are one in any case (`github_deferred` in `controller/pass_.py`, `config/controller.json`).
 
-The Kernel defers a Run of a Role that pushes, while its own Role and owner wait, as `github_capacity` (`github_waiting` in `kernel/derive.py`). The Roles that push are those whose manifest permits `push_commits`, the grant `tools/check_authority.py` holds (`configuration.pushers`). No other Run waits. It spends no attempt and never sets `model_deferred_until`.
+The Kernel defers a pushing Role's Run, while its Role and owner wait, as `github_capacity` (`kernel/derive.py`). A Role pushes where its manifest permits `push_commits`, as `tools/check_authority.py` holds (`configuration.pushers`). No other Run waits. It spends no attempt, counts toward the Run ceiling, and never sets `model_deferred_until`. It is no whole-scope deferral, so its items may go stale.
 
-The scope is the installation GitHub counts the push token against. P-71 asked as the Maintainer's own login, a person's token. The push sends the Role App's installation token (`adapters/identity.py`), and each Role has its own App, so the Role and the owner name it.
+The scope is what GitHub counts the push token against. P-71 asked with a person's token, but the push sends the Role App's installation token (`adapters/identity.py`). Each Role has its own App, so the Role and the owner name it.
 
-Limits: no Role pushes yet. A pass that reads the run records short waits on nothing it can read, and every Run defers then. A reset GitHub moves earlier is waited out to the old one.
+Limits: no Role pushes, and nothing writes the fault, until the Harness's push step does. A list of pushers that cannot be read defers every Run. A Run with no end waits from its start; a later `updated_at` moves the wait. The approving act's reread sees its own item's Runs alone (decision 0199).
 
 ## Why
 
-A rate limit is GitHub's, not the item's or the model's. Run again at once, each push spends a Run, bounded only by the cost ceiling; under `capacity` every model Run would wait five hours.
+A rate limit is GitHub's, not the item's or the model's. Retried at once, each push spends a Run; under `capacity` every model Run would wait five hours.
 
-The reset is no outside text reaching a decision. It is a number, never text, and reaches only the Controller's clamp, never a Kernel reason. The clamp bounds the worst a wrong value does: a wait of at least `least_seconds` and at most `most_seconds`.
+The reset is no outside text reaching a decision. It is a number, never text, and reaches only the Controller's clamp, never a Kernel reason. `outcome/1` refuses one that is no whole number, and the Harness then writes `environment` (`harness/outcome.py`). The clamp bounds the worst a wrong value does.
 
 ## Boundaries
 

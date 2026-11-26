@@ -191,22 +191,23 @@ def capacity_until(runs: list, now: str, window: int):
 
 def github_deferred(runs: list, now: str, rule: dict) -> list:
     """Where Runs wait for GitHub's limit to reset (decision 9999): for each Role and owner a Run of which ended
-    `github_capacity`, `{"role", "owner", "until"}`, the latest of their waits, sorted, and none that is past. A wait
-    is until the reset the Run gave, held to between `least_seconds` and `most_seconds` after the Run ended, its start
-    standing in for an end GitHub gave none of; one that gave no whole number is `most_seconds`. The reset is a number
-    from GitHub's header, never text, and the clamp bounds the worst a wrong one does. A Run said to end after the pass
-    waits for nothing, as a capacity fault said to start after it does."""
+    `github_capacity`, `{"role", "owner", "until"}`, the latest of their waits, sorted, and none that is past; an owner
+    is one in any case, as GitHub counts it. A wait is until the reset the Run gave, held to between `least_seconds`
+    and `most_seconds` after the Run ended, the most never below the least; its start stands in for an end GitHub gave
+    none of, and the pass's `now` for an end said to be after it. One that gave no whole number is `most_seconds`. The
+    reset is a number from GitHub's header, never text, and the clamp bounds the worst a wrong one does."""
     epoch = moment(EPOCH)
     found = {}
     for r in runs:
         end = r.get("ended_at") if moment(r.get("ended_at")) is not None else r["started_at"]
-        if r["status"] != "completed" or r["outcome"] != GITHUB_CAPACITY or moment(end) is None or end > now:
+        if r["status"] != "completed" or r["outcome"] != GITHUB_CAPACITY or moment(end) is None or moment(now) is None:
             continue
-        ended = int((moment(end) - epoch).total_seconds())
-        least, most = ended + rule["least_seconds"], ended + rule["most_seconds"]
+        ended = int((moment(min(end, now)) - epoch).total_seconds())
+        least = ended + rule["least_seconds"]
+        most = ended + max(rule["least_seconds"], rule["most_seconds"])
         reset = r.get("github_reset")
         wait = min(max(reset, least), most) if type(reset) is int else most
-        key = (r["role"], r["item"]["repo"].partition("/")[0])
+        key = (r["role"], r["item"]["repo"].partition("/")[0].casefold())
         found[key] = max(found.get(key, wait), wait)
     waits = [{"role": role, "owner": owner, "until": text(epoch + datetime.timedelta(seconds=wait))}
              for (role, owner), wait in sorted(found.items())]
