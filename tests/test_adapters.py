@@ -9193,7 +9193,7 @@ class Push(unittest.TestCase):
         self.assertEqual(tree, {"README.md": "100644", "bin/link": "120000", "bin/run.sh": "100755",
                                 "docs/notes.md": "100644", "gone.txt": "100644"})
         self.assertEqual(blobs["bin/run.sh"], ("85ba14df52f8c72688537de6e7555fb402217b1e", 19))
-        # No answer, or one the port reads as none, is the port's; GitHub's limit on the token, capacity; GitHub's answer
+        # No answer, or one the port reads as none, is the port's; GitHub's limit on the token, a code of its own; GitHub's answer
         # of any other kind is a person's.
         for status in ("500", "502", "401", "403"):
             self.assertEqual(push.listed(dict(answer, status=status), sha), (None, push.TREE_UNFETCHED), status)
@@ -9362,7 +9362,7 @@ class Push(unittest.TestCase):
             self.assertEqual(sent(Answering(status, headers), blob), {"status": str(status), "body": {"message": "limited"}},
                              (status, headers))
         # A listing's 403 is the port's; a blob's, read after the listing by the same token, a person's; a blob's rate
-        # limit, capacity.
+        # limit, a code of its own.
         one, first = self.blob(b"one\n")
         listing = marked({"a": FILE_MODE}, {"a": (first, 4)})
         answer, sha = self.listing()
@@ -9393,12 +9393,10 @@ class Push(unittest.TestCase):
                                       "push_tree_unreadable": "person", "push_tree_unfetched": "port",
                                       "push_not_permitted": "person", "push_branch_moved": "superseded",
                                       "push_answer_refused": "person", "push_unanswered": "port",
-                                      "push_rate_limited": "capacity"})
+                                      "push_rate_limited": "port"})
         self.assertEqual((push.READS_TOO_LARGE, push.TREE_UNFETCHED), ("push_reads_too_large", "push_tree_unfetched"))
         # A person's code is the Kernel's `person` fault, which holds the item for a person (decision 1224).
         self.assertEqual(push.PERSON, terms.ENDED_PERSON)
-        # Capacity is outcome/1's own fault of that name, which spends no attempt of the item's.
-        self.assertIn(push.CAPACITY, records.CONCLUDED)
 
 if __name__ == "__main__":
     unittest.main()

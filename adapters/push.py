@@ -32,7 +32,7 @@ guard, and held to the name asked, never the answer's own.
 the bytes of each file the patch reads, one by one, whole or not at all, within `MOST_FILES` files and `MOST_BYTES`
 bytes. Each gives a code where it gives nothing, and `WHOSE` names whose each code of the guards and of this port is: the
 Role's, counted as its attempt; a person's, a Hold; the port's, an environment fault, for no answer or GitHub's own
-failure; none's, `superseded`, where someone else wrote the work branch; or capacity, GitHub's limit on the token.
+failure, or GitHub's limit on the token; or none's, `superseded`, where someone else wrote the work branch.
 
 `harness/push.py`, by hand, owes this port: every request sent by `transport`'s sender; its writers in
 `tools/check_writes.py`'s CALLERS; one request given unchanged to `permits` and `send`; `content` asked for the name
@@ -85,7 +85,7 @@ LINK = "120000"
 # Besides GitHub's own failure, 500 and above, a status the port reads as no answer to a listing: a token expired or
 # refused. A blob is read after its listing, by the same token: a 403 on it alone is GitHub refusing that blob, and it
 # will refuse it again, so it is a person's. A rate limit's 403, with no request left or a time to wait, is GitHub's
-# limit as a 429 is (decision 1138): `send` gives it as a 429, and either is capacity, `guard.RATE_LIMITED`.
+# limit as a 429 is (decision 1138): `send` gives it as a 429, and either is `guard.RATE_LIMITED`.
 UNANSWERED = ("401", "403")
 BLOB_UNANSWERED = ("401",)
 # A lone surrogate, which JSON may hold and UTF-8 does not write: no name git holds.
@@ -93,17 +93,17 @@ SURROGATES = ("\ud800", "\udfff")
 # The port's codes. A read cut short or of no shape is `guards/patch.py`'s `TREE_UNREAD`.
 READS_TOO_LARGE = "push_reads_too_large"
 TREE_UNFETCHED = "push_tree_unfetched"
-ROLE, PERSON, PORT, SUPERSEDED, CAPACITY = "role", "person", "port", "superseded", "capacity"
+ROLE, PERSON, PORT, SUPERSEDED = "role", "person", "port", "superseded"
 # Whose each code of the patch guard, the push guard and this port is: the Role's, counted as its attempt; a person's, a Hold on
 # the item, since the same commit reads the same way again; the port's, an environment fault; or none's, the Run
-# overtaken, `superseded`, where someone else wrote the work branch; or capacity, GitHub's limit on the token, which
-# spends no attempt and holds nothing for a person. Every code is here,
+# overtaken, `superseded`, where someone else wrote the work branch. GitHub's limit on the token has its own code, the
+# port's until a fault of its own defers the Runs that push (decision 9999). Every code is here,
 # and none is read with a default: `WHOSE[code]`. A code's letters begin `push_`, `patch_` or `bundle_`: a test finds
 # every code of the three modules by them.
 WHOSE = {patch.UNREADABLE: ROLE, patch.NOT_APPLIED: ROLE, patch.NOT_A_FILE: ROLE, patch.PATH_TWIN: ROLE,
          patch.TREE_UNREAD: PERSON, READS_TOO_LARGE: ROLE, TREE_UNFETCHED: PORT, guard.NOT_PERMITTED: PERSON,
          guard.BRANCH_MOVED: SUPERSEDED, guard.ANSWER_REFUSED: PERSON, guard.UNANSWERED: PORT,
-         guard.RATE_LIMITED: CAPACITY}
+         guard.RATE_LIMITED: PORT}
 
 
 def _plain(value) -> bool:
@@ -365,7 +365,7 @@ def listed(answer, sha):
     read at; and `whole` is True, the mark `guards/push.py`'s `seen` asks for, given here alone. Each directory's
     entries are rebuilt into its tree object and named as git names it, the whole into `sha`: an entry left out,
     added, listed twice or under no directory listed is a listing of no tree. An answer the port reads as none is the
-    port's, `TREE_UNFETCHED`; a 429, capacity, `guard.RATE_LIMITED`; one GitHub cut short, `truncated`, of another tree, or in any shape not read here, is a
+    port's, `TREE_UNFETCHED`, and a 429 `guard.RATE_LIMITED`; one GitHub cut short, `truncated`, of another tree, or in any shape not read here, is a
     person's, `TREE_UNREAD`: the same commit reads the same way again, and no part of a listing is taken. So is a
     `sha` that is no name of 40 hex digits as text itself, which the mark would carry."""
     if not _sha(sha):
@@ -433,7 +433,7 @@ def read_whole(listing, paths, read):
     """`(contents, None)`, each of `paths` to its bytes, or `(None, code)`, all or nothing. `read(path)` gives `send`'s
     answer to `read_blob` of the sha the listing gives that path; it is asked in order, and asked no more once one
     gives a code, so no more than `MOST_BYTES` and one answer are ever held. A missing answer, or one the port reads as
-    none, `BLOB_UNANSWERED`, is the port's, `TREE_UNFETCHED`; a 429, capacity, `guard.RATE_LIMITED`; any other that gives no bytes of that name, a refusal, a
+    none, `BLOB_UNANSWERED`, is the port's, `TREE_UNFETCHED`, and a 429 `guard.RATE_LIMITED`; any other that gives no bytes of that name, a refusal, a
     403 among them, or a blob too large, of no blob or of other bytes, a person's, `TREE_UNREAD`. Bytes past `MOST_BYTES` in all, whatever the listing
     said, are the Role's, `READS_TOO_LARGE`."""
     contents, held = {}, 0

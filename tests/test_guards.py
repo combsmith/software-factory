@@ -1677,7 +1677,7 @@ class Push(unittest.TestCase):
         for answer, why in (
                 # GitHub refused the write, or answered with what was not made.
                 ({"status": "422", "body": {}}, push.ANSWER_REFUSED), ({"status": "403", "body": {}}, push.ANSWER_REFUSED),
-                # A token expired is the port's; GitHub's limit on it, capacity.
+                # A token expired is the port's; GitHub's limit on it, a code of its own.
                 ({"status": "401", "body": {}}, push.UNANSWERED), ({"status": "429", "body": {}}, push.RATE_LIMITED),
                 ({"status": "200", "body": {"sha": MADE}}, push.ANSWER_REFUSED),
                 ({"status": "201", "body": {"sha": "x"}}, push.ANSWER_REFUSED), ({"status": "201", "body": None}, push.ANSWER_REFUSED),
