@@ -1,6 +1,6 @@
 # 1167. The view shows an issue left unread as the pass before decided it
 
-Status: accepted. 2026-11-19, the Factory Builder (ruling B3); issue 849, split from pull request 1128 to fit its size bound. Extends decision 0234.
+Status: replaced by `docs/decisions/0000-an-issues-reads-are-bounded-and-a-read-cut-short-calls-a-person.md`, which holds the rule in force.
 
 ## Decision
 

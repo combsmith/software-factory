@@ -1,0 +1,48 @@
+# 0000. An issue's reads are bounded and a read cut short calls a person
+
+Status: accepted. Replaces `docs/decisions/0234-an-issues-reads-are-bounded-by-pages-and-by-a-budget-of-requests-a-pass-and-an-issue-past-its-bound-calls-a-person.md`, `docs/decisions/0250-an-issues-references-and-links-are-cut-past-their-one-page.md`, `docs/decisions/0251-a-pass-reads-issues-to-a-budget-of-requests-oldest-left-out-first.md`, `docs/decisions/0252-a-short-issue-list-reads-no-issue-and-stops-no-pass.md`, `docs/decisions/0253-a-chain-of-spans-broken-while-an-issue-is-named-calls-a-person.md` and `docs/decisions/1167-the-view-shows-an-issue-left-unread-as-the-pass-before-decided-it.md`. 2026-11-26, the Solution Architect; issues 849 and 1238. Nothing decided changes.
+
+## Decision
+
+| What | Decided |
+|---|---|
+| Page bounds | The issues port reads an issue's timeline, and each linked pull request's, to ten pages (`BOUND` in `adapters/timeline.py`). It reads linked pull requests only while there are 25 at most (`CANDIDATES` in `adapters/linked.py`). References and links are one page each |
+| A read past a bound | The facts say `timeline_bounded`. The issues' Kernel defers on it, open or closed, before any short read, and calls a person (`kernel/issue.py`). A flag not exactly true or false is a gap |
+| Read on | Within the bounds every pull request is read, though another read is short or cut |
+| A budget a pass | Once `max_issue_requests` (`config/controller.json`) issue requests are sent, permission reads among them, no new issue read starts. Each issue not read is left out as `issue_budget`, with one alert. A begun read finishes |
+| Which first | Issues the newest record left out by the budget come first, in its order, then the listing's. A record whose list was read short is passed over (`controller/pass_.py`) |
+| A short list | No issue is read; the pull requests are decided. One itemless entry, `issue_list_unreadable`, and its alert. Every issue that might have left is owed again |
+| Broken spans | A record that left an issue out by the budget is passed over for that issue's keyword spans. A chain broken while something names the issue defers `spans_broken` and calls a person. Otherwise it defers as a short list |
+| The view | An issue left unread by the budget or a short list is shown as the record before decided it, one pass deep (`controller/feed.py`) |
+
+Limits: an issue past a bound waits on a person until it is closed; more comments never mend it. One pull request commented past its bound stalls every issue it names. An outsider can force a call by opening about forty issues or forcing a short list. The budget bounds what starts: a pass can overrun it by one read, 390 requests at most (decision 1203), plus a permission read for each new login it met. The view carries an issue one pass deep only.
+
+## Why
+
+Anyone can comment on an issue or open pull requests that name it. A read with no bound, repeated every pass, is an amplification an outsider controls (the security read of S3 PR2e). At 100 a pass and 20 passes an hour, the issues start under 2,000 requests an hour, under half an App's 5,000. A short list must not starve the pull requests, and a read cut past its bound only grows, so a person must see it. Calling a person for every broken chain was rejected: with nothing naming the issue, it mends in a pass or two.
+
+## Boundaries
+
+| Boundary | Check |
+|---|---|
+| A timeline is read to ten pages; a tenth that names an eleventh is cut, and the eleventh is never asked | `tests/test_adapters.py::test_an_issues_timeline_is_read_to_its_bound_and_past_it_is_bounded_and_not_whole`, `tests/test_adapters.py::test_a_linked_pull_requests_own_facts_are_read_as_a_pull_requests_are`, `adapters/timeline.py`, mutant: "a timeline is read past its bound" |
+| Past 25 linked pull requests none is read, and the list is cut | `tests/test_adapters.py::test_a_linked_pull_requests_own_facts_are_read_as_a_pull_requests_are`, `adapters/linked.py`, mutant: "any count of pull requests is read" |
+| References or links past their one page are cut | `tests/test_adapters.py::test_a_linked_pull_requests_own_facts_are_read_as_a_pull_requests_are`, `adapters/linked.py`, mutant: "references past the read's page are not said to be cut" |
+| Within the bounds a pull request is read though another's timeline is cut | `tests/test_adapters.py::test_a_linked_pull_requests_own_facts_are_read_as_a_pull_requests_are`, `adapters/linked.py`, mutant: "the read stops at a pull request's cut timeline" |
+| A cut read defers `timeline_bounded`, open or closed, and calls a person | `tests/test_issue.py::test_a_timeline_past_the_ports_bound_defers_on_its_own_code_and_calls_a_person`, `kernel/issue.py`, mutant: "a timeline past the port's bound calls no one" |
+| A bound flag that is not exactly true or false is a gap | `tests/test_issue.py::test_a_timeline_past_the_ports_bound_defers_on_its_own_code_and_calls_a_person`, `kernel/issue.py`, mutant: "a bound flag that cannot be read is read as within the bound" |
+| No issue read starts once the budget is spent; a begun read finishes; the budget is a whole number of one or more | `tests/test_controller.py::test_the_issue_reads_stop_at_the_passs_budget_and_those_left_out_by_it_are_read_first_by_the_next`, `examples/invalid/controller.a-budget-in-a-fraction.json`, `examples/invalid/controller.a-budget-of-no-issue-request.json`, `controller/__main__.py`, mutant: "the issues' budget is never spent" |
+| Permission reads count toward the budget | `tests/test_controller.py::test_the_issue_reads_stop_at_the_passs_budget_and_those_left_out_by_it_are_read_first_by_the_next`, `controller/__main__.py`, mutant: "the issues' permission reads are not counted" |
+| Those the newest record left out by the budget are read first, in its order | `tests/test_controller.py::test_the_issue_reads_stop_at_the_passs_budget_and_those_left_out_by_it_are_read_first_by_the_next`, `controller/pass_.py`, mutant: "those the budget left out are read in the listing's order" |
+| A record whose list was read short is passed over by the queue | `tests/test_controller.py::test_the_issue_reads_stop_at_the_passs_budget_and_those_left_out_by_it_are_read_first_by_the_next`, `controller/pass_.py`, mutant: "a list read short keeps the queue" |
+| An issue left out by the budget raises its own alert, not the alert of facts unread | `tests/test_controller.py::test_an_issue_left_unread_by_the_budget_raises_its_own_alert_and_no_other`, `controller/pass_.py`, mutant: "an issue left unread by the budget raises no alert of its own" |
+| A short list reads no issue, decides the pull requests and raises its own alert | `tests/test_controller.py::test_an_issue_list_read_short_raises_its_own_alert_and_no_other`, `tests/test_controller.py::test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is`, `controller/__main__.py`, mutant: "an issue list read short stops the pass" |
+| A short list tells no issue that left; every one is owed | `tests/test_controller.py::test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed`, `controller/__main__.py`, mutant: "a list read short tells the issues that left" |
+| A record that left the issue out by the budget is passed over for that issue alone | `tests/test_adapters.py::test_a_record_that_left_the_issue_out_by_its_budget_is_passed_over_for_it_alone`, `adapters/keyword_spans.py`, mutant: "a record that left the issue out by its budget breaks the chain" |
+| A chain broken while named defers `spans_broken` and calls a person | `tests/test_issue.py::test_a_chain_of_spans_the_records_broke_defers_on_its_own_code_and_calls_a_person`, `tests/test_adapters.py::test_a_record_that_left_the_issue_out_by_its_budget_is_passed_over_for_it_alone`, `tests/test_adapters.py::test_a_chain_of_spans_the_records_broke_while_something_names_the_issue_is_said`, `kernel/issue.py`, mutant: "a broken chain calls no one" |
+| A broken chain is read after a cut read and before a short list | `tests/test_issue.py::test_a_chain_of_spans_the_records_broke_defers_on_its_own_code_and_calls_a_person`, `kernel/issue.py`, mutant: "a broken chain is read before a cut read" |
+| A broken chain that nothing names defers as a short list and calls no one | `tests/test_adapters.py::test_a_record_that_left_the_issue_out_by_its_budget_is_passed_over_for_it_alone`, `tests/test_adapters.py::test_a_chain_of_spans_the_records_broke_while_something_names_the_issue_is_said`, `adapters/linked.py`, mutant: "a broken chain is a break whatever names the issue" |
+| An issue left unread is shown as the record before decided it | `tests/test_controller.py::test_an_issue_left_unread_by_the_budget_or_the_list_is_shown_as_the_pass_before_decided_it`, `controller/feed.py`, mutant: "the view carries no issue left unread" |
+| The view carries an issue one pass deep, from the record just before | `tests/test_controller.py::test_an_issue_left_unread_by_the_budget_or_the_list_is_shown_as_the_pass_before_decided_it`, `controller/feed.py`, mutant: "the view carries an issue from the oldest record at hand" |
+| The simulator meets a cut read under faults, each time calling a person | `tests/test_issue.py::test_the_issue_world_meets_a_timeline_past_the_bound_under_faults_and_calls_a_person`, `sim/issues.py`, mutant: "the issue world never bounds a timeline" |
+| The simulator meets a broken chain under faults | `tests/test_issue.py::test_the_issue_world_meets_a_broken_chain_of_spans_under_faults_and_calls_a_person`, `sim/issues.py`, mutant: "the issue world never breaks a chain of spans" |

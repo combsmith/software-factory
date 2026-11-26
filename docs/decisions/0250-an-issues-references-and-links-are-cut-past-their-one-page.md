@@ -1,6 +1,6 @@
 # 0250. An issue's references and links are cut past their one page
 
-Status: accepted. Extends decision 0234 with its part 2 for "Once issues are served, each touched open issue is re-read every pass with no budget of its own, and a short list stops the whole pass" (issue 849), the issues port's bounds, as the Factory Builder ruled on 2026-11-19 (A1, A2) and the Solution Architect ruled on 2026-11-21: each part carries a record of its own for the rules it builds, and decision 0234 gains only the Boundary rows that say which of its rows are held. The rows below restate 0234's where this part widens them
+Status: replaced by `docs/decisions/0000-an-issues-reads-are-bounded-and-a-read-cut-short-calls-a-person.md`, which holds the rule in force.
 
 ## Decision
 
