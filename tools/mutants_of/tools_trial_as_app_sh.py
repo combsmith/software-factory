@@ -102,4 +102,8 @@ MUTANTS = [
     ("the App's script exports what its environment says to", "tools/trial_as_app.sh", "set +a\nunset CDPATH\n", "unset CDPATH\n",
      ("tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment",)),
     ("the App's script looks along CDPATH", "tools/trial_as_app.sh", "set +a\nunset CDPATH\n", "set +a\n", ("tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment",)),
+    ("the App's calls read a .curlrc", "tools/trial_as_app.sh", '        curl -q -sS -i --fail-with-body -X "$1"',
+     '        curl -sS -i --fail-with-body -X "$1"', ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
+    ("the App's mint reads a .curlrc", "tools/trial_as_app.sh", '    curl -q -sS -i --fail-with-body -X POST',
+     '    curl -sS -i --fail-with-body -X POST', ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
 ]
