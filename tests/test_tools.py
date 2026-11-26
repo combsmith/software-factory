@@ -15571,7 +15571,7 @@ class SignalTraps(unittest.TestCase):
         # to the next signal (issue 481).
         own_line = {"trial_as_app.sh": "trap \"trap '' HUP INT TERM QUIT PIPE; trap - EXIT; finish 130\" HUP INT TERM QUIT PIPE"}
         # Each sh script that mints is deaf from its first signal on, so a second finds the clean-up deaf at once (issue 1215).
-        own_line.update({script: "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM" for script in (
+        own_line.update({script: "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM QUIT PIPE" for script in (
             "trial_reader_reads.sh", "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh", "trial_p58_edits.sh",
             "trial_p80_branch_reads.sh", "trial_p39_reach.sh", "trial_p4_narrow.sh", "trial_p52_pause.sh", "trial_p8_cost.sh")})
         scripts = sorted((ROOT / "tools").glob("*.sh"))
@@ -15597,7 +15597,7 @@ class SignalTraps(unittest.TestCase):
             self.assertEqual(body[:2], ["    trap '' HUP INT TERM QUIT PIPE", "    set +e"], script.name)
             revoke = text.split("\nrevoke() {\n", 1)[1].split("\n}\n", 1)[0]
             self.assertIn("| curl -q --max-time 30 ", revoke, script.name)
-            self.assertEqual(revoke.count("--max-time"), 1, script.name)
+            self.assertEqual((revoke.count("--max-time"), revoke.count(" -m ")), (1, 0), script.name)
 
 
 class ReaderTrialScript(unittest.TestCase):
