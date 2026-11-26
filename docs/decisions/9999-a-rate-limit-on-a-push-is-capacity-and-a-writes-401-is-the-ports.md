@@ -10,13 +10,13 @@ Status: accepted. 2026-11-26, the Solution Architect; issue 838. Narrows decisio
 
 A write's 401, a token expired, is `push_unanswered`, the port's. Every other 4xx on a write stays `push_answer_refused`, a person's, a protection's 403 among them.
 
-So decision 1225's "a write's 4xx" no longer holds a 401 or a 429. Decision 1222's `push_tree_unfetched` no longer holds a 429 or a rate limit's 403.
+So decision 1225's "a write's 4xx" no longer holds a 401 or a 429, nor its reads' `push_unanswered` a 429. Decision 1222's `push_tree_unfetched` no longer holds a 429 or a rate limit's 403.
 
-Limits: a 403 for a rate limit that carries neither header is read as a refusal.
+Limits: a rate limit's 403 that carries neither header is read as any 403: no answer on the branch or the listing, a refusal after them.
 
 ## Why
 
-A rate limit is the same fact on a read and a write, and nothing on the item mends it. As the port's it counted toward the environment ceiling; as a person's it held the item for nothing. A 401 is an answer, but a fresh token mends it. Before this, `send` gave a rate limit's 403 as no answer, so the guard could not tell it apart.
+A rate limit is the same fact on a read and a write, and nothing on the item mends it: as a person's, it held the item for nothing. A 401 is an answer, but a fresh token mends it. Before this, `send` gave a rate limit's 403 as no answer, so the guard could not tell it apart.
 
 ## Boundaries
 

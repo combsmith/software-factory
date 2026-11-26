@@ -18,7 +18,7 @@ write builders, and refuses a write request built or edited by hand. Headers or 
 GitHub's JSON, are not sent.
 
 `send` gives the answer as `seen` takes it, `{"status": the status as text, "body": what it said}`; GitHub gives a
-number (P-71), and a rate limit's 403 as a 429 (decision 1138). A refusal, a 404 or a 422, is an answer: the guard reads the work branch's 404 as the branch the
+number (P-71). It gives a rate limit's 403 as a 429 (decision 1138). A refusal, a 404 or a 422, is an answer: the guard reads the work branch's 404 as the branch the
 Decision admitted none of, and takes no other. GitHub answers that 404 alike to a token that cannot read the repo, so
 a push reads with the Role's own (P-71). A limit: a token that loses its access mid-push reads the branch as absent;
 its next write fails for the same lack, so nothing is written. None for a request `request` would not build or the
