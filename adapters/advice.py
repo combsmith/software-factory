@@ -78,17 +78,19 @@ def _responses(body: dict) -> tuple:
     if state != "completed" or body.get("error") is not None:
         return _fault(body) or "transport", None
     output = body.get("output") if isinstance(body.get("output"), list) else []
-    if any(not isinstance(item, dict) or item.get("type") not in ("message", "reasoning") for item in output):
-        return "unparsed", None             # an item of a kind not known here, a tool's call among them, is no answer
-    messages = [item for item in output if item["type"] == "message"]
-    if any(item.get("status") == "incomplete" for item in messages):
-        return "cut_short", None
-    if any(item.get("status", "completed") != "completed" or item.get("role", "assistant") != "assistant"
-           or not isinstance(item.get("content"), list) for item in messages):
-        return "unparsed", None             # a message unfinished, unreadable or another speaker's is no answer
+    items = [item for item in output if isinstance(item, dict)]
+    messages = [item for item in items if item.get("type") == "message"]
+    if any(item.get("status") == "incomplete" for item in items):
+        return "cut_short", None            # a message cut short, or the reasoning beside it
+    if any(item.get("status", "completed") != "completed" for item in items) \
+            or any(item.get("role", "assistant") != "assistant" or not isinstance(item.get("content"), list)
+                   for item in messages):
+        return "unparsed", None             # an item unfinished, or a message unreadable or not the reader's, is none
     parts = [part for item in messages for part in item["content"]]
     if any(isinstance(part, dict) and part.get("type") == "refusal" for part in parts):
         return "refused", None
+    if len(items) != len(output) or any(item.get("type") not in ("message", "reasoning") for item in items):
+        return "unparsed", None             # an item of a kind not known here, a tool's call among them, is no answer
     if any(not isinstance(part, dict) or part.get("type") != "output_text" for part in parts):
         return "unparsed", None             # a part of a kind not known here is never passed over unread
     said = [part.get("text") for part in parts]
@@ -109,8 +111,8 @@ def _chat(body: dict) -> tuple:
         return "refused", None
     if ended != "stop" or not isinstance(message, dict) or message.get("role", "assistant") != "assistant" \
             or type(message.get("content")) is not str or message.get("tool_calls") not in (None, []) \
-            or message.get("function_call") is not None:
-        return "unparsed", None             # a call of a tool, which no reader is offered, is a shape not read
+            or message.get("function_call") is not None or message.get("audio") is not None:
+        return "unparsed", None             # a call of a tool or a sound, neither offered a reader, is a shape not read
     return None, message["content"]
 
 
