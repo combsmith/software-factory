@@ -2091,25 +2091,29 @@ class RemoveLabel(unittest.TestCase):
         self.assertEqual((what(d), d["attention"]), (("nothing", "triage", None), "working"))
 
     def test_an_uncounted_label_waits_at_the_act_ceiling(self):  # issue 1251
-        # Removing another App's label that does not count stops no work: it is braked as any act. At the act ceiling,
-        # past it, or with the count unread, the removal waits, in new, triage and ready alike, and the issue reads as
-        # if the label did not stand: it makes no act, and admits only what it admits without the label.
+        # Removing a label that does not count stops no work: it is braked as any act. At the act ceiling, past it, or
+        # with the count unread, the removal waits, in new, triage and ready alike, and the issue reads as it will once
+        # the label is removed: it makes no act, and admits only what it admits then. One act below, it is removed.
         top = LIMITS["max_acts_per_item"]
-        twins = ((([], [labelled(TRIAGE, OTHER_APP, 1)]), ([], [labelled(READY, OTHER_APP, 1)])),
-                 ((ACCEPTED, ACCEPTED + [labelled(READY, OTHER_APP, 4)]),),
-                 ((READIED_BY_A_PERSON, READIED_BY_A_PERSON + [labelled(TRIAGE, OTHER_APP, 3)]),))
-        for state, pairs in zip(("new", "triage", "ready"), twins):
-            for bare, labelled_too in pairs:
-                for acts in (top, top + 1, None):
-                    without = decide(facts(label_events=bare, acts_since_writer=acts))
-                    d = decide(facts(label_events=labelled_too, acts_since_writer=acts))
-                    self.assertEqual((what(d), d.get("admit"), d["attention"]),
-                                     (what(without), without.get("admit"), without["attention"]), (state, acts))
-                    self.assertNotIn("label", d)
-                    self.assertNotEqual(d["outcome"], "act", (state, acts))
-                    # One act below the ceiling the label is removed.
-                    d = decide(facts(label_events=labelled_too, acts_since_writer=top - 1))
-                    self.assertEqual(what(d), ("act", "label_not_counted", "remove_label"), state)
+        analysed = [comment(ANALYST, 3)]
+        for state, events, comments in (("new", [labelled(TRIAGE, OTHER_APP, 1)], []),
+                                        ("new", [labelled(READY, OTHER_APP, 1)], []),
+                                        ("triage", ACCEPTED + [labelled(READY, OTHER_APP, 4)], []),
+                                        # The readiness App's own label, once its Run's record is gone: no verdict
+                                        # is asked for again while it waits.
+                                        ("triage", ACCEPTED + [labelled(READY, READINESS, 5)], analysed),
+                                        ("ready", READIED_BY_A_PERSON + [labelled(TRIAGE, OTHER_APP, 3)], [])):
+            gone = events + [dict(events[-1], action="unlabeled")]
+            for acts in (top, top + 1, None):
+                d = decide(facts(label_events=events, role_comments=comments, acts_since_writer=acts))
+                removed = decide(facts(label_events=gone, role_comments=comments, acts_since_writer=acts))
+                self.assertEqual((d["state"], what(d), d.get("admit"), d["attention"]),
+                                 (removed["state"], what(removed), removed.get("admit"), removed["attention"]),
+                                 (state, acts))
+                self.assertNotEqual(d["outcome"], "act", (state, acts))
+                self.assertNotEqual((d.get("admit") or {}).get("intent"), JUDGE, (state, acts))
+            d = decide(facts(label_events=events, role_comments=comments, acts_since_writer=top - 1))
+            self.assertEqual((d["state"], what(d)), (state, ("act", "label_not_counted", "remove_label")))
         # In new the ceiling holds the issue, with the label or without it, past the ceiling and under the Pause.
         for events, acts, ctx in (([labelled(READY, OTHER_APP, 1)], top, context()), ([], top, context()),
                                   ([labelled(TRIAGE, OTHER_APP, 1)], top, context()),
