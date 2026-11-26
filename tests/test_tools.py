@@ -649,7 +649,8 @@ class Examples(unittest.TestCase):
     def test_the_pass_record_holds_the_kernels_whole_context(self):  # decision 0039
         context = json.loads((ROOT / "schemas" / "pass.schema.json").read_text())["$defs"]["context"]
         self.assertEqual(set(context["properties"]), set(support.context()))
-        self.assertEqual(set(context["required"]), set(support.context()))
+        # A record written before the waits for GitHub holds none, and is read still: no Role pushes then (issue 838).
+        self.assertEqual(set(context["required"]) | {"github_deferred"}, set(support.context()))
         self.assertIs(context["additionalProperties"], False)
 
     def test_the_feed_shows_only_what_a_decision_can_say(self):  # decision 0039
