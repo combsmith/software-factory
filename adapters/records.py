@@ -52,11 +52,11 @@ JOB_STATUSES = NOT_STARTED | {"in_progress", "completed"}     # a job's, as a ru
 CONCLUSIONS = {"success": "success", "failure": "failure", "startup_failure": "cancelled", "cancelled": "cancelled",
                "skipped": "cancelled", "timed_out": "timed_out"}
 FRESH = {"Cache-Control": "no-cache"}
-# The faults an outcome names, as `outcome/1` holds them: one of these, once read, is that attempt's for good.
 # What an outcome says beside its fault, each a field of the run record, and of what kind (`engines`).
 SAID = (("engine_started", bool), ("github_reset", int))
 # The fault of a Run GitHub limited: only its reset is kept.
 GITHUB_CAPACITY = "github_capacity"
+# The faults an outcome names, as `outcome/1` holds them: one of these, once read, is that attempt's for good.
 CONCLUDED = {"item", "capacity", "github_capacity", "environment", "superseded", "person"}
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 HTTP_DATE = re.compile(r"(Mon|Tue|Wed|Thu|Fri|Sat|Sun), ([0-9]{2}) ([A-Z][a-z]{2}) ([0-9]{4}) "
