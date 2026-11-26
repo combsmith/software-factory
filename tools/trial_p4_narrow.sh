@@ -138,6 +138,10 @@ finish() {
         echo "trial_p4_narrow: stopped with a token live; revoking it returned $last" >&2
         [ "$last" = 204 ] || unrevoked "$last"
         token=""
+    elif [ -n "${minting:-}" ]; then
+        # Stopped while the mint was asked: its answer never came back here, and GitHub may have minted one (issue 1215).
+        echo "trial_p4_narrow: stopped while a token was being minted; GitHub may have minted one, live for up to" \
+            "an hour, and the Maintainer must revoke it by hand." >&2
     fi
     rm -rf "$scratch"
 }
@@ -211,10 +215,11 @@ asked="{\"n\": 1, \"call\": \"GET /repos/$repo/installation\", \"body\": null, \
 # variable, never a file, since the minted token is in the answer; python keeps the answer without its token.
 n=2
 printf '{"repositories":["%s"],"permissions":{"contents":"read"}}' "${repo#*/}" > "$scratch/mint.json"
+minting=1
 minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- \
     -H "$ACCEPT" -H "$VERSION" -H "$JSON" --data-binary "@$scratch/mint.json" \
     "$API/app/installations/$installation/access_tokens" || true)
-jwt=""
+jwt="" minting=""
 rm -f "$scratch/mint.json"
 minted_status=$(printf '%s\n' "$minted" | tail -n 1)
 token=$(printf '%s\n' "$minted" | sed '$d' | tr -d '\r' | python3 -I -c '

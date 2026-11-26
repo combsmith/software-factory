@@ -104,4 +104,7 @@ MUTANTS = [
      'mktemp -d "${TMPDIR:-/tmp}/.trial-', ("tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_beside_out",)),
     ("P-52 hands its helpers the TMPDIR it was given", "tools/trial_p52_pause.sh", 'export TMPDIR="$scratch"\n', "",
      ("tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_beside_out",)),
+    ("P-52 tells nothing of a stop mid-mint", "tools/trial_p52_pause.sh", '    elif [ -n "${minting:-}" ]; then', '    elif false; then',
+     ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
+    ("P-52 marks no mint", "tools/trial_p52_pause.sh", "minting=1\n", "", ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
 ]

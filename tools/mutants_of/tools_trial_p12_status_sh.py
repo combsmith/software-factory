@@ -1175,4 +1175,11 @@ MUTANTS = [
       for script in SCRIPTS_1215],
     *[("%s hands its helpers the TMPDIR it was given" % script, "tools/" + script, 'export TMPDIR="$scratch"\n', "",
        (TRIALS_SCRATCH,)) for script in SCRIPTS_1215],
+    # Issue 1215: each tells the Maintainer of a token a stop mid-mint may have left live, as P-80 did first.
+    *[("%s tells nothing of a stop mid-mint" % script, "tools/" + script, '    elif [ -n "${minting:-}" ]; then', '    elif false; then',
+       ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
+      for script in SCRIPTS_1215 if script != "trial_p80_branch_reads.sh"],
+    *[("%s marks no mint" % script, "tools/" + script, "minting=1\n", "",
+       ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
+      for script in SCRIPTS_1215],
 ]

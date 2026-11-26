@@ -136,6 +136,10 @@ finish() {
         echo "trial_p39_reach: stopped with a token live; revoking it returned $last" >&2
         [ "$last" = 204 ] || unrevoked "the token live when the script stopped" "$last"
         token=""
+    elif [ -n "${minting:-}" ]; then
+        # Stopped while the mint was asked: its answer never came back here, and GitHub may have minted one (issue 1215).
+        echo "trial_p39_reach: stopped while a token was being minted; GitHub may have minted one, live for up to" \
+            "an hour, and the Maintainer must revoke it by hand." >&2
     fi
     rm -rf "$scratch"
 }
@@ -176,10 +180,11 @@ reach() {
     signature=$(printf '%s.%s' "$header" "$claims" | openssl dgst -sha256 -sign "$key" -binary | b64url)
     jwt="$header.$claims.$signature"
     # GitHub's answer and its status are held in a variable, never a file, since a minted token is in the answer.
+    minting=1
     minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
         -H "$VERSION" -d '{"permissions":{"metadata":"read"}}' \
         "$API/app/installations/$installation/access_tokens" || true)
-    jwt=""
+    jwt="" minting=""
     minted_status=$(printf '%s\n' "$minted" | tail -n 1)
     minted=$(printf '%s\n' "$minted" | sed '$d')
     token=$(printf '%s\n' "$minted" | python3 -I -c '

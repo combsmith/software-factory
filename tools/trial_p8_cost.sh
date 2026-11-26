@@ -142,6 +142,10 @@ finish() {
         echo "trial_p8_cost: stopped with a token live; revoking it returned $last" >&2
         [ "$last" = 204 ] || unrevoked "$last"
         token=""
+    elif [ -n "${minting:-}" ]; then
+        # Stopped while the mint was asked: its answer never came back here, and GitHub may have minted one (issue 1215).
+        echo "trial_p8_cost: stopped while a token was being minted; GitHub may have minted one, live for up to" \
+            "an hour, and the Maintainer must revoke it by hand." >&2
     fi
     rm -rf "$scratch"
 }
@@ -334,10 +338,11 @@ header=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
 claims=$(printf '{"iat":%d,"exp":%d,"iss":%d}' $((now - 60)) $((now + 540)) "$app_id" | b64url)
 signature=$(printf '%s.%s' "$header" "$claims" | openssl dgst -sha256 -sign "$key" -binary | b64url)
 jwt="$header.$claims.$signature"
+minting=1
 minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
     -H "$VERSION" -d '{"permissions":{"metadata":"read","pull_requests":"read","issues":"read","checks":"read"}}' \
     "$API/app/installations/$installation/access_tokens" || true)
-jwt=""
+jwt="" minting=""
 minted_status=$(printf '%s\n' "$minted" | tail -n 1)
 minted=$(printf '%s\n' "$minted" | sed '$d')
 token=$(printf '%s\n' "$minted" | python3 -I -c '

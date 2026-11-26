@@ -126,6 +126,10 @@ finish() {
             echo "trial_p52_pause: the token may be live for up to an hour; the Maintainer must revoke it by hand." >&2
         fi
         token=""
+    elif [ -n "${minting:-}" ]; then
+        # Stopped while the mint was asked: its answer never came back here, and GitHub may have minted one (issue 1215).
+        echo "trial_p52_pause: stopped while a token was being minted; GitHub may have minted one, live for up to" \
+            "an hour, and the Maintainer must revoke it by hand." >&2
     fi
     rm -rf "$scratch"
 }
@@ -165,9 +169,10 @@ signature=$(printf '%s.%s' "$header" "$claims" | openssl dgst -sha256 -sign "$ke
 jwt="$header.$claims.$signature"
 # The answer is held in a variable, never a file, since the token is in it. Nothing narrows the token, so its
 # permissions are what the App was granted.
+minting=1
 minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
     -H "$VERSION" "$API/app/installations/$installation/access_tokens" || true)
-jwt=""
+jwt="" minting=""
 minted_status=$(printf '%s\n' "$minted" | tail -n 1)
 minted=$(printf '%s\n' "$minted" | sed '$d')
 token=$(printf '%s\n' "$minted" | python3 -I -c '

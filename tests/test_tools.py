@@ -15620,6 +15620,20 @@ class SignalTraps(unittest.TestCase):
                              ['export TMPDIR="$scratch"'], script.name)
             self.assertEqual(lines[lines.index(made[0]) + 1], 'export TMPDIR="$scratch"', script.name)
 
+    def test_every_token_script_tells_of_a_stop_mid_mint(self):  # issue 1215
+        # A stop while the mint is asked leaves no answer to find a token in, and GitHub may have minted one: each sh script
+        # that mints marks the ask, and its clean-up tells the Maintainer the token may be live.
+        scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
+                   if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
+        self.assertEqual(len(scripts), 10)
+        for script in scripts:
+            lines = [line.strip() for line in script.read_text().splitlines()]
+            mint = next(n for n, line in enumerate(lines) if line.startswith("minted=$(") and '"$jwt" | curl' in line)
+            self.assertEqual(lines[mint - 1], "minting=1", script.name)
+            self.assertIn('minting=""', next(line for line in lines[mint:] if line.startswith('jwt=""')), script.name)
+            finish = lines.index("finish() {")
+            self.assertIn('elif [ -n "${minting:-}" ]; then', lines[finish:lines.index("}", finish)], script.name)
+
     def test_every_trial_takes_nothing_of_the_maintainers_environment(self):  # issue 1215
         # A name a script holds a credential in, exported, reaches every child; SSLKEYLOGFILE has curl write the TLS keys
         # that read a token off the wire; a .curlrc can print the Authorization header. Each script that mints unsets the
@@ -15687,6 +15701,11 @@ grant = open(os.path.join(here, "grant")).read().strip() if os.path.exists(os.pa
 with open(os.path.join(here, "log"), "a") as log:
     log.write(json.dumps({"method": method, "url": url, "body": body, "credential": "Bearer " in said,
                           "grant": grant, "env": [n for n in ENV_NAMES if n in os.environ]}) + "\n")
+if url.endswith("/access_tokens") and os.path.exists(os.path.join(here, "mint.slow")):
+    told, held = (int(n) for n in open(os.path.join(here, "mint.slow")).read().split())
+    os.write(told, b"m")
+    os.read(held, 1)
+    sys.exit(28)
 if url.endswith("/access_tokens"):
     status = open(os.path.join(here, "mint.status")).read().strip()
     if os.path.exists(os.path.join(here, "cut")):
@@ -15923,6 +15942,30 @@ esac
         self.assertIn("DELETE", [c["method"] for c in self.calls()])
         self.assertIn("stopped with a token live; revoking it returned 204", err)
         self.assertNotIn(self.TOKEN, out + err)
+
+    def test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live(self):
+        # Stopped while the mint is asked, the answer never comes back, and GitHub may have minted a token all the same
+        # (issue 1215: each script of the family says so, as P-80's did first).
+        told_r, told_w = os.pipe()
+        held_r, held_w = os.pipe()
+        (self.stand_in / "mint.slow").write_text("%d %d\n" % (told_w, held_r))
+        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C"}
+        running = subprocess.Popen([SIGNAL_SHELL, str(self.SCRIPT), str(self.out), str(self.key), *self.GIVEN],
+                                   cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                                   pass_fds=(told_w, held_r))
+        os.close(told_w)
+        os.close(held_r)
+        try:
+            begun = os.read(told_r, 1)
+            running.terminate()
+        finally:
+            os.close(told_r)
+            os.close(held_w)
+        out, err = running.communicate(timeout=60)
+        self.assertEqual(begun, b"m", err)
+        self.assertNotEqual(running.returncode, 0)
+        self.assertIn("stopped while a token was being minted", err)
+        self.assertNotIn("DELETE", [c["method"] for c in self.calls()])
 
     def test_a_second_signal_does_not_cut_the_revocation_short(self):  # issue 1215, cubic on pull request 1212
         # Stopped mid-read, the script revokes its live token on the way out. A second signal then, as a closed terminal
@@ -16315,13 +16358,7 @@ class BranchReadsTrial(IssueLookupTrial):
     # The stand-in answers the list by the branch its head filter names and the ref by its path, each by that branch's
     # issue, as the docstring says; the control token, narrowed to pull_requests alone, is answered 404 on a ref unless
     # a file beside it says the repo is public.
-    CURL = IssueLookupTrial.CURL.replace('if url.endswith("/access_tokens"):\n', """if url.endswith("/access_tokens") and os.path.exists(os.path.join(here, "mint.slow")):
-    told, held = (int(n) for n in open(os.path.join(here, "mint.slow")).read().split())
-    os.write(told, b"m")
-    os.read(held, 1)
-    sys.exit(28)
-if url.endswith("/access_tokens"):
-""", 1).replace('elif "/issues/" in url:', """elif "/pulls?" in url or "/git/ref/heads/" in url:
+    CURL = IssueLookupTrial.CURL.replace('elif "/issues/" in url:', """elif "/pulls?" in url or "/git/ref/heads/" in url:
     if os.path.exists(os.path.join(here, "read.broke")):
         sys.stdout.write("HTTP/2 200\\r\\n\\r\\n{")
         sys.exit(18)
@@ -16428,29 +16465,6 @@ elif "/issues/" in url:""", 1)
         ran = self.run_script(*(self.GIVEN[:-1] + ("factory-work/issue-8005-12",)))
         self.assertEqual(ran.returncode, 0, ran.stderr)
         self.assertEqual(sum("issue-8005-12" in c["url"] for c in self.calls()), 2)
-
-    def test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live(self):
-        # Stopped while the mint is asked, the answer never comes back, and GitHub may have minted a token all the same.
-        told_r, told_w = os.pipe()
-        held_r, held_w = os.pipe()
-        (self.stand_in / "mint.slow").write_text("%d %d\n" % (told_w, held_r))
-        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C"}
-        running = subprocess.Popen([SIGNAL_SHELL, str(self.SCRIPT), str(self.out), str(self.key), *self.GIVEN],
-                                   cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
-                                   pass_fds=(told_w, held_r))
-        os.close(told_w)
-        os.close(held_r)
-        try:
-            begun = os.read(told_r, 1)
-            running.terminate()
-        finally:
-            os.close(told_r)
-            os.close(held_w)
-        out, err = running.communicate(timeout=60)
-        self.assertEqual(begun, b"m", err)
-        self.assertNotEqual(running.returncode, 0)
-        self.assertIn("stopped while a token was being minted", err)
-        self.assertNotIn("DELETE", [c["method"] for c in self.calls()])
 
     def test_an_inherited_mint_answer_is_never_revoked(self):
         # A token-shaped answer in the environment is no mint of this run's: a refusal sends nothing at all.
