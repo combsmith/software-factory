@@ -75,7 +75,7 @@ CREATED = "201"
 ABSENT = "404"
 LIMITED = "429"
 # A branch write GitHub refuses as no fast-forward, as a branch that stands, or by a rule on it: the branch read again
-# says which (decision 9999).
+# says which (decision 1253).
 STALE = "422"
 # Besides GitHub's own failure, 500 and above, what is no answer, as the port reads its listing: a token expired or
 # refused. The branch is read first; a 403 after it, by the same token, is GitHub refusing that request, which comes

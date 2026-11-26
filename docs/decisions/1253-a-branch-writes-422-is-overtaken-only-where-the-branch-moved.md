@@ -1,4 +1,4 @@
-# 9999. A branch write's 422 is overtaken only where the branch moved
+# 1253. A branch write's 422 is overtaken only where the branch moved
 
 Status: accepted. 2026-11-26, the Solution Architect; issue 838. Narrows decision 1225's `push_branch_moved` for a branch write, by name.
 
