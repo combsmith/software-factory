@@ -1234,10 +1234,10 @@ def _waits(d) -> bool:
 
 
 def _adds(d: dict, label: str) -> bool:
-    """Whether `d` admits a Run whose effect adds `label`: the readiness Run's adds factory:ready. While another App's
+    """Whether `d` admits a Run whose effect adds `label`: the readiness Run's adds factory:ready. It is admitted only
+    in triage, where the waiting label is factory:ready, so the label's test is a guard. While another App's
     `label` waits for its removal, that add changes nothing on GitHub, so the verdict could not land: the issue defers
-    instead, on the brake that makes the removal wait: the act ceiling's Hold, or the unread count's deferral (issue
-    1251)."""
+    instead, on the code of the brake that makes the removal wait: `act_ceiling` or `acts_unreadable` (issue 1251)."""
     return d["outcome"] == t.ADMIT and d["admit"]["intent"] == JUDGE_READINESS and label == LABEL_READY
 
 
