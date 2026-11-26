@@ -11,6 +11,9 @@ PUSH_PY = 'adapters/push.py'
 PUSH_EDGE = ('tests.test_adapters.Push.test_a_pushs_token_holds_a_path_base64_and_each_bound_at_its_edge',)
 PUSH_SENDER = ('tests.test_adapters.Push.test_a_push_is_sent_by_its_own_sender_alone',
                'tests.test_adapters.Push.test_a_senders_binding_and_permits_are_its_own_and_a_request_is_one_request_builds')
+PUSH_LISTED = ('tests.test_adapters.Push.test_a_trees_listing_is_taken_whole_or_not_at_all',)
+PUSH_BOUND = ('tests.test_adapters.Push.test_a_push_reads_whole_within_its_bound_and_past_it_is_the_roles_attempt',)
+PUSH_WHOSE = ('tests.test_adapters.Push.test_every_code_of_the_patch_guard_and_the_port_names_whose_it_is',)
 
 TARGETS = ("adapters/push.py",)
 MUTANTS = [
@@ -180,4 +183,35 @@ MUTANTS = [
     ("an issue of 20 digits is a work branch's", PUSH_PY, '{0,18}-', '{0,19}-', PUSH_EDGE),
     ("an attempt of 20 digits is a work branch's", PUSH_PY, '{0,18}")', '{0,19}")', PUSH_EDGE),
     ("a retry's branch is no work branch", PUSH_PY, '-[1-9][0-9]{0,18}")', '-1")', PUSH_EDGE),
+    # The push port's reads of the tree a patch lands on: whole, bounded, and each code with its owner.
+    ("a listing GitHub cut short is taken", 'adapters/push.py',
+     'body.get("truncated") is not False', 'body.get("truncated") is True', PUSH_LISTED),
+    ("a listing of another tree is taken", 'adapters/push.py',
+     'or not _said(body.get("sha"), sha) \\', 'or False \\', PUSH_LISTED),
+    ("a rate limit on the listing is a person's", 'adapters/push.py',
+     'UNANSWERED = ("403", "429")', 'UNANSWERED = ("403",)', PUSH_LISTED),
+    ("GitHub's own failure is a person's", 'adapters/push.py',
+     'or status[:1] == "5"', 'or status == "500"', PUSH_LISTED),
+    ("an entry of a kind not read here is taken as a file", 'adapters/push.py',
+     'if kind != "blob" or mode', 'if kind == "tree" or mode', PUSH_LISTED),
+    ("a path listed twice is taken", 'adapters/push.py',
+     'or entry["path"] in tree:', ':', PUSH_LISTED),
+    ("a submodule is a blob to read", 'adapters/push.py',
+     '            tree[path] = mode\n            continue\n', '            tree[path], blobs[path] = mode, (entry.get("sha"), 0)\n            continue\n', PUSH_LISTED),
+    ("one file more than the bound is read", 'adapters/push.py',
+     'len(paths) > MOST_FILES', 'len(paths) > MOST_FILES + 1', PUSH_BOUND),
+    ("one byte more than the bound is read", 'adapters/push.py',
+     'sum(blobs[path][1] for path in paths) > MOST_BYTES', 'sum(blobs[path][1] for path in paths) > MOST_BYTES + 1', PUSH_BOUND),
+    ("a file too large for the blob API is the Role's", 'adapters/push.py',
+     'if any(blobs[path][1] > MOST_BLOB for path in paths):', 'if False:', PUSH_BOUND),
+    ("a link is read as a file is", 'adapters/push.py',
+     'if tree.get(path) in FILE_MODES]', 'if path in blobs]', PUSH_BOUND),
+    ("a refused blob is the port's", 'adapters/push.py',
+     'if any(data is None and not _unanswered(got[path]) for path, data in contents.items()):', 'if False:', PUSH_BOUND),
+    ("bytes past the bound, though the listing said fewer, are taken", 'adapters/push.py',
+     'if sum(len(data) for data in contents.values()) > MOST_BYTES:', 'if False:', PUSH_BOUND),
+    ("a read in no shape is the Role's attempt", 'adapters/push.py',
+     'patch.TREE_UNREAD: PERSON,', 'patch.TREE_UNREAD: ROLE,', PUSH_WHOSE),
+    ("a code of the guard is left out of the table", 'adapters/push.py',
+     'patch.PATH_TWIN: ROLE,\n', '\n', PUSH_WHOSE),
 ]

@@ -24,6 +24,7 @@ from unittest import mock
 from adapters import acceptance, applied, artifacts, branches, checks, draft_checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
     passes, pull, push, records, pause, rules, texts, threads, timeline
 from controller import shared
+from guards import patch
 from harness import task
 from kernel import brakes
 from tests.support import pending
@@ -8442,6 +8443,7 @@ PUSHED = json.loads((ROOT / "trials" / "P-71.json").read_text())["repo"]       #
 WORK = "factory-work/issue-9971-1"
 NAMED = "a" * 40
 MIXED = "0123456789abcdef" * 2 + "01234567"     # a name of digits and letters both
+FILE_MODE = "100644"
 
 
 def sent(transport, req):
@@ -8977,6 +8979,108 @@ class Push(unittest.TestCase):
                              (PUSHED, "factory-work/issue-1-%s9" % long_)):
             self.assertEqual(push.allowed(repo, branch), ({}, []), (repo, branch))
 
+
+    def listing(self):
+        """P-71's listing of T0, every level of it, as `send` gives it."""
+        found = exchanges("P-71")[1]
+        return {"status": "200", "body": copy.deepcopy(found["response"]["body"])}, found["response"]["body"]["sha"]
+
+    @staticmethod
+    def blob(data: bytes):
+        """A blob's read as `send` gives it, and its git name."""
+        name = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+        return {"status": "200", "body": {"content": base64.b64encode(data).decode() + "\n", "encoding": "base64"}}, name
+
+    def test_a_trees_listing_is_taken_whole_or_not_at_all(self):
+        answer, sha = self.listing()
+        (tree, blobs), why = push.listed(answer, sha)
+        self.assertIsNone(why)
+        self.assertEqual(tree, {"README.md": "100644", "bin/link": "120000", "bin/run.sh": "100755",
+                                "docs/notes.md": "100644", "gone.txt": "100644"})
+        self.assertEqual(blobs["bin/run.sh"], ("85ba14df52f8c72688537de6e7555fb402217b1e", 19))
+        # No answer, or one the port reads as none, is the port's; GitHub's answer of any other kind is a person's.
+        for status in ("500", "502", "403", "429"):
+            self.assertEqual(push.listed(dict(answer, status=status), sha), (None, push.TREE_UNFETCHED), status)
+        self.assertEqual(push.listed(None, sha), (None, push.TREE_UNFETCHED))
+        for status in ("404", "422", "201"):
+            self.assertEqual(push.listed(dict(answer, status=status), sha), (None, patch.TREE_UNREAD), status)
+        # A listing cut short, of another tree, or with an entry in any shape not read here, is a person's.
+        def changed(edit):
+            said = copy.deepcopy(answer)
+            edit(said["body"])
+            return push.listed(said, sha)
+        for edit in (lambda b: b.update(truncated=True), lambda b: b.pop("truncated"), lambda b: b.update(truncated=0),
+                     lambda b: b.update(sha=NAMED), lambda b: b.update(tree={}), lambda b: b["tree"].append(b["tree"][0]),
+                     lambda b: b["tree"][0].update(type="tag"), lambda b: b["tree"][0].update(mode="100664"),
+                     lambda b: b["tree"][0].update(size=-1), lambda b: b["tree"][0].update(size=True),
+                     lambda b: b["tree"][0].pop("size"), lambda b: b["tree"][0].update(sha="A" * 40),
+                     lambda b: b["tree"][1].update(mode="040755"), lambda b: b["tree"].append("README.md"),
+                     lambda b: b["tree"][0].update(path=None)):
+            self.assertEqual(changed(edit), (None, patch.TREE_UNREAD))
+        self.assertEqual(push.listed(answer, NAMED), (None, patch.TREE_UNREAD))
+        # A submodule is a path of the tree, with no blob to read.
+        (tree, blobs), _ = changed(lambda b: b["tree"].append({"path": "vendored", "mode": "160000", "type": "commit",
+                                                                 "sha": NAMED}))
+        self.assertEqual((tree["vendored"], "vendored" in blobs), ("160000", False))
+
+    def test_a_push_reads_whole_within_its_bound_and_past_it_is_the_roles_attempt(self):
+        many = {"f%d" % n: FILE_MODE for n in range(push.MOST_FILES + 1)}
+        sizes = {path: (NAMED, 1) for path in many}
+        names = sorted(many)
+        self.assertEqual(push.to_read((many, sizes), names[:push.MOST_FILES]), (names[:push.MOST_FILES], None))
+        self.assertEqual(push.to_read((many, sizes), names), (None, push.READS_TOO_LARGE))
+        two = {"a": FILE_MODE, "b": "100755"}
+        half = push.MOST_BYTES // 2
+        self.assertEqual(push.to_read((two, {"a": (NAMED, half), "b": (NAMED, push.MOST_BYTES - half)}), ["b", "a"]),
+                         (["b", "a"], None))
+        self.assertEqual(push.to_read((two, {"a": (NAMED, half), "b": (NAMED, push.MOST_BYTES - half + 1)}), ["a", "b"]),
+                         (None, push.READS_TOO_LARGE))
+        # A file the blob API never gives is a person's, before any bound of the Role's; one just at its edge is read.
+        self.assertEqual(push.to_read((two, {"a": (NAMED, 1), "b": (NAMED, push.MOST_BLOB + 1)}), ["a", "b"]),
+                         (None, patch.TREE_UNREAD))
+        self.assertEqual(push.to_read((two, {"a": (NAMED, 1), "b": (NAMED, push.MOST_BLOB)}), ["a", "b"]),
+                         (None, push.READS_TOO_LARGE))
+        # What the patch names that is no file of the tree is read by no one, and a patch of no sources reads nothing.
+        (tree, blobs), _ = push.listed(*self.listing())
+        self.assertEqual(push.to_read((tree, blobs), ["bin/link", "absent", "bin/run.sh", "README.md"]),
+                         (["bin/run.sh", "README.md"], None))
+        self.assertEqual(push.to_read((tree, blobs), None), ([], None))
+        # The bytes, all or nothing: P-71's own blob read lands as its bytes.
+        found = exchanges("P-71")[2]["response"]
+        got = {"bin/run.sh": {"status": "200", "body": found["body"]}}
+        self.assertEqual(push.read_whole((tree, blobs), ["bin/run.sh"], got), ({"bin/run.sh": b"#!/bin/sh\necho run\n"}, None))
+        one, first = self.blob(b"one\n")
+        other, second = self.blob(b"two\n")
+        listing = ({"a": FILE_MODE, "b": FILE_MODE}, {"a": (first, 4), "b": (second, 4)})
+        self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": one, "b": other}), ({"a": b"one\n", "b": b"two\n"}, None))
+        # A file the port could not read is the port's; one GitHub refused, or gave as other bytes, a person's.
+        for gone in (None, {"status": "502", "body": None}, {"status": "429", "body": {}}, "no answer"):
+            self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": one, "b": gone}), (None, push.TREE_UNFETCHED))
+        self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": one}), (None, push.TREE_UNFETCHED))
+        self.assertEqual(push.read_whole(listing, ["a", "b"], None), (None, push.TREE_UNFETCHED))
+        for refused in ({"status": "404", "body": {}}, {"status": "422", "body": {"message": "not a blob"}},
+                        self.blob(b"three\n")[0]):
+            for answers in ({"a": one, "b": refused}, {"a": refused, "b": None}, {"a": None, "b": refused}):
+                self.assertEqual(push.read_whole(listing, ["a", "b"], answers), (None, patch.TREE_UNREAD), answers)
+        # More bytes than the bound, though the listing said fewer, are the Role's, and nothing is cut short.
+        with mock.patch.object(push, "MOST_BYTES", 7):
+            self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": one, "b": other}), (None, push.READS_TOO_LARGE))
+        with mock.patch.object(push, "MOST_BYTES", 8):
+            self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": one, "b": other})[1], None)
+
+    def test_every_code_of_the_patch_guard_and_the_port_names_whose_it_is(self):
+        # Every code, of either module, is in the table, and nothing else: none is read with a default.
+        coded = re.compile(r"(?:push|patch|bundle)_[a-z_]+")
+        codes = {value for module in (patch, push) for value in vars(module).values()
+                 if type(value) is str and coded.fullmatch(value)}
+        self.assertEqual(set(push.WHOSE), codes)
+        self.assertEqual(len(codes), 7)
+        self.assertLessEqual(set(push.WHOSE.values()), {push.ROLE, push.PERSON, push.PORT})
+        # A read in no shape is a person's Hold: never the Role's attempt, nor the environment's fault.
+        self.assertEqual(push.WHOSE[patch.TREE_UNREAD], push.PERSON)
+        self.assertEqual([code for code, whose in push.WHOSE.items() if whose == push.PORT], [push.TREE_UNFETCHED])
+        self.assertEqual(push.WHOSE[push.READS_TOO_LARGE], push.ROLE)
+        self.assertEqual([code for code, whose in push.WHOSE.items() if whose == push.PERSON], [patch.TREE_UNREAD])
 
 if __name__ == "__main__":
     unittest.main()

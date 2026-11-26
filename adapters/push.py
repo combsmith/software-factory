@@ -40,6 +40,7 @@ import re
 
 from adapters.effects import Allowed
 from adapters.github import JSON, Unanswered, request
+from guards import patch
 
 SHA = re.compile(r"[0-9a-f]{40}")
 REPO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9_.-]{1,100}")
@@ -60,6 +61,26 @@ ALPHABET = re.compile(r"[A-Za-z0-9+/]*")
 # git's own directory, and the head of the short name another file system gives it (`git~1`), as `guards/patch.py`.
 GIT_OWN = ".git"
 GIT_SHORT = "git~"
+# The most files a push's patch may have read, and the most bytes in all: a patch that reads more is the Role's own
+# attempt, refused whole, and nothing is cut short. 64 MiB.
+MOST_FILES = 1000
+MOST_BYTES = 67108864
+# The largest blob GitHub's blob API gives, 100 MB: a file the listing says is larger is never read, by any attempt.
+MOST_BLOB = 104857600
+# The modes of a tree's listing that are no file: a directory, and a submodule, which git writes as a commit.
+DIRECTORY = "040000"
+LINK = "120000"
+# A status the port reads as no answer: GitHub's own failure, a rate limit, or a token the repo refuses.
+UNANSWERED = ("403", "429")
+# The port's codes. A read cut short or of no shape is `guards/patch.py`'s `TREE_UNREAD`.
+READS_TOO_LARGE = "push_reads_too_large"
+TREE_UNFETCHED = "push_tree_unfetched"
+ROLE, PERSON, PORT = "role", "person", "port"
+# Whose each code of the patch guard and of this port is: the Role's, counted as its attempt; a person's, a Hold on
+# the item, since the same commit reads the same way again; or the port's, an environment fault. Every code is here,
+# and none is read with a default: `WHOSE[code]`.
+WHOSE = {patch.UNREADABLE: ROLE, patch.NOT_APPLIED: ROLE, patch.NOT_A_FILE: ROLE, patch.PATH_TWIN: ROLE,
+         patch.TREE_UNREAD: PERSON, READS_TOO_LARGE: ROLE, TREE_UNFETCHED: PORT}
 
 
 def _plain(value) -> bool:
@@ -280,6 +301,73 @@ def content(answer, sha):
     if hashlib.sha1(b"blob %d\0" % len(data) + data, usedforsecurity=False).hexdigest() != sha:
         return None
     return data
+
+
+def _unanswered(answer) -> bool:
+    """Whether `send` gave no answer, or one the port reads as none: a status `UNANSWERED` names, or 500 and above."""
+    status = answer.get("status") if type(answer) is dict else None
+    return type(status) is not str or status in UNANSWERED or status[:1] == "5"
+
+
+def listed(answer, sha):
+    """`((tree, blobs), None)` from `send`'s answer to `read_tree` of `sha`, or `(None, code)`. `tree` is each path the
+    tree holds that is no directory, to its mode, as `guards/patch.py`'s `applied` takes it; `blobs` is each file's
+    and link's `(sha, size)`. An answer the port reads as none is the port's, `TREE_UNFETCHED`; one GitHub cut short,
+    `truncated`, of another tree, or in any shape not read here, is a person's, `TREE_UNREAD`: the same commit reads
+    the same way again, and no part of a listing is taken."""
+    if _unanswered(answer):
+        return None, TREE_UNFETCHED
+    body = answer.get("body") if _said(answer.get("status"), "200") else None
+    if type(body) is not dict or body.get("truncated") is not False or not _said(body.get("sha"), sha) \
+            or not _sha(sha) or type(body.get("tree")) is not list:
+        return None, patch.TREE_UNREAD
+    tree, blobs = {}, {}
+    for entry in body["tree"]:
+        if type(entry) is not dict or type(entry.get("path")) is not str or entry["path"] in tree:
+            return None, patch.TREE_UNREAD
+        path, mode, kind, size = entry["path"], entry.get("mode"), entry.get("type"), entry.get("size")
+        if kind == "tree" and mode == DIRECTORY:
+            continue
+        if kind == "commit" and mode == patch.SUBMODULE:
+            tree[path] = mode
+            continue
+        if kind != "blob" or mode not in FILE_MODES + (LINK,) or not _sha(entry.get("sha")) or type(size) is not int \
+                or size < 0:
+            return None, patch.TREE_UNREAD
+        tree[path], blobs[path] = mode, (entry["sha"], size)
+    return (tree, blobs), None
+
+
+def to_read(listing, sources):
+    """`(paths, None)`, the files among `sources` (`guards/patch.py`'s) whose bytes a push reads, in their order, or
+    `(None, code)`. A path the listing does not hold, a link or a submodule is read by no one: the guard refuses the
+    patch without its bytes. A file larger than GitHub's blob API gives, `MOST_BLOB`, is a person's, `TREE_UNREAD`.
+    More files than `MOST_FILES`, or more bytes than `MOST_BYTES` in all by the listing's sizes, is the Role's,
+    `READS_TOO_LARGE`: nothing is read. A patch `sources` cannot read reads nothing, and the guard names it."""
+    tree, blobs = listing
+    paths = [path for path in sources or () if tree.get(path) in FILE_MODES]
+    if any(blobs[path][1] > MOST_BLOB for path in paths):
+        return None, patch.TREE_UNREAD
+    if len(paths) > MOST_FILES or sum(blobs[path][1] for path in paths) > MOST_BYTES:
+        return None, READS_TOO_LARGE
+    return paths, None
+
+
+def read_whole(listing, paths, answers):
+    """`(contents, None)`, each of `paths` to its bytes, from `answers`, each `send`'s answer to `read_blob` of the sha
+    the listing gives that path; or `(None, code)`, all or nothing. Any answer that gives no bytes of that name but is
+    not one the port reads as none, a refusal, or a blob too large or no blob, is a person's, `TREE_UNREAD`, before
+    all else; then any answer the port reads as none, or none at all, is the port's, `TREE_UNFETCHED`; then bytes past
+    `MOST_BYTES` in all, whatever the listing said, are the Role's, `READS_TOO_LARGE`."""
+    got = {path: answers.get(path) if type(answers) is dict else None for path in paths}
+    contents = {path: content(answer, listing[1][path][0]) for path, answer in got.items()}
+    if any(data is None and not _unanswered(got[path]) for path, data in contents.items()):
+        return None, patch.TREE_UNREAD
+    if any(data is None for data in contents.values()):
+        return None, TREE_UNFETCHED
+    if sum(len(data) for data in contents.values()) > MOST_BYTES:
+        return None, READS_TOO_LARGE
+    return contents, None
 
 
 def allowed(repo, branch) -> tuple:
