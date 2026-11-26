@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from kernel import brakes
 from kernel import terms as t
-from kernel.derive import (acted_since_writer, derive, hands_off, in_progress, moved_at, opened_for_an_issue, overdue, run_deferral, runs_on,
-                           since_writer, timeline_short, unnamed_past, unnamed_within, unreadable_labels)
+from kernel.derive import (acted_since_writer, derive, hands_off, in_progress, moved_at, needs_person, opened_for_an_issue, overdue,
+                           run_deferral, runs_on, since_writer, timeline_short, unnamed_past, unnamed_within, unreadable_labels)
 
 SCHEMA = "decision/1"
 
@@ -24,6 +24,7 @@ NEEDS_YOU_REASONS = frozenset({
     "run_unreadable", "model_lens_input_needs_person",
     "description_edited_after_approval", "description_unreadable",
     "path_needs_person",
+    "run_needs_person",
 })
 
 
@@ -236,6 +237,12 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     if wanted is None:
         return _decision(facts, state, reason, evidence, t.NOTHING)
     role, intent = wanted
+
+    # The Role's last Run ended on a code only a person can mend: it would end so again, so the item is held for a
+    # person, before the brakes, as a Hold is a reading (issue 838).
+    ended = needs_person(since_writer(mine, facts), role)
+    if ended:
+        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)
 
     # The brakes on a Run, in kernel/brakes.py: the Pause, the loop counts and the Run ceiling. The Pause stops an act
     # above, too.

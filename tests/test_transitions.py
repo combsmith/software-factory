@@ -191,6 +191,9 @@ BASES = {
     "attempts_exhausted, of approvals, with a Run": base(
         [reviewed()] + failures(LIMITS["max_attempts"], "issue-approval")
         + [dict(reviewed(minute=25, name="r9"), status="in_progress", conclusion=None)]),
+    # A Role's last Run ended on a code only a person can mend: held for a person (issue 838).
+    "run_needs_person": base(failures(1, outcome="person"), checks=GREEN),
+    "run_needs_person, of a fix": base([reviewed(), fix(conclusion="failure", outcome="person")], threads=[thread()]),
     "run_ceiling": base([reviewed()] + failures(LIMITS["max_runs_per_item"] - 1, outcome="capacity"),
                         threads=[thread()]),
     "run_ceiling, one Run short": base([reviewed()] + failures(LIMITS["max_runs_per_item"] - 2, outcome="capacity"),
@@ -983,6 +986,7 @@ def explored():
 # person approved, or one changed since, holds until a person approves it at the head (I-29).
 HOLD_BOUNDS = {"run_ceiling": "max_runs_per_item", "environment_ceiling": "max_environment_runs_per_item",
                "attempts_exhausted": "max_attempts", "max_rounds": "max_rounds",
+               "run_needs_person": "max_runs_per_item",
                "act_ceiling": "max_acts_per_item", "human_hold": check_lifecycle.PERSON,
                "issue_stopped": check_lifecycle.PERSON,
                "hands_off": check_lifecycle.PERSON, "approver_is_author_or_last_pusher": "max_runs_per_item",

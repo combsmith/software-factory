@@ -53,7 +53,7 @@ CONCLUSIONS = {"success": "success", "failure": "failure", "startup_failure": "c
                "skipped": "cancelled", "timed_out": "timed_out"}
 FRESH = {"Cache-Control": "no-cache"}
 # The faults an outcome names, as `outcome/1` holds them: one of these, once read, is that attempt's for good.
-CONCLUDED = {"item", "capacity", "environment", "superseded"}
+CONCLUDED = {"item", "capacity", "environment", "superseded", "person"}
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 HTTP_DATE = re.compile(r"(Mon|Tue|Wed|Thu|Fri|Sat|Sun), ([0-9]{2}) ([A-Z][a-z]{2}) ([0-9]{4}) "
                        r"([0-9]{2}:[0-9]{2}:[0-9]{2}) GMT")
