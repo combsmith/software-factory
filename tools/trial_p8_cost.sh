@@ -148,7 +148,7 @@ finish() {
     rm -rf "$scratch"
 }
 trap finish EXIT
-trap "trap '' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM
+trap "trap '' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM QUIT PIPE
 
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 
