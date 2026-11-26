@@ -693,6 +693,18 @@ class Simulation(unittest.TestCase):
             self.assertGreater(w.person_holds, 0, seed)
 
     def test_the_world_breaks_on_a_run_started_for_a_role_held_for_a_person(self):  # issue 1223
+        def held_for(w, module, name, role, intent):
+            # A Kernel blind to the Run that ended `person` admits its Role: the world breaks at that pass.
+            w.minute += 1
+            w.runs.append({"run": "p1", "item": dict(w.facts()["item"]), "role": role, "intent": intent,
+                           "content_id": w.cid(), "status": "completed", "conclusion": "failure",
+                           "outcome": terms.ENDED_PERSON, "started_at": w.now(), "began_at": w.now(), "minute": w.minute})
+            real = getattr(module, name)
+            blind = lambda facts, runs, *rest: real(facts, [r for r in runs if r["run"] != "p1"], *rest)
+            with mock.patch.object(module, name, blind), \
+                    self.assertRaisesRegex(world.Broken, "a Run admitted for a Role held for a person"):
+                for _ in range(200):
+                    w.step()
         # The world's own reading: the Role's latest Run since a writer acted ended `person`, of those that ran.
         def ran(name, minute, outcome, conclusion="failure"):
             return {"run": name, "role": "pr-review", "status": "completed", "conclusion": conclusion, "outcome": outcome,
@@ -700,7 +712,9 @@ class Simulation(unittest.TestCase):
         ended = ran("p1", 10, terms.ENDED_PERSON)
         self.assertTrue(world.held_for_a_person([ended], "pr-review", None))
         self.assertTrue(world.held_for_a_person([ended, ran("s1", 11, "superseded")], "pr-review", World.at(9)))
-        self.assertTrue(world.held_for_a_person([ran("i0", 10, "item"), ended], "pr-review", None))
+        self.assertTrue(world.held_for_a_person([ended, ran("c1", 11, None, "cancelled")], "pr-review", None))
+        for tied in ([ran("i0", 10, "item"), ended], [ended, ran("i0", 10, "item")]):
+            self.assertTrue(world.held_for_a_person(tied, "pr-review", None), [r["run"] for r in tied])
         for runs, role, writer in (([ended, ran("i1", 11, "item")], "pr-review", None), ([ended], "pr-review", World.at(10)),
                                    ([ended], "dev-lead", None)):
             self.assertFalse(world.held_for_a_person(runs, role, writer), (runs, role, writer))
@@ -713,6 +727,9 @@ class Simulation(unittest.TestCase):
         with mock.patch.object(world, "decide", lambda *a: admits), \
                 self.assertRaisesRegex(world.Broken, "a Run started for a Role held for a person"):
             w.start_next()
+        # And at the pass that admits it, on what the pass read.
+        w = World(1, faults=False, people=False)
+        held_for(w, world, "decide", "pr-review", "review-change")
 
     def test_the_seeds_list_a_new_run_unnamed(self):  # I-46, decision 0036
         # On one seed in eight a Run is listed unnamed at the pass after its admission, and that pass defers what it

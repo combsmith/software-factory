@@ -2338,6 +2338,8 @@ class Investigation(unittest.TestCase):
             # Another fault, or another Role's Run that ended so, leaves the issue working on the Run in flight; a
             # writer's action releases the Hold.
             self.assertEqual(what(decide(TRIAGED, [dict(ended, outcome="item"), flying]))[0], "nothing", status)
+            later = failed(INVESTIGATE, 3, "i2")
+            self.assertEqual(what(decide(TRIAGED, [ended, later, dict(flying, started_at=at(4))]))[0], "nothing", status)
             judge = failed(JUDGE, 2, "p2", outcome="person", role="readiness")
             self.assertEqual(what(decide(TRIAGED, [judge, flying]))[0], "nothing", status)
             renewed = facts(label_events=ACCEPTED, last_writer_action_at=at(2))

@@ -3213,6 +3213,8 @@ class Ceilings(unittest.TestCase):
             # Another fault, or another Role's Run that ended so, leaves the item working on the Run in flight; a
             # writer's action releases the Hold.
             self.assertEqual(go(facts(), [dict(ended, outcome="item"), flight])["outcome"], "nothing", status)
+            later = run(conclusion="failure", outcome="item", at=at(11), name="i1")
+            self.assertEqual(go(facts(), [ended, later, flight])["outcome"], "nothing", status)
             fixer = dict(ended, role=CONFIG["author_role"], intent="fix-findings")
             self.assertEqual(go(facts(), [fixer, flight])["outcome"], "nothing", status)
             d = go(facts(last_writer_action_at=at(11)), [ended, flight])
