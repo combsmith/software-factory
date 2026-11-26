@@ -1058,8 +1058,9 @@ class SeenPort(unittest.TestCase):
         def left(github):
             return seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)
         # A moment at `since` itself is not before it: the read goes on to the close behind it (Muse).
-        writes, _, whole = left(Pages({path: [old, close, [{"event": "commented", "actor": PERSON, "created_at": SINCE}]]},
-                                      LEFT_ANSWERS))
+        at_since = [dict(close[0], created_at=SINCE)]
+        writes, _, whole = left(Pages({path: [old, at_since, [{"event": "commented", "actor": PERSON,
+                                                                "created_at": SINCE}]]}, LEFT_ANSWERS))
         self.assertEqual((whole, [w["kind"] for w in writes]), (True, ["close"]))
         # A review on the timeline is placed by when it was submitted, not when it was begun (Astra).
         begun = [{"event": "reviewed", "user": PERSON, "created_at": EARLY, "submitted_at": AT, "id": 3}]
@@ -1067,7 +1068,7 @@ class SeenPort(unittest.TestCase):
         self.assertEqual((whole, [w["kind"] for w in writes]), (True, ["close"]))
         # A review submitted before `since` reaches it, by its submitted_at alone (Carbon).
         sent = [{"event": "reviewed", "user": PERSON, "created_at": AT, "submitted_at": EARLY, "id": 4}]
-        self.assertIs(left(Pages({path: [new] * 23 + [sent] + [new] * 5 + [close]}, LEFT_ANSWERS))[2], True)
+        self.assertIs(left(Pages({path: [old] * 23 + [sent] + [new] * 5 + [close]}, LEFT_ANSWERS))[2], True)
         # One page that names a last page it does not lead to is short; one page alone is kept by kind and id, and an
         # id that cannot be a key on it is short too (Astra).
         one = Pages({path: [close + close]}, LEFT_ANSWERS)
@@ -1102,6 +1103,164 @@ class SeenPort(unittest.TestCase):
         github = Pages({path: [first, old + close]}, LEFT_ANSWERS, again={1: (old, True)})
         self.assertIs(left(github)[2], False)
         self.assertIs(left(Pages({path: [first, old + close]}, LEFT_ANSWERS))[2], True)
+
+    def test_a_read_from_the_end_trusts_no_answer_that_contradicts_itself(self):  # issue 1206
+        # GitHub's answers can be malformed, or contradict each other between reads: each such read is short.
+        new = [{"event": "commented", "actor": PERSON, "created_at": AT}]
+        old = [{"event": "commented", "actor": PERSON, "created_at": EARLY}]
+        close = [{"event": "closed", "actor": CONTROLLER, "created_at": AT, "id": 1}]
+        path = ISSUE + "/timeline?per_page=100"
+
+        class Linked(Pages):
+            """Pages whose link header, page by page, is the one given for it: one for every ask, or one for each ask in
+            turn, the last for the rest."""
+
+            def __init__(self, lists, links):
+                super().__init__(lists, LEFT_ANSWERS)
+                self.links = links
+
+            def send(self, req):
+                answer = super().send(req)
+                n = int(req["path"].partition("&page=")[2] or 1)
+                if req["path"].partition("&page=")[0] == path and n in self.links:
+                    links = self.links[n] if isinstance(self.links[n], tuple) else (self.links[n],)
+                    link = links[min(self.times[path, n], len(links)) - 1]
+                    answer = dict(answer, headers={"link": link % {"at": "https://api.github.com" + path}})
+                return answer
+
+        def whole(github):
+            return seen_.read(github, ITEM, seen_.LEFT, IDENTITIES, APPS, SINCE)[2]
+        # 1. An item whose kind cannot be read never says the read reached `since` (Astra).
+        kindless = [{"event": None, "actor": PERSON, "created_at": EARLY}]
+        self.assertIs(seen_._tail(Pages({path: [old] + [new] * 12 + [kindless, close]}), path, SINCE)[1], False)
+        self.assertIs(seen_._tail(Pages({path: [old] + [new] * 12 + [old, close]}), path, SINCE)[1], True)
+        crossed = [{"event": "cross-referenced", "actor": PERSON, "created_at": EARLY}]    # a hyphenated kind (Muse)
+        self.assertIs(seen_._tail(Pages({path: [old] + [new] * 12 + [crossed, close]}), path, SINCE)[1], True)
+        # 2. One page that names a last page by a number that cannot be read is short (Astra).
+        self.assertIs(whole(Linked({path: [close]}, {1: '<%(at)s&page=x>; rel="last"'})), False)
+        self.assertIs(whole(Linked({path: [close]}, {1: ''})), True)
+        # 3. A page read back that names no next one, though a later page was read, is short (Astra).
+        self.assertIs(whole(Linked({path: [old, new, new, close]}, {3: '<%(at)s&page=4>; rel="last"'})), False)
+        self.assertIs(whole(Linked({path: [old, new, new, close]}, {3: '<%(at)s&page=4>; rel="next", <%(at)s&page=4>; rel="last"'})),
+                      True)
+        self.assertIs(whole(Pages({path: [old, new, new, close]}, LEFT_ANSWERS)), True)
+        # 4. An id read again as a truth value is not the number it was (Astra).
+        self.assertIs(whole(Pages({path: [old] * 3 + [close]}, LEFT_ANSWERS, again={4: ([dict(close[0], id=True)], False)})),
+                      False)
+        # 5. A first page past `since` before a later page from before it is out of order: short (Astra).
+        self.assertIs(whole(Pages({path: [new, old, old, close]}, LEFT_ANSWERS)), False)
+        self.assertIs(whole(Pages({path: [[dict(new[0], created_at=SINCE)], old, old, close]}, LEFT_ANSWERS)), False)
+        self.assertIs(whole(Pages({path: [old, old, old, close]}, LEFT_ANSWERS)), True)
+        # 6. A first page that names a next one and a last page before the second is short (Carbon).
+        # GitHub's own shape, each page naming the pages about it, reads whole; a page that names another before it,
+        # or a first that is not the first, does not (Astra, Claude).
+        shape = {1: '<%(at)s&page=2>; rel="next", <%(at)s&page=4>; rel="last"',
+                 4: '<%(at)s&page=3>; rel="prev", <%(at)s&page=1>; rel="first"'}
+        shape.update({n: '<%%(at)s&page=%d>; rel="prev", <%%(at)s&page=%d>; rel="next", <%%(at)s&page=4>; rel="last", '
+                         '<%%(at)s&page=1>; rel="first"' % (n - 1, n + 1) for n in (2, 3)})
+        self.assertIs(whole(Linked({path: [old, new, new, close]}, shape)), True)
+        self.assertIs(whole(Linked({path: [old, close]}, {1: shape[1].replace("4", "2"), 2: ''})), False)    # (Muse)
+        for n, wrong in ((4, '<%(at)s&page=9>; rel="prev"'), (4, '<%(at)s&page=2>; rel="first"'), (4, ''),
+                         (1, shape[1] + ', <%(at)s&page=1>; rel="first"'), (1, shape[1] + ', <%(at)s&page=0>; rel="prev"')):
+            self.assertIs(whole(Linked({path: [old, new, new, close]}, {**shape, n: wrong})), False, (n, wrong))
+        named = '<%(at)s&page=2>; rel="next", <%(at)s&page={}>; rel="last"'
+        # A link header read in part says nothing of where the list ends: an unquoted relation, a page that is no
+        # number, a page in no query or named twice, a relation named twice (Astra, Muse, Kimi); a page before the
+        # first (Astra, Claude).
+        for link in ('<%(at)s&page=3>; rel=last', '<%(at)s&page=2x>; rel="last"', '<%(at)s&page=2>; rel="prev"'):
+            self.assertIs(whole(Linked({path: [close]}, {1: link})), False, link)
+        for last in ('#x&page=2', '&page=2&page=2', '&page=x&page=2', '&page=&page=2', '&page=+2', '&page=0000000002',
+                     '&page=\t2'):
+            link = '<%(at)s&page=2>; rel="next", <%(at)s' + last + '>; rel="last"'
+            self.assertIs(whole(Linked({path: [old, close]}, {1: link})), False, link)
+        twice = '<%(at)s&page=2>; rel="next", <%(at)s&page=2>; rel="last", <%(at)s&page=2>; rel="last"'
+        self.assertIs(whole(Linked({path: [old, close]}, {1: twice})), False)
+        # A link to another page size, or an entry that names two relations, is no link to this list (Astra).
+        small = {"at": "https://api.github.com" + path.replace("per_page=100", "per_page=1")}
+        self.assertIs(whole(Linked({path: [old, close]}, {1: (named.format(2) % small).replace("%", "%%")})), False)
+        self.assertIs(whole(Linked({path: [close]}, {1: '<%(at)s&page=2>; rel="deprecation"; rel="next"'})), False)
+        # So is a relation that names a paging one among others or in capitals, and a header read whole only in part,
+        # its paging links first (Astra, Kimi, Claude).
+        for link in ('<%(at)s&page=2>; rel="next last"', '<%(at)s&page=2>; rel="NEXT"', '<%(at)s&page=2>; rel="PREV"'):
+            self.assertIs(whole(Linked({path: [close]}, {1: link})), False, link)
+        self.assertIs(whole(Linked({path: [old, close]}, {1: named.format(2) + ', unreadable'})), False)
+        # A relation that pages nothing, as GitHub's deprecation notice, is passed over, whatever its parameters say,
+        # and the first page read again is the same however its links fall (Claude, Astra).
+        notice = ', <https://docs.github.com/en/rest/about-the-rest-api/api-versions>; rel="deprecation"; type="text/html"'
+        for other in (notice, ', <https://docs.github.com>; rel="latest-version"; title="REST API, version 2"',
+                      ', <https://docs.github.com>; rel="deprecation"; title="Use \\"v2\\""'):
+            self.assertIs(whole(Linked({path: [close]}, {1: other[2:]})), True, other)
+        self.assertIs(whole(Linked({path: [old, close]}, {1: named.format(2) + notice})), True)
+        self.assertIs(whole(Linked({path: [old, close]}, {1: (named.format(2), named.format(2) + notice)})), True)
+        # The end names no last past itself; each page read back names the one after it, and the same last (Astra).
+        past, prev = '<%(at)s&page=1>; rel="prev", <%(at)s&page=3>; rel="last"', '<%(at)s&page=1>; rel="prev"'
+        for asks in ((past, prev), (prev, past)):
+            self.assertIs(whole(Linked({path: [old, close]}, {2: asks})), False, asks)
+        self.assertIs(whole(Linked({path: [old, old, old, close]}, {1: '<%(at)s&page=3>; rel="next", <%(at)s&page=4>; rel="last"'})),
+                      False)
+        self.assertIs(whole(Linked({path: [old, new, new, close]}, {3: '<%(at)s&page=2>; rel="next", <%(at)s&page=4>; rel="last"'})),
+                      False)
+        self.assertIs(whole(Linked({path: [old, new, new, close]}, {2: '<%(at)s&page=4>; rel="last"'})), False)
+        self.assertIs(whole(Linked({path: [old, new, new, close]}, {3: '<%(at)s&page=4>; rel="next"'})), False)
+        self.assertIs(whole(Linked({path: [old, new, new, close]}, {3: '<%(at)s&page=4>; rel="next", <%(at)s&page=5>; rel="last"'})),
+                      False)
+        # An item of an empty, blank or numbered kind places nothing either (Astra); one GitHub names with a number in
+        # it does (Claude, Muse).
+        project = [{"event": "added_to_project_v2", "actor": PERSON, "created_at": EARLY}]
+        # Its second page is left unread; the pages run in time all the same (cubic).
+        self.assertIs(seen_._tail(Pages({path: [project, old, old, close]}), path, SINCE)[1], True)
+        for kind in ("", " ", "42"):
+            pages = [old] + [new] * 12 + [[dict(kindless[0], event=kind)], close]
+            self.assertIs(seen_._tail(Pages({path: pages}), path, SINCE)[1], False, kind)
+        # A write read again as another's, or under another label, is not the same (Astra).
+        self.assertIs(whole(Pages({path: [old] * 3 + [close]}, LEFT_ANSWERS, again={4: ([dict(close[0], actor=PERSON)], False)})),
+                      False)
+        label = [{"event": "labeled", "actor": CONTROLLER, "created_at": AT, "id": 2, "label": {"name": "a"}}]
+        relabeled = [dict(label[0], label={"name": "b"})]
+        self.assertIs(whole(Pages({path: [old] * 3 + [close + label]}, LEFT_ANSWERS, again={4: (close + relabeled, False)})),
+                      False)
+        review = [{"event": "reviewed", "user": CONTROLLER, "submitted_at": AT, "id": 3}]
+        self.assertIs(whole(Pages({path: [old] * 3 + [close + review]}, LEFT_ANSWERS,
+                                  again={4: (close + [dict(review[0], user=PERSON)], False)})), False)
+        bot_as_person = dict(CONTROLLER, type="User")
+        for other in (dict(close[0], actor=ROLE), dict(close[0], node_id="CE_b")):    # another of its type, a node (Muse)
+            self.assertIs(whole(Pages({path: [old] * 3 + [close]}, LEFT_ANSWERS, again={4: ([other], False)})), False, other)
+        self.assertIs(whole(Pages({path: [old] * 3 + [close]}, LEFT_ANSWERS, again={4: ([dict(close[0], actor=bot_as_person)], False)})),
+                      False)
+        dismissal = [{"event": "review_dismissed", "actor": CONTROLLER, "created_at": AT, "id": 6,
+                      "dismissed_review": {"review_id": 3, "state": "approved"}}]
+        dismissal_again = [dict(dismissal[0], dismissed_review={"review_id": 3, "state": "commented"})]
+        for again in (dismissal_again, [dict(dismissal[0], dismissed_review={"review_id": 4, "state": "approved"})]):
+            self.assertIs(whole(Pages({path: [old] * 3 + [close + dismissal]}, LEFT_ANSWERS, again={4: (close + again, False)})),
+                          False, again)
+        # One event read on two pages as two, by its id, its id's type or its node, is a contradiction, a first page
+        # left out among them; read the same, it is kept once (Astra, Muse).
+        twice = [dict(close[0], actor=PERSON)]
+        self.assertIs(seen_._tail(Pages({path: [old + twice, close]}), path, SINCE)[1], False)
+        self.assertIs(seen_._tail(Pages({path: [old + [dict(close[0], id="1")], close]}), path, SINCE)[1], False)
+        node = [dict(close[0], node_id="CE_n")]
+        self.assertIs(seen_._tail(Pages({path: [old + node, [dict(node[0], id=8)]]}), path, SINCE)[1], False)
+        # One with no id is kept once by its node; two kinds that share a node are not one event (Astra, Claude).
+        bare = [{"event": "closed", "actor": CONTROLLER, "created_at": AT, "node_id": "CE_b"}]
+        self.assertEqual(seen_._tail(Pages({path: [old + bare, bare]}), path, SINCE), (old + bare, True))
+        review = [{"event": "reviewed", "user": PERSON, "submitted_at": AT, "id": 3, "node_id": "PRR_r"}]
+        lines = [{"event": "line-commented", "node_id": "PRR_r"}]
+        self.assertIs(seen_._tail(Pages({path: [old + review, lines]}), path, SINCE)[1], True)
+        for one in (1, "01", " 1"):    # its id however written (Muse)
+            early = [dict(close[0], actor=PERSON, created_at=EARLY, id=one)]
+            self.assertIs(seen_._tail(Pages({path: [early, new, old, close]}), path, SINCE)[1], False, one)
+        self.assertEqual(seen_._tail(Pages({path: [old + close, close]}), path, SINCE), (old + close, True))
+        # Moments out of order anywhere in what was read leave the skipped pages unplaced (Astra, Muse); a first page
+        # left out holds every item that could be a write placed, but a commit, which has no moment (Astra, Muse).
+        very = [{"event": "commented", "actor": PERSON, "created_at": "2026-10-01T00:00:00Z"}]
+        for pages in ([old, close, very, new], [old, close, new + old, new], [old + new, old, old, close], [new + old],
+                      [[dict(close[0], created_at=None)], new, old, close], [kindless, new, old, close]):
+            self.assertIs(seen_._tail(Pages({path: pages}), path, SINCE)[1], False, pages)
+        commit = [{"event": "committed", "sha": "a" * 40}]
+        self.assertIs(seen_._tail(Pages({path: [commit, new, old, close]}), path, SINCE)[1], True)
+        self.assertIs(seen_._tail(Linked({path: [old, old]}, {1: named.format(0), 0: ''}), path, SINCE)[1], False)
+        self.assertIs(seen_._tail(Linked({path: [old, old]}, {1: (named.format(1), '')}), path, SINCE)[1], False)
+        self.assertIs(seen_._tail(Linked({path: [old, old]}, {1: named.format(2)}), path, SINCE)[1], True)
 
     def test_an_event_that_lands_while_the_end_is_read_leaves_it_short(self):  # issue 1009, the Builder's ruling
         # An event that lands while the pages are read back moves the pages: one read could fall between them. So the

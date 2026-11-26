@@ -9153,7 +9153,7 @@ class Push(unittest.TestCase):
         # the directory's only as git sorts it, as if a `/` followed the directory's name, and two files, where no `/`
         # follows either; and a directory between names on either side of `/`.
         one = "5626abf0f72e58d7a153368ba57db4c673c0e171"
-        self.assertEqual(hashlib.sha1(b"blob 4\0one\n").hexdigest(), one)
+        self.assertEqual(hashlib.sha1(b"blob 4\0one\n", usedforsecurity=False).hexdigest(), one)
         a_file = "b1ea253509c6004817f83cd7659ab4e6c38b2981"
         for entries, name in (([], "4b825dc642cb6eb9a060e54bf8d69288fbee4904"),
                               ([("100644", "a", one)], a_file),
@@ -9179,6 +9179,8 @@ class Push(unittest.TestCase):
         # Marked whole, at the tree it was read at, for the guard to ask: no listing of another tree, or of part of one.
         self.assertEqual((got["sha"], set(got)), (sha, {"tree", "blobs", "sha", "whole"}))
         self.assertIs(got["whole"], True)
+        # The push guard takes it as the port's listing of that tree, and of no other.
+        self.assertEqual((guard._listing(got, sha), guard._listing(got, MIXED)), (True, False))
         # A tree's name that is no plain name would carry its own equality into the mark: no listing is taken under it.
         for said in (Lying(sha), sha.upper(), sha[:39], None):
             self.assertEqual(push.listed(answer, said), (None, patch.TREE_UNREAD), said)
@@ -9384,7 +9386,8 @@ class Push(unittest.TestCase):
         self.assertEqual(push.WHOSE, {"bundle_unreadable": "role", "patch_does_not_apply": "role", "push_not_a_file": "role",
                                       "push_path_collision": "role", "push_reads_too_large": "role",
                                       "push_tree_unreadable": "person", "push_tree_unfetched": "port",
-                                      "push_not_permitted": "person"})
+                                      "push_not_permitted": "person", "push_branch_moved": "superseded",
+                                      "push_answer_refused": "person", "push_unanswered": "port"})
         self.assertEqual((push.READS_TOO_LARGE, push.TREE_UNFETCHED), ("push_reads_too_large", "push_tree_unfetched"))
         # A person's code is the Kernel's `person` fault, which holds the item for a person (decision 1224).
         self.assertEqual(push.PERSON, terms.ENDED_PERSON)
