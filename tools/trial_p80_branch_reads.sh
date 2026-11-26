@@ -151,7 +151,7 @@ finish() {
     rm -rf "$scratch"
 }
 trap finish EXIT
-trap "trap '' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM
+trap "trap '' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM QUIT PIPE
 
 # Checked once the exit trap stands: python3 may write to TMPDIR as it starts.
 # Each branch is a work branch's name, whole, as kernel/terms.py's WORK_BRANCH spells one, so it reaches the URL as
