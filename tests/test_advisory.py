@@ -1191,7 +1191,8 @@ class Parser(unittest.TestCase):
                                ("content_filter", {"content": None, "tool_calls": [{"type": "function"}]}),
                                ("content_filter", {"content": None, "function_call": {"name": "f"}}),
                                ("content_filter", {"content": None, "reasoning_content": "I compared the two paths"}),
-                               ("content_filter", {"content": 0}), ("content_filter", {"content": None, "refusal": False})):
+                               ("content_filter", {"content": 0}), ("content_filter", {"content": None, "refusal": False}),
+                               ("content_filter", {"content": None, "audio": {"transcript": "hello words"}})):
             spent = read(chatted(said(), usage=none, choices=[{"finish_reason": ended, "message": message}]), KIMI)["usage"]
             self.assertEqual((spent["input_tokens"], spent["output_tokens"], spent["cost_usd"]), (None, None, None), (ended, message))
         text = {"type": "output_text", "text": "x"}
@@ -1208,6 +1209,7 @@ class Parser(unittest.TestCase):
                 ("incomplete", {"reason": "content_filter"}, [{"type": "message", "content": ["x"]}]),
                 ("incomplete", {"reason": "content_filter"}, [{"type": "message", "content": [{"type": "unknown", "value": "partial"}]}]),
                 ("incomplete", {"reason": "content_filter"}, [{"type": "message", "content": [{"type": "audio"}]}]),
+                ("incomplete", {"reason": "content_filter"}, [{"type": "message", "content": [{"type": "output_audio", "transcript": "hello"}]}]),
                 ("incomplete", {"reason": "content_filter"}, [{"type": "message", "content": [{"type": "output_text", "text": 0}]}]),
                 ("incomplete", {"reason": "content_filter"}, [{"type": "message", "content": []}, {"type": "message", "content": [text]}]),
                 ("incomplete", {"reason": "content_filter"}, None)):
