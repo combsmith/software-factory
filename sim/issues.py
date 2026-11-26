@@ -117,7 +117,7 @@ class IssueWorld:
         self.branch_head = None
         self.pushed = {}               # the commit each opening Run pushed, by its id, as its applied/1 records it
         self.planted = set()           # the commits planted at the work branch's name (fault 7)
-        self.not_pushed = 0            # passes that held the issue on a head no opening Run pushed
+        self.not_pushed = 0            # passes that held the issue on a planted head
         # Whether this seed plants a branch, drawn from its own generator, so every other seed stays as it was.
         self.planter = random.Random("planted %d" % seed) if seed % PLANTED_EVERY == PLANTED else None
         self.landed_on_an_older_base = False   # an opening Run's apply passed after the default branch moved
@@ -384,9 +384,11 @@ class IssueWorld:
     def answers(self, facts: dict, runs: list, d: dict, whole: bool):
         """What the Kernel answered, held to the invariants it can be held to on this read."""
         self.check(d["state"] in DECLARED_STATES or d["state"] is None, "I-44 a State the Lifecycle does not declare")
-        # A head no opening Run pushed is never opened from, on any read: the issue is held for a person (decision 1207).
-        self.not_pushed += d["reason"] == "branch_not_pushed"
-        self.check(d["outcome"] != t.ADMIT or d["admit"].get("branch_head") not in self.planted,
+        # A head no listed opening Run pushed is never opened from, on any read, whatever the admission names: the
+        # issue is held for a person (decision 1207). Holds on a planted head are counted apart.
+        self.not_pushed += d["reason"] == "branch_not_pushed" and facts["branch_head"] in self.planted
+        self.check(d["outcome"] != t.ADMIT or d["admit"]["intent"] != issue.OPENING
+                   or (facts["branch_head"] not in self.planted and facts.get("branch_pushed") is not False),
                    "an opening Run admitted on a branch the Factory never pushed")
         if d["outcome"] == t.ADMIT:
             self.check(not whole or self.accepted(), "I-42 a Run admitted on an issue not accepted now")
@@ -563,7 +565,7 @@ class IssueWorld:
             else:
                 self.note("run %s: readiness judged, and added nothing" % run["run"])
         elif run["intent"] == issue.OPENING:
-            self.check(run["head"] not in self.planted, "an opening Run applied on a branch the Factory never pushed")
+            self.check(self.branch_head not in self.planted, "an opening Run applied on a branch the Factory never pushed")
             number = 100 + len(self.linked)
             # GitHub: a_closing_reference_is_read_from_any_pull_request
             self.linked.append({"number": number, "class": "agent", "opener": dict(AUTHOR_APP), "open": True,

@@ -1201,13 +1201,13 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     mine = runs_on(runs, facts)
 
     # The acts that stop work, read first. Unmerged closes past their bound place a Hold (I-43); a label that stands
-    # and does not count is removed, though not while a Run is in flight, whose own label may not count until it ends.
+    # and does not count is removed, though not while a Run is in flight, whose own label may not count until it ends,
+    # nor under a Hold the Run wanted places: it waits for the release, as under a person's Hold, so a label nobody
+    # counts never takes an issue out of held (issue 1216). The act ceiling is no such Hold: it binds no act that
+    # stops work.
     closes = unmerged_closes(facts)
     if len(closes) > config["limits"]["max_unmerged_closes"]:
         return dict(_stop(facts, state, "unmerged_closes", closes, context, PLACE_HOLD), attention=t.NEEDS_YOU)
-    # A Hold the Run wanted places is read before the label's removal, which then waits for the release, as under a
-    # person's Hold: a label nobody counts never takes an issue out of held (issue 1216). The act ceiling is no such
-    # Hold: it binds no act that stops work.
     label = not_counted(facts, runs, config, state, reason)
     after = _after_labels(facts, runs, context, config, now, d, mine)
     if label is not None and not in_progress(mine):

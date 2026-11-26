@@ -2507,9 +2507,16 @@ class WhatARunWrites(unittest.TestCase):
                 (facts(label_events=uncounted, branch_head=BRANCH_HEAD, branch_pushed=False), [], "branch_not_pushed"),
                 (facts(label_events=uncounted), tried + [failed(OPEN, 3, "f3", role="dev-lead")], "attempts_exhausted"),
                 (facts(label_events=uncounted), [failed(OPEN, 2, "p1", outcome="person", role="dev-lead")],
-                 "run_needs_person")):
+                 "run_needs_person"),
+                (facts(label_events=ACCEPTED + [labelled(READY, OTHER_APP, 4)]),
+                 [failed(INVESTIGATE, minute, "i%d" % minute) for minute in (1, 2, 3)], "attempts_exhausted")):
             d = decide(f, runs)
             self.assertEqual((d["state"], what(d), d["attention"]), ("held", ("hold", why, None), "needs_you"), why)
+        # The Run ceiling too, which a Run that ended for capacity spends, with attempts left.
+        one = config()
+        one["limits"] = dict(one["limits"], max_runs_per_item=1)
+        d = decide(facts(label_events=uncounted), [failed(OPEN, 2, "c1", outcome="capacity", role="dev-lead")], cfg=one)
+        self.assertEqual((d["state"], what(d)), ("held", ("hold", "run_ceiling", None)))
         # The other side of each: with no Hold, the label is removed.
         for f, runs, why in (
                 (facts(label_events=uncounted, branch_head=BRANCH_HEAD, branch_pushed=True), [], "pushed"),

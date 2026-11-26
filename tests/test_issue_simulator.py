@@ -31,8 +31,8 @@ UNMADE = {
     # The world places a Hold or hands-off while the issue carries neither, never one on top of the other.
     ("held", "not_served", "human"), ("not_served", "held", "human"),
     # The brakes hold from new: the seeds reach the Run ceiling and the act ceiling in triage and from ready, and the
-    # unmerged closes that hold a new issue need two closes a writer makes in one life. A head whose opening Run's
-    # record expired holds from in_progress (issue 1216).
+    # unmerged closes that hold a new issue need two closes a writer makes in one life. A head no listed opening Run
+    # pushed holds from in_progress, as one whose Run's record expired does (issue 1216).
     ("new", "held", "factory"),
     # Another App's stray Hold lands while the issue is new, in triage, in progress or in review on the seeds, never
     # while ready.
