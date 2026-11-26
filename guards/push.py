@@ -323,7 +323,7 @@ def existing(changes, tree) -> tuple:
                                          for path, mode in tree.items()):
         return None, patch.TREE_UNREAD
     # A bound on depth, asked before a path is split, bounds what `_above` builds; no tree holds a file under a file.
-    if (not all(path.count("/") < len(patch.DEEPEST) for path in tree)
+    if (not all(path.count("/") < len(patch.DEEPEST) and "" not in path.split("/") for path in tree)
             or any(above in tree for path in tree for above in _above(path))):
         return None, patch.TREE_UNREAD
     written, removed = changes["written"], set(changes["removed"])

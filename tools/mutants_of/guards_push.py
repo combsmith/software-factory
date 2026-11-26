@@ -471,4 +471,7 @@ MUTANTS = [
     ('a blob of a size below 0 is taken', 'guards/push.py',
      ' and held[1] >= 0 for held',
      ' for held', PUSH_LISTING),
+    ("an admitted tree's path may hold an empty part", 'guards/push.py',
+     ' and "" not in path.split("/") for path in tree)',
+     ' for path in tree)', PUSH_PATHS),
 ]

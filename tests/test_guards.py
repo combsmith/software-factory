@@ -1293,6 +1293,7 @@ class Push(unittest.TestCase):
                 ("a removed path that is no text", told(removed=[["tests/t.py"]])),
                 ("a file written above a file written", told(written={"a": (FILE, b""), "a/b": (FILE, b"")})),
                 ("a file written two above a file written", told(written={"a": (FILE, b""), "a/b/c": (FILE, b"")})),
+                ("a file written under a file written, deeper", told(written={"a/b": (FILE, b""), "a/b/c": (FILE, b"")})),
                 ("a file removed above a file removed", told(written={"x": (FILE, b"")}, removed=["a", "a/b"])),
                 ("a file written and removed", told(removed=["docs/a.md"])),
                 ("a file removed twice", told(removed=["tests/t.py", "tests/t.py"])),
@@ -1363,7 +1364,7 @@ class Push(unittest.TestCase):
                           # A file that is a directory to another, which no tree holds, at any depth
                           dict(tree, **{"docs": FILE}), dict(tree, **{"x/y": FILE, "x/y/z/w": FILE}),
                           # and a path deeper than any name read, before it is split
-                          dict(tree, **{"/".join("d" * (len(patch.DEEPEST) + 1)): FILE})):
+                          dict(tree, **{"/".join("d" * (len(patch.DEEPEST) + 1)): FILE}), {"tests//t.py": FILE}, {"/a": FILE}):
             self.assertEqual(push.existing(changes, tree_said), (None, patch.TREE_UNREAD), tree_said)
         # What `applied` gave is what is asked about, as it gave it.
         got, reason = patch.applied(CHANGE + NEW + GONE + COPIED, TREE, HELD)
