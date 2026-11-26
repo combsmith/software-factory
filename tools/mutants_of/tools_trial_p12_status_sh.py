@@ -1,4 +1,4 @@
-"""The mutants of `tools/context_eval.sh`, `tools/trial_p12_status.sh`, `tools/trial_p13_cli.sh`, `tools/trial_p13_ended.sh`, `tools/trial_p26_sandbox.sh`, `tools/trial_p39_reach.sh`, `tools/trial_p4_narrow.sh`, `tools/trial_p50_linux_sandbox.sh`, `tools/trial_p51_sandbox_writes.sh`, `tools/trial_p54_issue_lookup.sh`, `tools/trial_p56_comments.sh`, `tools/trial_p58_edits.sh`, `tools/trial_p59_read_confinement.sh`, `tools/trial_p61_timeline.sh`, `tools/trial_p8_cost.sh`, `tools/trial_p80_branch_reads.sh`, `tools/trial_reader_reads.sh`: tools/mutants.py runs them."""
+"""The mutants of `tools/context_eval.sh`, `tools/trial_p12_status.sh`, `tools/trial_p13_cli.sh`, `tools/trial_p13_ended.sh`, `tools/trial_p26_sandbox.sh`, `tools/trial_p39_reach.sh`, `tools/trial_p4_narrow.sh`, `tools/trial_p50_linux_sandbox.sh`, `tools/trial_p51_sandbox_writes.sh`, `tools/trial_p54_issue_lookup.sh`, `tools/trial_p56_comments.sh`, `tools/trial_p58_edits.sh`, `tools/trial_p59_read_confinement.sh`, `tools/trial_p61_timeline.sh`, `tools/trial_p8_cost.sh`, `tools/trial_p80_branch_reads.sh`, `tools/trial_p81_review_order.sh`, `tools/trial_reader_reads.sh`: tools/mutants.py runs them."""
 
 from tools.mutants_of.common import P50_TESTS, P59_TESTS
 
@@ -16,7 +16,7 @@ ACL_SCRIPTS = ("trial_p4_narrow.sh", "trial_p39_reach.sh", "trial_p52_pause.sh",
                "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh", "trial_p58_edits.sh",
                "trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh", "trial_p13_cli.sh", "trial_p13_ended.sh",
                "trial_p26_sandbox.sh", "context_eval.sh", "trial_p59_read_confinement.sh", "trial_p61_timeline.sh",
-               "trial_p80_branch_reads.sh")
+               "trial_p80_branch_reads.sh", "trial_p81_review_order.sh")
 ACL_RIGHTS = "(add_file|add_subdirectory|delete|write|chown)"
 ACL_TESTS = ("tests.test_tools.OutputMadeAlone.test_every_script_reads_an_acl_word_for_word_as_the_others_do",
              "tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused")
@@ -26,7 +26,8 @@ TRIALS_DEAF = "tests.test_tools.SignalTraps.test_every_token_script_is_deaf_in_i
 TRIALS_TRAP = "tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit"
 FAMILY_1215 = {"trial_reader_reads.sh": "ReaderTrialScript", "trial_p54_issue_lookup.sh": "IssueLookupTrial",
                "trial_p12_status.sh": "StatusTrial", "trial_p56_comments.sh": "CommentsReadTrial",
-               "trial_p80_branch_reads.sh": "BranchReadsTrial", "trial_p58_edits.sh": "EditsReadTrial"}
+               "trial_p80_branch_reads.sh": "BranchReadsTrial", "trial_p58_edits.sh": "EditsReadTrial",
+               "trial_p81_review_order.sh": "ReviewOrderTrial"}
 SCRIPTS_1215 = tuple(FAMILY_1215) + ("trial_p39_reach.sh", "trial_p4_narrow.sh", "trial_p8_cost.sh")
 
 def run_1215(script, test):
@@ -34,7 +35,7 @@ def run_1215(script, test):
     return ("tests.test_tools.%s.%s" % (FAMILY_1215[script], test),) if script in FAMILY_1215 else ()
 
 
-TARGETS = ("tools/context_eval.sh", "tools/trial_p12_status.sh", "tools/trial_p13_cli.sh", "tools/trial_p13_ended.sh", "tools/trial_p26_sandbox.sh", "tools/trial_p39_reach.sh", "tools/trial_p4_narrow.sh", "tools/trial_p50_linux_sandbox.sh", "tools/trial_p51_sandbox_writes.sh", "tools/trial_p54_issue_lookup.sh", "tools/trial_p56_comments.sh", "tools/trial_p58_edits.sh", "tools/trial_p59_read_confinement.sh", "tools/trial_p61_timeline.sh", "tools/trial_p8_cost.sh", "tools/trial_p80_branch_reads.sh", "tools/trial_reader_reads.sh",)
+TARGETS = ("tools/context_eval.sh", "tools/trial_p12_status.sh", "tools/trial_p13_cli.sh", "tools/trial_p13_ended.sh", "tools/trial_p26_sandbox.sh", "tools/trial_p39_reach.sh", "tools/trial_p4_narrow.sh", "tools/trial_p50_linux_sandbox.sh", "tools/trial_p51_sandbox_writes.sh", "tools/trial_p54_issue_lookup.sh", "tools/trial_p56_comments.sh", "tools/trial_p58_edits.sh", "tools/trial_p59_read_confinement.sh", "tools/trial_p61_timeline.sh", "tools/trial_p8_cost.sh", "tools/trial_p80_branch_reads.sh", "tools/trial_p81_review_order.sh", "tools/trial_reader_reads.sh",)
 MUTANTS = [
     # Decision 0048: a person's write access is read from the collaborator permission.
     ("the reader's token is not narrowed", "tools/trial_reader_reads.sh",
@@ -1156,6 +1157,86 @@ MUTANTS = [
      ("tests.test_tools.BranchReadsTrial.test_an_inherited_mint_answer_is_never_revoked",)),
     ("P-80 takes a first attempt alone", 'tools/trial_p80_branch_reads.sh', 'factory-work/issue-[1-9][0-9]*-[1-9][0-9]*", name', 'factory-work/issue-[1-9][0-9]*-1", name',
      ("tests.test_tools.BranchReadsTrial.test_a_later_attempts_branch_is_taken_and_read",)),
+    # Trial P-81 (issue 1219): its own, P-54's that hold its token, and P-12's on its writes; the ACL family and
+    # issue 1215's come from ACL_SCRIPTS and FAMILY_1215.
+    ("P-81's token reaches every repo", 'tools/trial_p81_review_order.sh',
+     '"{\\"repositories\\":[\\"$name\\"],',
+     '"{', ('tests.test_tools.ReviewOrderTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
+    ("P-81's token is not narrowed", 'tools/trial_p81_review_order.sh',
+     '\\"permissions\\":{$2}}',
+     '\\"permissions\\":{}}', ('tests.test_tools.ReviewOrderTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
+    ("P-81's token cannot write", 'tools/trial_p81_review_order.sh',
+     '\'"issues":"read","pull_requests":"write"\'',
+     '\'"issues":"read","pull_requests":"read"\'', ('tests.test_tools.ReviewOrderTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
+    ('P-81 keeps a call without its redaction', 'tools/trial_p81_review_order.sh',
+     '    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
+     '    cp "$scratch/raw-$n" "$out/clean-$n"; : > "$out/redacted-$n"\n', ('tests.test_tools.ReviewOrderTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
+    ('P-81 leaves its token live on a signal', 'tools/trial_p81_review_order.sh',
+     'trap "trap \'\' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM QUIT PIPE\n',
+     '\n', ('tests.test_tools.ReviewOrderTrial.test_a_signal_mid_read_revokes_the_live_token',)),
+    ('P-81 loses a token still in the answer it holds when stopped', 'tools/trial_p81_review_order.sh',
+     'if [ -z "$token" ] && [ -n "${minted:-}" ]; then',
+     'if false; then', ('tests.test_tools.ReachScript.test_a_stop_while_the_token_is_read_revokes_it_from_the_answer_still_held',)),
+    ('P-81 goes on past a revocation that fails', 'tools/trial_p81_review_order.sh',
+     '    if [ "$revoked" != 204 ]; then\n',
+     '    if false; then\n', ('tests.test_tools.ReviewOrderTrial.test_a_refused_mint_or_revocation_stops_the_run_and_says_so',)),
+    ('P-81 tells nothing of a stop mid-mint', 'tools/trial_p81_review_order.sh',
+     '    elif [ -n "${minting:-}" ]; then',
+     '    elif false; then', ('tests.test_tools.ReviewOrderTrial.test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live',)),
+    ('P-81 takes credentials from the environment', 'tools/trial_p81_review_order.sh',
+     'unset SSLKEYLOGFILE token jwt signature minted minting\n',
+     'unset SSLKEYLOGFILE\n', ('tests.test_tools.ReviewOrderTrial.test_an_inherited_mint_answer_is_never_revoked',)),
+    ("P-81's curl reads the Maintainer's configuration", 'tools/trial_p81_review_order.sh',
+     'curl -q -sS -i -X',
+     'curl -sS -i -X', ('tests.test_tools.ReviewOrderTrial.test_curl_reads_no_configuration_of_the_maintainers',)),
+    ("P-81's OUT is read without its links", 'tools/trial_p81_review_order.sh',
+     '2>/dev/null && pwd -P); then',
+     '2>/dev/null && pwd); then', ('tests.test_tools.ReviewOrderTrial.test_an_output_folder_reached_through_a_link_into_the_repo_is_refused',)),
+    ("P-81's raw answers may be kept inside the repo", 'tools/trial_p81_review_order.sh',
+     'case "$scratch/" in "$root"/*)',
+     'case "$scratch/" in /nowhere/*)', ('tests.test_tools.ReviewOrderTrial.test_a_scratch_directory_inside_the_repo_is_refused_before_anything_is_minted',)),
+    ('P-81 takes any count of words', 'tools/trial_p81_review_order.sh',
+     'if [ "$#" -ne 5 ]; then',
+     'if [ "$#" -lt 5 ]; then', ('tests.test_tools.ReviewOrderTrial.test_each_refusal_comes_before_anything_is_minted',)),
+    ('P-81 takes a number of any shape', 'tools/trial_p81_review_order.sh',
+     '    ""|0*|*[!0-9]*) echo "trial_p81_review_order: $number',
+     '    ""|0*) echo "trial_p81_review_order: $number', ('tests.test_tools.ReviewOrderTrial.test_each_refusal_comes_before_anything_is_minted',)),
+    ('P-81 takes a path of any shape', 'tools/trial_p81_review_order.sh',
+     '    ""|/*|*/|-*|*..*|*//*|*[!A-Za-z0-9._/-]*) echo',
+     '    "") echo', ('tests.test_tools.ReviewOrderTrial.test_each_refusal_comes_before_anything_is_minted',)),
+    ("P-81 may ask the Factory's own repo", 'tools/trial_p81_review_order.sh',
+     ' or sys.argv[1] == "combsmith/software-factory":',
+     ':', ('tests.test_tools.ReviewOrderTrial.test_each_refusal_comes_before_anything_is_minted',)),
+    ("P-81 goes on without the review's id", 'tools/trial_p81_review_order.sh',
+     '        ""|0*|*[!0-9]*)\n            echo "trial_p81_review_order: the review',
+     '        -)\n            echo "trial_p81_review_order: the review', ('tests.test_tools.ReviewOrderTrial.test_a_review_started_with_no_id_stops_the_run_and_its_token_is_revoked',)),
+    ('P-81 leaves the review pending no longer than the other gaps', 'tools/trial_p81_review_order.sh',
+     '    sleep 60\n',
+     '    sleep 20\n', ('tests.test_tools.ReviewOrderTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
+    ('P-81 reads nothing after the submission', 'tools/trial_p81_review_order.sh',
+     '    ask POST "repos/$repo/pulls/$number/reviews/$review/events" submit\n    reads\n',
+     '    ask POST "repos/$repo/pulls/$number/reviews/$review/events" submit\n', ('tests.test_tools.ReviewOrderTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
+    ('P-81 submits the review as an approval', 'tools/trial_p81_review_order.sh',
+     '"submit": {"event": "COMMENT"}',
+     '"submit": {"event": "APPROVE"}', ('tests.test_tools.ReviewOrderTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
+    ('P-81 submits the review as it starts it', 'tools/trial_p81_review_order.sh',
+     '"start": {"body": "Trial',
+     '"start": {"event": "COMMENT", "body": "Trial', ('tests.test_tools.ReviewOrderTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
+    ("P-81's line comment is off the file's first line", 'tools/trial_p81_review_order.sh',
+     '"line": 1, "side": "RIGHT"',
+     '"line": 2, "side": "RIGHT"', ('tests.test_tools.ReviewOrderTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
+    ('P-81 keeps no bodies it sent', 'tools/trial_p81_review_order.sh',
+     '    json.dump(said, held, indent=1)\n',
+     '    pass\n', ('tests.test_tools.ReviewOrderTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
+    ('P-81 never follows a next page', 'tools/trial_p81_review_order.sh',
+     '        names_next "$n" || break\n',
+     '        break\n', ('tests.test_tools.ReviewOrderTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
+    ('P-81 reads one page again and again', 'tools/trial_p81_review_order.sh',
+     '?per_page=2&page=$page"',
+     '?per_page=2"', ('tests.test_tools.ReviewOrderTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
+    ('P-81 reads pages past its bound', 'tools/trial_p81_review_order.sh',
+     '        if [ "$page" -ge "$PAGES" ]; then\n',
+     '        if false; then\n', ('tests.test_tools.ReviewOrderTrial.test_the_pages_two_a_page_stop_at_the_bound',)),
     # Issue 1215: what the trials share. Each sh script that mints stops at its first signal, and its clean-up is deaf to
     # the next and bounds its revocation. The test that holds every script to the same words comes first, then a family's.
     *[("%s's clean-up stops at a second signal" % script, "tools/" + script, "    trap '' HUP INT TERM QUIT PIPE\n", "",

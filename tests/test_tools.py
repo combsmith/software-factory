@@ -9807,7 +9807,8 @@ class OutputMadeAlone(unittest.TestCase):
                "trial_p12_status.sh": ("KEY", CONTROLLER, "a" * 40),
                "trial_p56_comments.sh": ("KEY", CONTROLLER, "42"),
                "trial_p58_edits.sh": ("KEY", READER, "96"),
-               "trial_p80_branch_reads.sh": ("KEY", CONTROLLER) + tuple("factory-work/issue-%d-1" % (8001 + i) for i in range(5))}
+               "trial_p80_branch_reads.sh": ("KEY", CONTROLLER) + tuple("factory-work/issue-%d-1" % (8001 + i) for i in range(5)),
+               "trial_p81_review_order.sh": ("KEY", CONTROLLER, "42", "trial-notes/p-81.md")}
     # These read more before they mint or ask, so OUT is not made here; the check on its parent comes first of all.
     OTHERS = {"trial_p13_cli.sh": ("config",), "trial_p13_ended.sh": ("config",), "trial_p26_sandbox.sh": ("config",),
               "context_eval.sh": ("config", "repo", "a" * 40, "sentence", "held")}
@@ -10129,7 +10130,7 @@ fi
                        "trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh", "trial_p54_issue_lookup.sh",
                        "trial_p12_status.sh",
                        "trial_p56_comments.sh", "trial_p58_edits.sh", "trial_p80_branch_reads.sh",
-                       "trial_reader_reads.sh"):
+                       "trial_p81_review_order.sh", "trial_reader_reads.sh"):
             self.assertNotIn('cd "$(mktemp', (ROOT / "tools" / script).read_text(), script)
 
     def test_the_sandbox_trials_refuse_an_output_that_ends_in_a_dot(self):
@@ -10404,7 +10405,7 @@ sys.exit(subprocess.run([%r] + sys.argv[1:], input=said).returncode)
         # A blank line in a body opens no head, and an HTTP line after it is the body's (Argon).
         for name in ("trial_reader_reads.sh", "trial_p39_reach.sh", "trial_p8_cost.sh", "trial_p52_pause.sh", "trial_p4_narrow.sh",
                      "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh", "trial_p58_edits.sh",
-                     "trial_p80_branch_reads.sh"):
+                     "trial_p80_branch_reads.sh", "trial_p81_review_order.sh"):
             text = (ROOT / "tools" / name).read_text()
             self.assertNotIn("sed -n '1s/^HTTP", text, name)
             programs = re.findall(r"awk '(BEGIN \{ head = 1 \}[^']+)'", text)
@@ -15712,7 +15713,8 @@ class SignalTraps(unittest.TestCase):
         # Each sh script that mints is deaf from its first signal on, so a second finds the clean-up deaf at once (issue 1215).
         own_line.update({script: "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM QUIT PIPE" for script in (
             "trial_reader_reads.sh", "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh", "trial_p58_edits.sh",
-            "trial_p80_branch_reads.sh", "trial_p39_reach.sh", "trial_p4_narrow.sh", "trial_p52_pause.sh", "trial_p8_cost.sh")})
+            "trial_p80_branch_reads.sh", "trial_p81_review_order.sh", "trial_p39_reach.sh", "trial_p4_narrow.sh", "trial_p52_pause.sh",
+            "trial_p8_cost.sh")})
         scripts = sorted((ROOT / "tools").glob("*.sh"))
         self.assertGreaterEqual(len(scripts), 17)
         for script in scripts:
@@ -15729,7 +15731,7 @@ class SignalTraps(unittest.TestCase):
         # reader's tests run one such stop; this holds every script to the same words.
         scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
                    if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
-        self.assertEqual(len(scripts), 10)
+        self.assertEqual(len(scripts), 11)
         for script in scripts:
             text = script.read_text()
             body = [line for line in text.split("\nfinish() {\n", 1)[1].splitlines() if not line.lstrip().startswith("#")]
@@ -16548,6 +16550,170 @@ elif "/issues/" in url:""", 1)
                                  ((self.CANARY, branches[0], branches[1], branches[1]) + branches[3:], None, "is named twice"),
                                  ((self.CANARY,) + branches[:4], None, "usage:"),
                                  ((self.CANARY,) + branches + ("none",), None, "usage:")):
+            ran = self.run_script(*given, out=out)
+            self.assertNotEqual(ran.returncode, 0, given)
+            self.assertIn(said, ran.stderr, given)
+            self.assertEqual(self.calls(), [], given)
+        self.key.unlink()
+        ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0)
+        self.assertIn("cannot read the key file", ran.stderr)
+        self.assertEqual(self.calls(), [])
+
+class ReviewOrderTrial(IssueLookupTrial):
+    """`tools/trial_p81_review_order.sh`, run against the same stand-ins and never GitHub (issue 1219). It is P-12's shape
+    on the pr-review App: one token, writes among its reads, so every test of P-54's that is not about what is asked runs
+    over it too, by inheritance. A stand-in sleep keeps the gaps between acts, and waits for none."""
+
+    SCRIPT = ROOT / "tools" / "trial_p81_review_order.sh"
+    GIVEN = (IssueLookupTrial.CANARY, "42", "trial-notes/p-81.md")
+    FIRST = "issues: read and pull_requests: write"
+    NOT_A_NUMBER = "is not a pull request's number"
+    # The stand-in answers the review, the comments, the timeline and the reviews list, keeping each body sent for the
+    # test to read. Two a page, the timeline has three pages, or no end where a file beside it says so; a file beside it
+    # refuses the review's start.
+    CURL = BranchReadsTrial.CURL.replace('elif "/issues/" in url:', """elif "/timeline" in url or "/reviews" in url or "/comments" in url:
+    if os.path.exists(os.path.join(here, "read.broke")):
+        sys.stdout.write("HTTP/2 200\\r\\n\\r\\n{")
+        sys.exit(18)
+    if os.path.exists(os.path.join(here, "read.cut")):
+        sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\n\\r\\n{\\"cut")
+        sys.exit(0)
+    if body and body.startswith("@"):
+        with open(os.path.join(here, "sent"), "a") as kept:
+            kept.write(open(body[1:]).read() + "\\n")
+    import urllib.parse
+    query = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
+    leak = "gh" + "s_" + "L" * 36
+    if method == "POST" and url.endswith("/reviews"):
+        status, answer = (422, {"message": "Validation Failed"}) if os.path.exists(os.path.join(here, "no-review")) else \\
+            (200, {"id": 81, "state": "PENDING"})
+    elif method == "POST" and url.endswith("/events"):
+        status, answer = 200, {"id": 81, "state": "COMMENTED", "submitted_at": "2026-11-26T12:01:40Z"}
+    elif method == "POST":
+        status, answer = 201, {"id": 9, "created_at": "2026-11-26T12:00:20Z"}
+    elif query.get("per_page") == "2":
+        page = int(query.get("page", "1"))
+        last = 99 if os.path.exists(os.path.join(here, "endless")) else 3
+        named = '<https://api.github.com/x?per_page=2&page=%d>; rel="next"' % (page + 1) if page < last else \\
+            '<https://api.github.com/x?per_page=2&page=1>; rel="first"'
+        sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\nlink: %s\\r\\n\\r\\n%s" % (named, json.dumps(
+            [{"event": "commented", "id": page, "created_at": "2026-11-26T12:00:0%dZ" % page, "leak": leak}])))
+        sys.exit(0)
+    else:
+        status, answer = 200, [{"event": "reviewed", "id": 81, "submitted_at": "2026-11-26T12:01:40Z", "leak": leak}]
+elif "/issues/" in url:""", 1)
+
+    def setUp(self):
+        super().setUp()
+        (self.stand_in / "sleep").write_text('#!/bin/sh\necho "$1" >> "$(dirname "$0")/slept"\n')
+        (self.stand_in / "sleep").chmod(0o755)
+
+    def test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept(self):
+        grants = json.loads((ROOT / "trials" / "P-39.grants.json").read_text())
+        listed = [e for e in grants["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"][0]
+        app = json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["pr-review"]
+        installation = [i["id"] for i in listed["response"]["body"]["installations"] if i["app_id"] == app["app_id"]][0]
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
+        calls = self.calls()
+        self.assertEqual(calls[0]["url"].split("/app/")[1], "installations/%d/access_tokens" % installation)
+        self.assertEqual(json.loads(calls[0]["body"]), {"repositories": [self.CANARY.split("/")[1]],
+                                                        "permissions": {"issues": "read", "pull_requests": "write"}})
+        pull, issue = "%s/pulls/42" % self.CANARY, "%s/issues/42" % self.CANARY
+        reads = [("GET", issue + "/timeline?per_page=100"), ("GET", pull + "/reviews?per_page=100")]
+        asked = (reads + [("POST", pull + "/reviews")] + reads + [("POST", issue + "/comments")] + reads
+                 + [("POST", pull + "/reviews/81/events")] + reads + [("POST", issue + "/comments")] + reads
+                 + [("GET", issue + "/timeline?per_page=2"), ("GET", issue + "/timeline?per_page=2&page=2"),
+                    ("GET", issue + "/timeline?per_page=2&page=3"), ("GET", pull + "/reviews/81/comments?per_page=100")])
+        self.assertEqual([(c["method"], c["url"].split("/repos/")[1]) for c in calls[1:-1]], asked)
+        self.assertEqual((calls[-1]["method"], calls[-1]["url"].rsplit("/", 2)[1:]), ("DELETE", ["installation", "token"]))
+        self.assertTrue(all(c["credential"] for c in calls), "every call carries its credential on stdin")
+        # A minute while the review is pending, twenty seconds before and after it, in that order.
+        self.assertEqual((self.stand_in / "slept").read_text().split(), ["20", "60", "20"])
+        sent = [json.loads(line) for line in (self.stand_in / "sent").read_text().splitlines()]
+        self.assertEqual([sorted(s) for s in sent], [["body", "comments"], ["body"], ["event"], ["body"]])
+        self.assertNotIn("event", sent[0])
+        self.assertEqual({k: v for k, v in sent[0]["comments"][0].items() if k != "body"},
+                         {"path": "trial-notes/p-81.md", "line": 1, "side": "RIGHT"})
+        self.assertEqual(sent[2], {"event": "COMMENT"})
+        texts = {p.name: p.read_text() for p in self.out.iterdir()}
+        self.assertEqual(sorted(texts), sorted(["ran_at", "requests.json", "sent.json"] + ["%s-%d" % (kind, n) for n in range(1, 19)
+                                                                                           for kind in ("clean", "redacted")]))
+        self.assertEqual(json.loads(texts["sent.json"]), dict(zip(("start", "pending", "submit", "after"), sent)))
+        said = json.loads(texts["requests.json"])
+        self.assertEqual([(a["call"], a["body"], a["status"]) for a in said[:-1]],
+                         [("%s /repos/%s" % (m, u), b, s) for (m, u), b, s in zip(
+                             asked, ["", "", "start", "", "", "pending", "", "", "submit", "", "", "after"] + [""] * 6,
+                             [200, 200, 200, 200, 200, 201, 200, 200, 200, 200, 200, 201] + [200] * 6)])
+        self.assertTrue(all(re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", a["at"]) for a in said[:-1]), said)
+        self.assertEqual(said[-1], {"revoked": self.FIRST, "status": 204})
+        self.assertIn('rel="next"', texts["clean-15"])
+        self.assertIn('"submitted_at": "2026-11-26T12:01:40Z"', texts["clean-1"])
+        self.assertNotIn("gh" + "s_", "".join(texts.values()) + ran.stdout + ran.stderr)
+        self.assertTrue(all("leak" in texts["redacted-%d" % n] for n in (1, 2, 4, 15, 16, 17, 18)))
+
+    def test_a_review_started_with_no_id_stops_the_run_and_its_token_is_revoked(self):
+        (self.stand_in / "no-review").write_text("")
+        ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0, ran.stdout)
+        self.assertIn("the review's start gave no review's id, status 422; nothing else is asked", ran.stderr)
+        self.assertEqual([c["method"] for c in self.calls()], ["POST", "GET", "GET", "POST", "DELETE"])
+        self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+        self.assertFalse((self.stand_in / "slept").exists())
+
+    def test_the_pages_two_a_page_stop_at_the_bound(self):
+        (self.stand_in / "endless").write_text("")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        pages = [c["url"] for c in self.calls() if "per_page=2" in c["url"]]
+        self.assertEqual(pages[1:], ["https://api.github.com/repos/%s/issues/42/timeline?per_page=2&page=%d" % (self.CANARY, n)
+                                     for n in range(2, 31)])
+        self.assertIn("page 30 of two still names a next page; the rest is not read", ran.stderr)
+
+    def test_the_status_kept_is_the_last_heads(self):
+        # A proxy's block comes first, 200, and GitHub's answer after it is the call's: the comments' 201s stay 201s.
+        (self.stand_in / "proxied").write_text("")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        asked = json.loads((self.out / "requests.json").read_text())
+        self.assertEqual([a["status"] for a in asked if a.get("body") in ("pending", "after")], [201, 201])
+
+    def test_an_inherited_mint_answer_is_never_revoked(self):
+        # A token-shaped answer in the environment is no mint of this run's: a canary refused once the exit trap stands
+        # sends nothing at all.
+        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
+               "minted": '{"token": "%s"}' % self.TOKEN, "token": self.TOKEN}
+        ran = subprocess.run(["sh", str(self.SCRIPT), str(self.out), str(self.key), "combsmith/elsewhere", "42", "a.md"],
+                             cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=60)
+        self.assertNotEqual(ran.returncode, 0, ran.stderr)
+        self.assertIn("is not the canary the pr-review App is installed on", ran.stderr)
+        self.assertEqual(self.calls(), [])
+
+    test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live = \
+        BranchReadsTrial.test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live
+
+    def test_each_refusal_comes_before_anything_is_minted(self):
+        self.out.parent.mkdir(parents=True, exist_ok=True)
+        elsewhere = "is not the canary the pr-review App is installed on"
+        not_a_path = "is not a path in the repo"
+        for given, out, said in (((self.CANARY, "42", "a.md"), self.out.parent, "exists"),
+                                 ((self.CANARY, "42", "a.md"), ROOT / self.INSIDE[0], "inside the repo"),
+                                 (("combsmith/software-factory", "42", "a.md"), None, elsewhere),
+                                 (("combsmith/elsewhere", "42", "a.md"), None, elsewhere),
+                                 (("combsmith", "42", "a.md"), None, "is not owner/name"),
+                                 ((self.CANARY, "0", "a.md"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "12a", "a.md"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "1/../2", "a.md"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "", "a.md"), None, self.NOT_A_NUMBER),
+                                 ((self.CANARY, "42", ""), None, not_a_path),
+                                 ((self.CANARY, "42", "/etc/passwd"), None, not_a_path),
+                                 ((self.CANARY, "42", "../a.md"), None, not_a_path),
+                                 ((self.CANARY, "42", "a/"), None, not_a_path),
+                                 ((self.CANARY, "42", "-a"), None, not_a_path),
+                                 ((self.CANARY, "42", "a b.md"), None, not_a_path),
+                                 ((self.CANARY, "42", 'a".md'), None, not_a_path),
+                                 ((self.CANARY, "42"), None, "usage:"), ((self.CANARY, "42", "a.md", "x"), None, "usage:")):
             ran = self.run_script(*given, out=out)
             self.assertNotEqual(ran.returncode, 0, given)
             self.assertIn(said, ran.stderr, given)
