@@ -11,7 +11,9 @@
 #   organization's Variables permission at read, or the pass reads the org's pause another way, before
 #   read:pass.pause is written in config/apps.json.
 #
-#   tools/trial_p52_pause.sh OUT CONTROLLER_KEY
+#   tools/trial_p52_pause.sh [--keep-raw] OUT CONTROLLER_KEY
+#
+# --keep-raw keeps the raw answers in the run's own scratch directory, and says where; delete it once read.
 #
 # The Maintainer runs it at his own terminal, as tools/trial_p39_reach.sh, after granting the controller Variables at
 # repository read; no session runs it, since it mints a credential. OUT is a directory that does not exist yet,
@@ -36,8 +38,14 @@ set +a
 unset CDPATH
 set +x
 
+# --keep-raw, first, keeps the raw answers for a person to read; the clean-up says where (issue 1215).
+keep=""
+if [ "${1:-}" = --keep-raw ]; then
+    keep=1
+    shift
+fi
 if [ "$#" -ne 2 ]; then
-    echo "usage: tools/trial_p52_pause.sh OUT CONTROLLER_KEY" >&2
+    echo "usage: tools/trial_p52_pause.sh [--keep-raw] OUT CONTROLLER_KEY" >&2
     exit 2
 fi
 root=$(CDPATH= cd -P -- "$(dirname -- "$0")/.." && pwd -P)
@@ -88,10 +96,20 @@ API=https://api.github.com
 VERSION="X-GitHub-Api-Version: 2022-11-28"
 ACCEPT="Accept: application/vnd.github+json"
 NAME=FACTORY_PAUSED
-# The raw answers are kept beside OUT, in a directory made in its parent, which the walk above holds to be this
-# user's, or sticky. TMPDIR, which the environment chooses, is not read, and each helper is handed this one (issue 1215).
-scratch=$(mktemp -d "$parent/.trial-p52.XXXXXX")
-export TMPDIR="$scratch"
+# The raw answers are kept in a directory of this run's own, which mktemp makes new and for this user alone, outside
+# the repo as OUT is: a TMPDIR inside it, or a link into it, is refused. The exit trap deletes it however the run
+# ends, unless --keep-raw asks to keep it; only the redacted copies reach OUT (issue 1215).
+# The template names TMPDIR itself: macOS's mktemp -d alone does not always read it.
+# Its own line: inside the cd, a failed mktemp would be read as the directory this stands in, which the clean-up removes.
+made=$(mktemp -d "${TMPDIR:-/tmp}/trial-p52.XXXXXX")
+scratch=$(cd "$made" && pwd -P)
+case "$scratch/" in "$root"/*)
+    rm -rf "$scratch"
+    echo "trial_p52_pause: the scratch directory $scratch is inside the repo; set TMPDIR outside it" >&2
+    exit 2 ;;
+esac
+# A raw answer is deleted once it is redacted, unless --keep-raw asks to keep them all.
+drop() { [ -n "$keep" ] || rm -f -- "$@"; }
 # No credential's name is taken from the environment, where one exported would reach every child, and curl is
 # told of no file to write its TLS keys to (issue 1215).
 unset SSLKEYLOGFILE token jwt signature minted minting
@@ -127,7 +145,11 @@ finish() {
         fi
         token=""
     fi
-    rm -rf "$scratch"
+    if [ -n "$keep" ]; then
+        echo "trial_p52_pause: the raw answers are kept in $scratch, as --keep-raw asked; delete it once read" >&2
+    else
+        rm -rf "$scratch"
+    fi
 }
 trap finish EXIT
 trap "trap '' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM QUIT PIPE
@@ -227,7 +249,7 @@ for path in "repos/$repo/actions/variables/$NAME" "orgs/$org/actions/variables/$
     # The last head's status: a proxy's block, or an interim answer, comes first and is no answer to this read.
     status=$(awk 'BEGIN { head = 1 } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
     (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
-    rm -f "$scratch/raw-$n"
+    drop "$scratch/raw-$n"
     asked="$asked{\"n\": $n, \"as\": \"$slug\", \"app_id\": $app_id, \"installation\": $installation,"
     asked="$asked \"call\": \"GET /$path\", \"curl_ok\": $read_ok, \"status\": \"${status:-none}\"},"
     echo "$slug: GET /$path answered ${status:-nothing}"

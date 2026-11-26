@@ -36,6 +36,8 @@ everything a trial leaves in it: its runs, logs and artifacts.
   What the trial-author App writes, the Maintainer runs as `tools/trial_as_app.sh`, with the App's
   key: it revokes its token, and leaves only redacted exchanges in a scratch directory, with `finish.log`
   where it says a token it left live. Read that first.
+  A token script deletes its raw answers on exit. Given `--keep-raw` first, it keeps them in its
+  own private scratch directory and prints that path; the Maintainer deletes it once read (issue 1215).
   P-13 asks the vendor's CLI, not GitHub: `tools/trial_p13_cli.sh` runs it at the pinned version,
   on a configuration directory of its own logged in to the Maintainer's own subscription (decision
   0033), and leaves

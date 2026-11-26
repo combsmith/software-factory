@@ -1,6 +1,7 @@
 """The mutants of `tools/trial_p52_pause.sh`: tools/mutants.py runs them."""
 
 TARGETS = ("tools/trial_p52_pause.sh",)
+KEEP = "tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_in_a_private_directory_it_deletes"
 MUTANTS = [
     # Issue 481: the first signal stops the run, a later one stops neither the revocation nor the redaction, and the
     # script's own words reach OUT.
@@ -104,8 +105,10 @@ MUTANTS = [
     ("P-52's root is found logically", "tools/trial_p52_pause.sh", "root=$(CDPATH= cd -P -- ", "root=$(CDPATH= cd -- ", ("tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does",)),
     ("P-52 exports what its environment says to", "tools/trial_p52_pause.sh", "set +a\nunset CDPATH\n", "unset CDPATH\n", ("tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment",)),
     ("P-52 looks along CDPATH", "tools/trial_p52_pause.sh", "set +a\nunset CDPATH\n", "set +a\n", ("tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment",)),
-    ("P-52 keeps its raw answers where TMPDIR says", "tools/trial_p52_pause.sh", 'mktemp -d "$parent/.trial-',
-     'mktemp -d "${TMPDIR:-/tmp}/.trial-', ("tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_beside_out",)),
-    ("P-52 hands its helpers the TMPDIR it was given", "tools/trial_p52_pause.sh", 'export TMPDIR="$scratch"\n', "",
-     ("tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_beside_out",)),
+    # Issue 1215, the SA's ruling of 2026-11-26, as tools/mutants_of/tools_trial_p12_status_sh.py's KEEP_1215 has it.
+    ("P-52 keeps its raw answers without --keep-raw", "tools/trial_p52_pause.sh", '    if [ -n "$keep" ]; then\n        echo', '    if true; then\n        echo', (KEEP,)),
+    ("P-52 deletes its raw answers though --keep-raw asked", "tools/trial_p52_pause.sh", "    keep=1\n    shift\n", "    shift\n", (KEEP,)),
+    ("P-52 deletes each raw answer though --keep-raw asked", "tools/trial_p52_pause.sh", 'drop() { [ -n "$keep" ] || rm -f -- "$@"; }', 'drop() { rm -f -- "$@"; }', (KEEP,)),
+    ("P-52 does not say where it kept its raw answers", "tools/trial_p52_pause.sh", "as --keep-raw asked; delete it once read\" >&2\n", "as --keep-raw asked; delete it once read\" >/dev/null\n", (KEEP,)),
+    ("P-52 makes its raw answers' directory for others to read", "tools/trial_p52_pause.sh", 'scratch=$(cd "$made" && pwd -P)\n', 'chmod 755 "$made"\nscratch=$(cd "$made" && pwd -P)\n', (KEEP,)),
 ]

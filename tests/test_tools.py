@@ -10245,8 +10245,6 @@ else:
             self.assertNotIn("ghs_", text, path)
             self.assertFalse(check_trials.shaped(text), path)
         self.assertEqual(list((self.folder / "tmp").iterdir()), [], "the scratch directory was left behind")
-        self.assertEqual([p.name for p in self.folder.iterdir() if p.name.startswith(".trial-")], [],
-                         "the scratch directory was left beside OUT")
         return ran.returncode, said, told, calls
 
     def minted(self, calls):
@@ -15740,24 +15738,34 @@ class SignalTraps(unittest.TestCase):
             self.assertIn("| curl -q --max-time 30 ", revoke, script.name)
             self.assertEqual((revoke.count("--max-time"), revoke.count(" -m ")), (1, 0), script.name)
 
-    def test_every_token_script_keeps_its_raw_answers_beside_out(self):  # issue 1215
-        # TMPDIR is the environment's to choose, and a directory in it another user can write to would let them take the
-        # raw answers, or put a link where one is written. Each sh script that mints makes its one scratch directory in
-        # OUT's parent, which its walk holds to be this user's or sticky, reads no TMPDIR, and hands that directory to its helpers.
+    def test_every_token_script_keeps_its_raw_answers_in_a_private_directory_it_deletes(self):  # issue 1215
+        # The SA's ruling of 2026-11-26: the raw answers stand in a directory the run makes with mktemp, this user's alone,
+        # where TMPDIR says and never inside the repo. The exit trap deletes it however the run ends, unless --keep-raw,
+        # given first, asks to keep it; then the run says where. Each raw answer goes once redacted, but with the flag.
         scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
                    if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
         self.assertEqual(len(scripts), 10)
         for script in scripts:
-            lines = script.read_text().splitlines()
-            made = [line for line in lines if "mktemp" in line and not line.lstrip().startswith("#")]
-            self.assertEqual(len(made), 1, script.name)
-            self.assertRegex(made[0], r'^scratch=\$\(mktemp -d "\$parent/\.trial-[a-z0-9]+\.XXXXXX"\)$', script.name)
-            self.assertLess(max(n for n, line in enumerate(lines) if line == '    above=$(dirname -- "$above")'),
-                            lines.index(made[0]), script.name)
-            # TMPDIR is never read; it is set, to that directory, for each helper the run starts.
-            self.assertEqual([line for line in lines if "TMPDIR" in line and not line.lstrip().startswith("#")],
-                             ['export TMPDIR="$scratch"'], script.name)
-            self.assertEqual(lines[lines.index(made[0]) + 1], 'export TMPDIR="$scratch"', script.name)
+            text, name = script.read_text(), script.stem
+            lines = text.splitlines()
+            made = [n for n, line in enumerate(lines) if "mktemp" in line and not line.lstrip().startswith("#")]
+            self.assertEqual(len(made), 1, name)
+            self.assertRegex(lines[made[0]], r'^made=\$\(mktemp -d "\$\{TMPDIR:-/tmp\}/trial-[a-z0-9]+\.XXXXXX"\)$', name)
+            self.assertEqual(lines[made[0] + 1:made[0] + 3], ['scratch=$(cd "$made" && pwd -P)', 'case "$scratch/" in "$root"/*)'],
+                             name)
+            flag = lines.index('if [ "${1:-}" = --keep-raw ]; then')
+            self.assertEqual(lines[flag - 1:flag + 4], ['keep=""', 'if [ "${1:-}" = --keep-raw ]; then', "    keep=1", "    shift", "fi"],
+                             name)
+            self.assertTrue(lines[flag + 4].startswith('if [ "$#" -'), name)
+            self.assertEqual(text.count("--keep-raw ]"), 1, name)
+            finish = text[text.index("\nfinish() {\n"):]
+            finish = finish[:finish.index("\n}\n")]
+            self.assertTrue(finish.endswith('    if [ -n "$keep" ]; then\n        echo "%s: the raw answers are kept in $scratch, as '
+                                            '--keep-raw asked; delete it once read" >&2\n    else\n        rm -rf "$scratch"\n    fi'
+                                            % name), name)
+            self.assertIn("\ntrap finish EXIT\n", text, name)
+            self.assertNotIn('rm -f "$scratch/raw', text, name)
+            self.assertEqual(text.count('drop() { [ -n "$keep" ] || rm -f -- "$@"; }\n'), 1, name)
 
     def test_every_trial_takes_nothing_of_the_maintainers_environment(self):  # issue 1215
         # A name a script holds a credential in, exported, reaches every child; SSLKEYLOGFILE has curl write the TLS keys
@@ -15909,12 +15917,12 @@ esac
         for name in self.INSIDE:
             shutil.rmtree(ROOT / name, ignore_errors=True)
 
-    def run_script(self, *args, out=None, tmpdir=None) -> subprocess.CompletedProcess:
+    def run_script(self, *args, out=None, tmpdir=None, first=()) -> subprocess.CompletedProcess:
         env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
                "GH_TOKEN": "gh" + "p_NEVER-SEEN"}
         env.update({"TMPDIR": str(tmpdir)} if tmpdir else {})
         given = args or self.GIVEN
-        return subprocess.run(["sh", str(self.SCRIPT), str(out or self.out), str(self.key), *given],
+        return subprocess.run(["sh", str(self.SCRIPT), *first, str(out or self.out), str(self.key), *given],
                               cwd=SCRATCH.name, capture_output=True, text=True, env=env, timeout=120)
 
     def calls(self) -> list:
@@ -15986,38 +15994,47 @@ esac
         self.assertEqual([c["method"] for c in self.calls()], ["POST", "DELETE"])
         self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
 
-    def test_the_raw_answers_are_kept_beside_out_whatever_tmpdir_says(self):  # issue 1215
-        # The raw answers are kept in a directory of OUT's parent, which the walk holds to be this user's or sticky, and
-        # never where TMPDIR says: here a TMPDIR inside the repo, which the run neither refuses nor writes to. Held
-        # mid-read by a pipe, the run shows its one scratch directory beside OUT, private; once done, it is gone.
+    def test_a_scratch_directory_inside_the_repo_is_refused_before_anything_is_minted(self):
+        # The raw answers are kept outside the repo, as OUT is: a TMPDIR inside it, or reached through a link into it,
+        # is refused and the directory mktemp made is removed (Codex on PR 298).
         # Of its own: this class's clean-up removes what INSIDE names, and a run deals its methods to parts run at once.
         (ROOT / "__pycache__").mkdir(exist_ok=True)
         inside = pathlib.Path(tempfile.mkdtemp(dir=str(ROOT / "__pycache__"), prefix="scratch-of-the-reader-"))
         self.addCleanup(shutil.rmtree, inside, ignore_errors=True)
-        self.out.parent.mkdir(parents=True, exist_ok=True)
-        told_r, told_w = os.pipe()
-        held_r, held_w = os.pipe()
-        (self.stand_in / "slow").write_text("%d %d\n" % (told_w, held_r))
-        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
-               "TMPDIR": str(inside)}
-        running = subprocess.Popen(["sh", str(self.SCRIPT), str(self.out), str(self.key), *self.GIVEN], cwd=SCRATCH.name,
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env, pass_fds=(told_w, held_r))
-        os.close(told_w)
-        os.close(held_r)
-        try:
-            begun = os.read(told_r, 1)
-            (self.stand_in / "slow").unlink()
-            held = [p for p in self.out.parent.iterdir() if p.name.startswith(".trial-")]
-            modes = [p.stat().st_mode & 0o777 for p in held if p.is_dir()]
-        finally:
-            os.close(told_r)
-            os.close(held_w)
-        out, err = running.communicate(timeout=60)
-        self.assertEqual(begun, b"r", "the script reached no read: " + err)
-        self.assertEqual(running.returncode, 0, err + out)
-        self.assertEqual(modes, [0o700], held)
-        self.assertEqual([p.name for p in self.out.parent.iterdir()], [self.out.name])
-        self.assertEqual(list(inside.iterdir()), [])
+        link = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve() / "into-the-repo"
+        link.symlink_to(inside)
+        for tmpdir in (inside, link):
+            ran = self.run_script(tmpdir=tmpdir)
+            self.assertEqual(ran.returncode, 2, tmpdir)
+            self.assertIn("is inside the repo; set TMPDIR outside it", ran.stderr, tmpdir)
+            self.assertEqual((self.calls(), list(inside.iterdir())), ([], []), tmpdir)
+
+    def test_keep_raw_keeps_the_raw_answers_private_and_says_where(self):  # issue 1215
+        # Without the flag the run's scratch directory goes, whether the run passes or a refused mint stops it. With
+        # --keep-raw, given first, it stays, this user's alone, holding each raw answer OUT holds clean, and no token;
+        # the run says where.
+        for status, first, code in (("201", (), 0), ("401", (), 1), ("201", ("--keep-raw",), 0)):
+            tmpdir = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+            self.addCleanup(shutil.rmtree, tmpdir, ignore_errors=True)
+            out = tmpdir.parent / ("out-of-" + tmpdir.name)
+            (self.stand_in / "mint.status").write_text(status + "\n")
+            ran = self.run_script(out=out, tmpdir=tmpdir, first=first)
+            self.assertEqual(ran.returncode != 0, code != 0, ran.stderr + ran.stdout)
+            kept = list(tmpdir.iterdir())
+            if not first:
+                self.assertEqual(kept, [], (status, ran.stderr))
+                self.assertNotIn("--keep-raw", ran.stderr)
+                continue
+            self.assertEqual(len(kept), 1, kept)
+            self.assertEqual(kept[0].stat().st_mode & 0o777, 0o700)
+            self.assertIn("the raw answers are kept in %s, as --keep-raw asked; delete it once read" % kept[0], ran.stderr)
+            raw = sorted(p.name for p in kept[0].iterdir() if p.name.startswith("raw-"))
+            clean = sorted(p.name for p in out.iterdir() if p.name.startswith("clean-"))
+            self.assertTrue(raw, ran.stderr)
+            self.assertEqual(raw, [name.replace("clean-", "raw-") for name in clean])
+            self.assertEqual([p.name for p in out.iterdir() if p.name.startswith("raw-")], [])
+            for kept_file in kept[0].iterdir():
+                self.assertNotIn(self.TOKEN, kept_file.read_text(errors="replace"), kept_file.name)
 
     def test_a_mint_answered_201_and_cut_short_is_revoked_and_told(self):
         # curl cut the mint's answer short: GitHub minted a token the script cannot parse. It finds the token, revokes
@@ -16157,7 +16174,7 @@ class IssueLookupTrial(ReaderTrialScript):
     """`tools/trial_p54_issue_lookup.sh`, run against the reader trial's stand-ins and never GitHub (issue 342). It is that
     script held to the Controller's installation and one read, so every test of the reader's that is not about what is
     read runs over it too, by inheritance: the signal, the cut mint, the transfer that failed, the refused mint and
-    revocation, the scratch directory beside OUT, OUT inside the repo, and curl's configuration."""
+    revocation, the scratch directory and OUT inside the repo, and curl's configuration."""
 
     SCRIPT = ROOT / "tools" / "trial_p54_issue_lookup.sh"
     CANARY = [r for r in json.loads((ROOT / "config" / "apps.json").read_text())["apps"]["controller"]["installed_on"]
