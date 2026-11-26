@@ -3386,7 +3386,7 @@ MUTANTS = ISSUE + OUTSIDE + [
     # Issue 1216: a Hold the Run wanted places is read before an uncounted label's removal, which waits for the release.
     ("an uncounted label is removed before an issue's Hold", 'kernel/issue.py',
      '        if _run_holds(after):\n            return after\n', '', HOLD_BEFORE_LABEL),
-    # Issue 1251: the act ceiling's Hold stands over an uncounted label too, as decision 9999 reverses 1244's line.
+    # Issue 1251: the act ceiling's Hold stands over an uncounted label too, as decision 1255 reverses 1244's line.
     ("an uncounted label is removed at the act ceiling", 'kernel/issue.py',
      '    return d["state"] == t.HELD and d["outcome"] == t.HOLD\n',
      '    return d["state"] == t.HELD and d["outcome"] == t.HOLD and d["reason"] != "act_ceiling"\n',

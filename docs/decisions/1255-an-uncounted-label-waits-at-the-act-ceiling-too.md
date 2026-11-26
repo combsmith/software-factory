@@ -1,4 +1,4 @@
-# 9999. An uncounted label waits at the act ceiling too
+# 1255. An uncounted label waits at the act ceiling too
 
 Status: accepted. 2026-11-26, the Solution Architect; issue 1251. Reverses one line of decision 1244, which it extends.
 
