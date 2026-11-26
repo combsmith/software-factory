@@ -33,6 +33,14 @@ def runs_on(runs: list, facts: dict) -> list:
     return sorted(mine, key=lambda r: r["started_at"])
 
 
+def needs_person(runs: list, role: str) -> list:
+    """The Run that holds the item for a person, as a list of its id, or none: the latest completed Run of `role` among
+    `runs`, oldest first, ended `person` (issue 838). It is no attempt and no Run that spent no model; the Runs given
+    start after a writer's action, so that action releases it, as it renews the attempts."""
+    done = [r for r in runs if r["role"] == role and r["status"] == "completed"]
+    return [done[-1]["run"]] if done and done[-1].get("outcome") == t.ENDED_PERSON else []
+
+
 def since_writer(runs: list, facts: dict) -> list:
     """Runs started after the last action by a person with write access."""
     mark = facts.get("last_writer_action_at")
