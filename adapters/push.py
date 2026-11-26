@@ -92,13 +92,15 @@ SURROGATES = ("\ud800", "\udfff")
 # The port's codes. A read cut short or of no shape is `guards/patch.py`'s `TREE_UNREAD`.
 READS_TOO_LARGE = "push_reads_too_large"
 TREE_UNFETCHED = "push_tree_unfetched"
-ROLE, PERSON, PORT = "role", "person", "port"
+ROLE, PERSON, PORT, SUPERSEDED = "role", "person", "port", "superseded"
 # Whose each code of the patch guard, the push guard and this port is: the Role's, counted as its attempt; a person's, a Hold on
-# the item, since the same commit reads the same way again; or the port's, an environment fault. Every code is here,
+# the item, since the same commit reads the same way again; the port's, an environment fault; or none's, the Run
+# overtaken, `superseded`, where someone else wrote the work branch. Every code is here,
 # and none is read with a default: `WHOSE[code]`. A code's letters begin `push_`, `patch_` or `bundle_`: a test finds
 # every code of the three modules by them.
 WHOSE = {patch.UNREADABLE: ROLE, patch.NOT_APPLIED: ROLE, patch.NOT_A_FILE: ROLE, patch.PATH_TWIN: ROLE,
-         patch.TREE_UNREAD: PERSON, READS_TOO_LARGE: ROLE, TREE_UNFETCHED: PORT, guard.NOT_PERMITTED: PERSON}
+         patch.TREE_UNREAD: PERSON, READS_TOO_LARGE: ROLE, TREE_UNFETCHED: PORT, guard.NOT_PERMITTED: PERSON,
+         guard.BRANCH_MOVED: SUPERSEDED, guard.ANSWER_REFUSED: PERSON, guard.UNANSWERED: PORT}
 
 
 def _plain(value) -> bool:

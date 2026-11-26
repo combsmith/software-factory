@@ -9347,7 +9347,8 @@ class Push(unittest.TestCase):
         self.assertEqual(push.WHOSE, {"bundle_unreadable": "role", "patch_does_not_apply": "role", "push_not_a_file": "role",
                                       "push_path_collision": "role", "push_reads_too_large": "role",
                                       "push_tree_unreadable": "person", "push_tree_unfetched": "port",
-                                      "push_not_permitted": "person"})
+                                      "push_not_permitted": "person", "push_branch_moved": "superseded",
+                                      "push_answer_refused": "person", "push_unanswered": "port"})
         self.assertEqual((push.READS_TOO_LARGE, push.TREE_UNFETCHED), ("push_reads_too_large", "push_tree_unfetched"))
 
 if __name__ == "__main__":

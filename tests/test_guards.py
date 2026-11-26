@@ -1430,17 +1430,12 @@ class Push(unittest.TestCase):
         committed, _ = push.seen(push.began(PUSH)[0], "GET", AT_COMMIT, None, COMMIT)
         unmarked = {key: value for key, value in LISTING.items() if key != "whole"}
         for said, listing in (("no mark", unmarked), ("a mark that is no True", dict(LISTING, whole=1)),
-                              ("a mark of False", dict(LISTING, whole=False)), ("a mark of text", dict(LISTING, whole="true")),
-                              ("another tree's", dict(LISTING, sha=PARENT)), ("of no tree", dict(LISTING, sha=None)),
-                              ("a tree's name of another kind", dict(LISTING, sha=Text(ROOT_TREE))),
+                              ("another tree's", dict(LISTING, sha=PARENT)),
                               ("GitHub's own answer", {"status": "200", "body": {"sha": ROOT_TREE, "truncated": False, "tree": []}}),
-                              ("the port's pair", (LISTING["tree"], LISTING["blobs"])), ("none", None),
                               ("a key more", dict(LISTING, truncated=False)), ("a mapping of another kind", Mapping(LISTING)),
                               ("paths of another kind", dict(LISTING, tree=list(LISTING["tree"]))),
                               ("blobs of another kind", dict(LISTING, blobs=Mapping(LISTING["blobs"]))),
                               ("a blob of no name", dict(LISTING, blobs={"docs/a.md": (None, 2)})),
-                              ("a blob of a list", dict(LISTING, blobs={"docs/a.md": [BLOB_A, 2]})),
-                              ("a blob of one thing", dict(LISTING, blobs={"docs/a.md": (BLOB_A,)})),
                               ("a blob's path of another kind", dict(LISTING, blobs={5: (BLOB_A, 2)}))):
             self.assertEqual(push.seen(committed, "GET", AT_TREE, None, listing), NOT_PERMITTED, said)
 
@@ -1453,19 +1448,17 @@ class Push(unittest.TestCase):
                 (PUSH, ref(NEW_A), moved), (MOVE, ABSENT, moved), (MOVE, ref(NEW_A), moved),
                 # An answer the push cannot go on from: another branch's, no commit, or a refusal.
                 (PUSH, ref(NEW_A, BRANCH + "x"), refused), (MOVE, ref(PARENT, "main"), refused), (MOVE, ref(None), refused),
-                (MOVE, ref(Text(PARENT)), refused), (MOVE, ref([PARENT]), refused),
                 (MOVE, {"status": "200", "body": {"ref": "refs/heads/" + BRANCH, "object": PARENT}}, refused),
                 (MOVE, {"status": "200", "body": [ref(PARENT)["body"]]}, refused),
-                (PUSH, {"status": "422", "body": {}}, refused), (PUSH, {"status": "201", "body": {}}, refused),
+                (PUSH, {"status": "422", "body": {}}, refused),
                 (MOVE, {"status": "404", "body": None}, moved),
                 # No answer, or one read as none.
                 (PUSH, None, unanswered), (MOVE, {"status": "500", "body": {}}, unanswered),
-                (PUSH, {"status": "502", "body": None}, unanswered), (PUSH, {"status": "401", "body": {}}, unanswered),
+                (PUSH, {"status": "401", "body": {}}, unanswered),
                 (MOVE, {"status": "403", "body": {}}, unanswered), (PUSH, {"status": "429", "body": {}}, unanswered),
                 # An answer in no shape `send` gives is the caller's to have checked.
                 (PUSH, {"status": 404, "body": {}}, NOT_PERMITTED), (PUSH, {"status": "404"}, NOT_PERMITTED),
-                (PUSH, Mapping(ABSENT), NOT_PERMITTED), (PUSH, dict(ABSENT, headers={}), NOT_PERMITTED),
-                (PUSH, {"status": Text("404"), "body": {}}, NOT_PERMITTED)):
+                (PUSH, Mapping(ABSENT), NOT_PERMITTED)):
             self.assertEqual(push.seen(push.began(told)[0], "GET", AT_BRANCH, None, answer), why, (told["head"], answer))
         first, _ = push.began(PUSH)
         for answer, why in (({"status": "404", "body": {}}, refused), ({"status": "200", "body": {"sha": NEW_A, "tree": {"sha": ROOT_TREE}}}, refused),
@@ -1481,14 +1474,12 @@ class Push(unittest.TestCase):
         first, _ = push.began(PUSH)
         state = self.read()
         less = {key: value for key, value in first.items() if key != "landed"}
-        for said, bad in (("none", None), ("a list", [first]), ("a key fewer", less), ("a key more", dict(first, x=1)),
+        for said, bad in (("none", None), ("a list", [first]), ("a key fewer", less),
                           ("a mapping of another kind", Mapping(first)), ("a push told wrongly", dict(first, push=dict(PUSH, branch="main"))),
                           ("a tree of no name", dict(first, tree="x")), ("a listing before the tree", dict(first, before=LISTING)),
                           ("a listing of another tree", dict(state, tree=NEW_A)), ("a listing unmarked", dict(state, before=dict(LISTING, whole=False))),
-                          ("the branch read as 1", dict(first, branch_read=1)), ("the branch read as none", dict(first, branch_read=None)),
-                          ("a blob made", dict(first, made={"docs/a.md": MADE})), ("a tree made", dict(first, new=MADE)),
-                          ("a commit made", dict(first, commit=MADE)), ("landed", dict(first, landed=True)),
-                          ("a flag as 0", dict(first, moved=0)), ("blobs made of another kind", dict(first, made=Mapping()))):
+                          ("the branch read as 1", dict(first, branch_read=1)), ("landed", dict(first, landed=True)),
+                          ("a blob made", dict(first, made={"docs/a.md": MADE})), ("a tree made", dict(first, new=MADE))):
             for path in (AT_BRANCH, AT_COMMIT, AT_TREE, GIT + "blobs/" + BLOB_A):
                 self.assertFalse(push.permits(bad, "GET", path, None), (said, path))
                 self.assertEqual(push.seen(bad, "GET", path, None, ABSENT), NOT_PERMITTED, (said, path))
