@@ -319,7 +319,9 @@ def content(answer, sha):
 def _unanswered(answer) -> bool:
     """Whether `send` gave no answer, or one the port reads as none: a status `UNANSWERED` names, or 500 and above."""
     status = answer.get("status") if type(answer) is dict else None
-    return type(status) is not str or status in UNANSWERED or status[:1] == "5"
+    if type(status) is not str:
+        return True
+    return status in UNANSWERED or status.startswith("5")
 
 
 def _tree_name(entries: list) -> str:
