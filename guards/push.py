@@ -165,4 +165,5 @@ def existing(changes, tree) -> tuple:
             or any(above in written for path in tree if path not in removed for above in _above(path))
             or any(above in tree and above not in removed for path in written for above in _above(path))):
         return None, NOT_PERMITTED
-    return sorted(path for path in list(changes["written"]) + changes["removed"] if path in tree), None
+    # Every file removed is one of the tree's, as checked above.
+    return sorted([path for path in written if path in tree] + changes["removed"]), None
