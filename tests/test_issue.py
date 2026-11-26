@@ -2112,8 +2112,9 @@ class RemoveLabel(unittest.TestCase):
                 ("ready", READIED + [labelled(TRIAGE, OTHER_APP, 7)], [], JUDGED)):
             uncounted = [ev for ev in events if ev["by"] in (OTHER_APP, READINESS) and ev["action"] == "labeled"][-1]
             gone = events + [dict(uncounted, action="unlabeled")]
+            full = context(active_runs=LIMITS["org_max_active_runs"])
             for acts, ctx in ((top, context()), (top + 1, context()), (None, context()), (top, context(paused=True)),
-                              (None, context(paused=True))):
+                              (None, context(paused=True)), (top, full)):
                 d = decide(facts(label_events=events, role_comments=comments, acts_since_writer=acts), runs, ctx=ctx)
                 removed = decide(facts(label_events=gone, role_comments=comments, acts_since_writer=acts), runs,
                                  ctx=ctx)
@@ -2136,6 +2137,8 @@ class RemoveLabel(unittest.TestCase):
         # In new the ceiling holds the issue, with the label or without it, past the ceiling and under the Pause.
         for events, acts, ctx in (([labelled(READY, OTHER_APP, 1)], top, context()), ([], top, context()),
                                   ([labelled(TRIAGE, OTHER_APP, 1)], top, context()),
+                                  # Two uncounted labels, each waiting in the one decision.
+                                  ([labelled(TRIAGE, OTHER_APP, 1), labelled(READY, OTHER_APP, 2)], top, context()),
                                   ([labelled(READY, OTHER_APP, 1)], top + 1, context()),
                                   ([labelled(READY, OTHER_APP, 1)], top, context(paused=True))):
             d = decide(facts(label_events=events, acts_since_writer=acts), ctx=ctx)
