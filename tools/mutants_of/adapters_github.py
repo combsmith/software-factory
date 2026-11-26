@@ -305,4 +305,6 @@ MUTANTS = [
     ("a header's name is kept in the case it was sent", 'adapters/github.py',
      '    for name, value in headers.items():\n        kept[name.lower()] =',
      '    for name, value in headers.items():\n        kept[name] =', ('tests.test_adapters.Transport.test_a_header_sent_on_two_lines_is_read_as_both',)),
+    ("a type sent twice is read by its first line", 'adapters/github.py',
+     'if "," not in kind and kind.split', 'if kind.split', ('tests.test_adapters.Transport.test_a_header_sent_on_two_lines_is_read_as_both',)),
 ]

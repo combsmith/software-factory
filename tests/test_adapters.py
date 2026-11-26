@@ -678,16 +678,26 @@ class Transport(unittest.TestCase):
                 answer.headers = self.headers
                 return answer
         live = github.Live("t")
-        for links in ((paging, notice), (notice, paging), (paging,)):
+        before = '<https://api.github.com/x?page=1>; rel="prev"'
+        for links in ((paging, notice), (notice, paging), (paging,), (before, paging, notice)):
             for error in (False, True):
                 live.opener = Opener(lines(*links), error)
                 got = live.send(github.request("GET", "/x"))
                 self.assertEqual((got["status"], got["headers"]["link"]), (404 if error else 200, ", ".join(links)))
                 self.assertTrue(pause.NEXT.search(got["headers"]["link"]), links)
-        # One line of each name is read as GitHub sent it, whatever its case.
+        # One line of each name is read as GitHub sent it, whatever its case; and two lines of one name in two cases
+        # are both read (Astra).
         live.opener = Opener({"Content-Type": "application/json", "LINK": paging})
         self.assertEqual(live.send(github.request("GET", "/x"))["headers"], {"content-type": "application/json",
                                                                              "link": paging})
+        mixed = "Content-Type: application/json\r\nLink: %s\r\nlink: %s\r\n\r\n" % (paging, notice)
+        live.opener = Opener(github.http.client.parse_headers(io.BytesIO(mixed.encode("latin-1"))))
+        self.assertEqual(live.send(github.request("GET", "/x"))["headers"]["link"], paging + ", " + notice)
+        # A type sent twice is neither: its body is read as text, never as JSON (Astra).
+        for types in (("application/json; charset=utf-8", "text/plain"), ("text/plain", "application/json")):
+            text = "".join("Content-Type: %s\r\n" % one for one in types) + "\r\n"
+            live.opener = Opener(github.http.client.parse_headers(io.BytesIO(text.encode("latin-1"))))
+            self.assertEqual(live.send(github.request("GET", "/x"))["body"], "[]", types)
 
 
 class Own(unittest.TestCase):

@@ -171,11 +171,13 @@ def storage(url) -> str:
 def _answer(status: int, headers, raw: bytes) -> dict:
     # A header GitHub sends on two lines, a notice's Link beside the one that pages a list, is read as both, joined
     # in the order sent as RFC 9110 joins a list's lines: never the last alone, which would drop a list's next page
-    # (issue 1218). A header that is no list and comes twice is then unreadable, never one line of it.
+    # (issue 1218). A header that is no list and comes twice is then read as neither line: a type sent twice is no
+    # JSON's, so its body is text, which a port refuses where it asks for JSON (Astra).
     kept = {}
     for name, value in headers.items():
         kept[name.lower()] = kept[name.lower()] + ", " + value if name.lower() in kept else value
-    if kept.get("content-type", "").split(";")[0].strip().endswith("json"):
+    kind = kept.get("content-type", "")
+    if "," not in kind and kind.split(";")[0].strip().endswith("json"):
         try:
             text = raw.decode("utf-8")
             return {"status": status, "headers": kept, "body": json.loads(text) if text else None}
