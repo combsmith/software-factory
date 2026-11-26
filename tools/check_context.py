@@ -414,10 +414,16 @@ def _budget(where: str, text: str, sections: list) -> list:
     """Why a record from BUDGET_FROM on is over its budget of words, rows or mutants: nothing where it is not. The
     Status is all that comes before the first section, its lines joined, and it replaces only as its first paragraph
     says, which is the Status tools/check_decisions.py reads. A section given twice is counted whole, and a heading of
-    one # after the title, which would end a section unread, is refused (issue 1174)."""
-    head = text.split("\n## ", 1)[0]
-    status = " ".join(head.split("\n", 1)[1].split()) if "\n" in head else ""
-    lines = head.split("\n")[1:]
+    one # after the title, which would end a section unread, is refused (issue 1174). The first section is found, and
+    the lines told, as `_sections` and tools/check_decisions.py find and tell them: a fenced line opens none."""
+    lines, fenced, cut = text.splitlines(), False, None
+    for at, line in enumerate(lines):
+        fenced = fenced != line.startswith("```")
+        if not fenced and line.startswith("## "):
+            cut = at
+            break
+    lines = lines[1:cut]
+    status = " ".join(" ".join(lines).split())
     start = next((i for i, line in enumerate(lines) if line.strip()), len(lines))
     end = next((i for i in range(start, len(lines)) if not lines[i].strip()), len(lines))
     first = " ".join(" ".join(lines[start:end]).split())
