@@ -206,6 +206,13 @@ ask() {   # METHOD PATH [BODY]
         echo "trial_p81_review_order: $1 /$2: curl failed; nothing of it is kept" >&2
         exit 1
     fi
+    # Three digits or nothing: what reaches requests.json and the terminal unquoted is a number (the security read).
+    case "$status" in
+        [1-5][0-9][0-9]) ;;
+        *) rm -f "$scratch/raw-$n"
+           echo "trial_p81_review_order: $1 /$2: answered no status of three digits; nothing of it is kept" >&2
+           exit 1 ;;
+    esac
     (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
     rm -f "$scratch/raw-$n"
     asked="$asked{\"n\": $n, \"as\": \"${slug}[bot]\", \"call\": \"$1 /$2\", \"body\": \"${3:-}\", \"at\": \"$at\","

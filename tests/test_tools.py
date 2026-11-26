@@ -16579,6 +16579,9 @@ class ReviewOrderTrial(IssueLookupTrial):
     if os.path.exists(os.path.join(here, "read.cut")):
         sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\n\\r\\n{\\"cut")
         sys.exit(0)
+    if os.path.exists(os.path.join(here, "odd.status")):
+        sys.stdout.write("HTTP/2 200x\\r\\ncontent-type: application/json\\r\\n\\r\\n[]")
+        sys.exit(0)
     if body and body.startswith("@"):
         with open(os.path.join(here, "sent"), "a") as kept:
             kept.write(open(body[1:]).read() + "\\n")
@@ -16661,6 +16664,15 @@ elif "/issues/" in url:""", 1)
         self.assertEqual([c["method"] for c in self.calls()], ["POST", "GET", "GET", "POST", "DELETE"])
         self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
         self.assertFalse((self.stand_in / "slept").exists())
+
+    def test_a_status_that_is_no_number_is_not_kept_and_its_token_is_revoked(self):
+        (self.stand_in / "odd.status").write_text("")
+        ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0, ran.stdout)
+        self.assertIn("answered no status of three digits; nothing of it is kept", ran.stderr)
+        self.assertEqual([c["method"] for c in self.calls()], ["POST", "GET", "DELETE"])
+        self.assertNotIn("200x", ran.stdout + ran.stderr)
+        self.assertFalse((self.out / "requests.json").exists())
 
     def test_the_pages_two_a_page_stop_at_the_bound(self):
         (self.stand_in / "endless").write_text("")
