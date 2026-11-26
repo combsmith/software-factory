@@ -1566,7 +1566,7 @@ class Push(unittest.TestCase):
         for body in ({"content": "QQo=", "encoding": "base64"}, {"content": "eAo=", "encoding": "base64"},
                      {"content": "Ywo=", "encoding": "base64"}):
             self.assertFalse(push.permits(made, "POST", GIT + "blobs", body), body)
-        for body in ({"content": "QQo=", "encoding": "utf-8"}, {"content": "QQo="}, dict(content="QQo=", encoding="base64", x=1),
+        for body in ({"content": "Ywo=", "encoding": "base64"}, {"content": "QQo=", "encoding": "utf-8"}, {"content": "QQo="}, dict(content="QQo=", encoding="base64", x=1),
                      {"content": Text("QQo="), "encoding": "base64"}, {"content": "QQo=", "encoding": Text("base64")},
                      Mapping(content="QQo=", encoding="base64"), {Raising("content"): "QQo=", "encoding": "base64"}, None):
             self.assertFalse(push.permits(state, "POST", GIT + "blobs", body), body)

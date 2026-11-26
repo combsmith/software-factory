@@ -298,16 +298,14 @@ def _tree(body, state) -> bool:
     if not _keyed(body, TREE_BODY) or not _said(body["base_tree"], state["tree"]) or type(body["tree"]) is not list:
         return False
     written, removed = state["push"]["changes"]["written"], state["push"]["changes"]["removed"]
-    listing, named = state["before"]["tree"], set()
-    if len(body["tree"]) != len(written) + len(removed):
+    listing, entries = state["before"]["tree"], body["tree"]
+    if len(entries) != len(written) + len(removed) or not all(
+            _keyed(entry, ENTRY) and _said(entry["type"], BLOB) and type(entry["path"]) is str for entry in entries):
         return False
-    for entry in body["tree"]:
-        if not _keyed(entry, ENTRY) or not _said(entry["type"], BLOB) or type(entry["path"]) is not str:
-            return False
+    if len({entry["path"] for entry in entries}) != len(entries):
+        return False
+    for entry in entries:
         path, mode, sha = entry["path"], entry["mode"], entry["sha"]
-        if path in named:
-            return False
-        named.add(path)
         if path in written:
             if not (_said(sha, state["made"][path]) and _said(mode, written[path][0])):
                 return False
