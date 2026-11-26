@@ -171,8 +171,10 @@ def _told(push) -> bool:
     changes, blobs = push["changes"], push["blobs"]
     if changes is None or blobs is None:
         return changes is None and blobs is None
+    # One base64 to one file's bytes: apply's encoding is its own, but one text never stands for two contents.
     return (_changes(changes) and _keyed(blobs, tuple(changes["written"]))
-            and all(type(text) is str for text in blobs.values()))
+            and all(type(text) is str for text in blobs.values())
+            and len(set(blobs.values())) == len({(blobs[path], changes["written"][path][1]) for path in blobs}))
 
 
 def began(push) -> tuple:
@@ -290,7 +292,7 @@ def _step(state, method, path, body):
 
 def _written(state, method, rest, body):
     """Which write this is, or None: nothing by a push of no changes, or before the branch and the admitted tree's
-    listing were read; a blob of a written file's base64 that has none yet; then, once each has its blob, one tree."""
+    listing were read; a blob of a written file whose bytes have none yet; then, once each has its blob, one tree."""
     push, made = state["push"], state["made"]
     changes = push["changes"]
     # Nothing is written of changes the admitted tree cannot hold, as `existing` reads them.
@@ -370,7 +372,8 @@ def seen(state, method, path, body, answer) -> tuple:
             return None, ANSWER_REFUSED
         if step == TREE_MADE:
             return dict(state, new=name), None
-        # The blob names every file of the bytes this content was given for, however each was encoded.
+        # The blob names every file of the bytes this content was given for, however each was encoded. `_written`
+        # admitted this body only for such a file, so there is one.
         written, made = push["changes"]["written"], dict(state["made"])
         held = next(written[path][1] for path in written if path not in made and push["blobs"][path] == body["content"])
         made.update({path: name for path in written if written[path][1] == held})
