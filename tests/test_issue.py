@@ -2517,6 +2517,11 @@ class WhatARunWrites(unittest.TestCase):
         one["limits"] = dict(one["limits"], max_runs_per_item=1)
         d = decide(facts(label_events=uncounted), [failed(OPEN, 2, "c1", outcome="capacity", role="dev-lead")], cfg=one)
         self.assertEqual((d["state"], what(d)), ("held", ("hold", "run_ceiling", None)))
+        # And the ceiling on Runs that spent no model.
+        one["limits"] = dict(config()["limits"], max_environment_runs_per_item=1)
+        outside = dict(failed(OPEN, 2, "e1", outcome="environment", role="dev-lead"), engine_started=False)
+        d = decide(facts(label_events=uncounted), [outside], cfg=one)
+        self.assertEqual((d["state"], what(d)), ("held", ("hold", "environment_ceiling", None)))
         # The other side of each: with no Hold, the label is removed.
         for f, runs, why in (
                 (facts(label_events=uncounted, branch_head=BRANCH_HEAD, branch_pushed=True), [], "pushed"),
