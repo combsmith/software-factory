@@ -3196,6 +3196,30 @@ class Ceilings(unittest.TestCase):
         self.assertEqual(go(facts(), [dict(ended, outcome="capacity"), other], cfg=two)["reason"], "run_ceiling")
         self.assertEqual(go(facts(), [other], cfg=two)["admit"], REVIEW_IT)
 
+    def test_a_run_that_ended_person_holds_the_item_while_another_run_is_in_flight(self):  # issue 1223
+        # A Run listed late is admitted again (P-22): the Hold stands while that Run waits or runs, as a spent count
+        # does, so the item does not leave the Hold until a person acts.
+        ended = run(conclusion="failure", outcome="person", at=at(10), name="p1")
+        for status in ("queued", "in_progress"):
+            flight = run(status=status, conclusion=None, outcome=None, at=at(12), name="q1")
+            # Whatever Role the Run in flight is of: the wanted Role's latest Run is read, and a person is called.
+            for other in (flight, dict(flight, role=CONFIG["author_role"], intent="fix-findings")):
+                d = go(facts(), [ended, other])
+                self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"], d["evidence"]),
+                                 ("held", "run_needs_person", "hold", "needs_you", ["p1"]), (status, other["role"]))
+            # Read before the ceilings, as with none in flight: spent attempts before it give no other Hold.
+            spent = [run(conclusion="failure", outcome="item", at=at(i), name="f%d" % i) for i in (7, 8, 9)]
+            self.assertEqual(go(facts(), spent + [ended, flight])["reason"], "run_needs_person", status)
+            # Another fault, or another Role's Run that ended so, leaves the item working on the Run in flight; a
+            # writer's action releases the Hold.
+            self.assertEqual(go(facts(), [dict(ended, outcome="item"), flight])["outcome"], "nothing", status)
+            later = run(conclusion="failure", outcome="item", at=at(11), name="i1")
+            self.assertEqual(go(facts(), [ended, later, flight])["outcome"], "nothing", status)
+            fixer = dict(ended, role=CONFIG["author_role"], intent="fix-findings")
+            self.assertEqual(go(facts(), [fixer, flight])["outcome"], "nothing", status)
+            d = go(facts(last_writer_action_at=at(11)), [ended, flight])
+            self.assertEqual((d["outcome"], d["attention"]), ("nothing", "working"), status)
+
     def test_a_writers_action_grants_a_fresh_allowance(self):  # I-28
         failures = [run(conclusion="failure", outcome="item", at="2026-10-11T12:1%d:00Z" % i, name="f%d" % i) for i in range(3)]
         d = go(facts(last_writer_action_at="2026-10-11T12:30:00Z"), failures)

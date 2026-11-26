@@ -1159,6 +1159,14 @@ class Text(str):
     """Text of another kind, with the right characters: what `+` and `==` on it do is its own to say."""
 
 
+class Unequal(str):
+    """Text of another kind that equals nothing, so `in` finds no path under it."""
+    def __eq__(self, other):
+        return False
+
+    __hash__ = str.__hash__
+
+
 class Raising(str):
     """Text of another kind that may not be compared: a key is held to its type before any comparison reads it."""
     def __eq__(self, other):
@@ -1268,6 +1276,8 @@ class Push(unittest.TestCase):
                      told(written={"x": (FILE, b"")}, removed=["tests/t.py"], read=["tests/t.py"])):
             self.assertIsNotNone(push.began(good)[0], good["changes"])
             self.assertIsNone(push.touched(good["changes"])[1])
+            held = {path: FILE for path in good["changes"]["removed"] + good["changes"]["read"]}
+            self.assertIsNone(push.existing(good["changes"], held)[1])
         wrote = WROTE["written"]
         for said, bad in (
                 ("nothing written and nothing removed", told(written={}, removed=[])),
@@ -1312,16 +1322,69 @@ class Push(unittest.TestCase):
                 ("a key of the changes of another kind", dict(PUSH, changes={Text(key): value for key, value in WROTE.items()}))):
             self.assertEqual(push.began(bad), NOT_PERMITTED, said)
             self.assertEqual(push.touched(bad["changes"]), NOT_PERMITTED, said)
+            self.assertEqual(push.existing(bad["changes"], {}), NOT_PERMITTED, said)
 
     def test_the_paths_apply_is_asked_about_are_the_paths_that_land(self):
         changes = {"written": {"docs/b.md": (FILE, b"x\n"), "docs/a.md": (FILE, b"A\n"), "tests/new.py": (FILE, b"")},
                    "removed": ["tests/t.py", "config/x.json"], "read": ["tests/t.py", "docs/a.md"]}
         self.assertEqual(push.touched(changes), ((["config/x.json", "docs/a.md", "docs/b.md", "tests/new.py", "tests/t.py"],
                                                   ["tests/t.py", "docs/a.md"]), None))
+        tree = {"docs/a.md": FILE, "tests/t.py": FILE, "config/x.json": FILE, "run.sh": "100755"}
+        self.assertEqual(push.existing(changes, tree), (["config/x.json", "docs/a.md", "tests/t.py"], None))
+        self.assertEqual(push.existing(dict(changes, removed=[]), tree), (["docs/a.md"], None))
+        self.assertEqual(push.existing(dict(changes, removed=[], read=[]), {}), ([], None))
+        # A file written over, or a file removed, alone.
+        for said in ({"written": {"tests/t.py": (FILE, b"x")}, "removed": [], "read": []},
+                     {"written": {}, "removed": ["tests/t.py"], "read": []}):
+            self.assertEqual(push.existing(said, {"tests/t.py": FILE}), (["tests/t.py"], None), said)
+        self.assertEqual(push.existing(dict(changes, removed=["tests/t.py"], read=["tests/t.py"]), {"tests/t.py": FILE}),
+                         (["tests/t.py"], None))
+        # A file removed or read that the tree holds as no file, a directory among them, and a file written over a link
+        # or a submodule the tree holds, were never `applied`'s.
+        for said, tree_said in ((changes, {}), ({"written": {}, "removed": ["tests"], "read": []}, {"tests/t.py": FILE}),
+                                ({"written": {"b": (FILE, b"")}, "removed": [], "read": ["a"]}, {}),
+                                ({"written": {"m": (FILE, b"")}, "removed": [], "read": []}, {"m": "160000"}),
+                                ({"written": {"a": (FILE, b""), "m": (FILE, b"")}, "removed": [], "read": []}, {"m": "160000"}),
+                                ({"written": {"l": (FILE, b"")}, "removed": [], "read": []}, {"l": "120000"}),
+                                ({"written": {}, "removed": ["l"], "read": []}, {"l": "120000"}),
+                                ({"written": {"b": (FILE, b"")}, "removed": [], "read": ["l"]}, {"l": "120000"})):
+            self.assertEqual(push.existing(said, tree_said), NOT_PERMITTED, (said, tree_said))
+        self.assertEqual(push.existing({"written": {"r": ("100755", b"")}, "removed": ["x"], "read": ["x"]},
+                                       {"r": FILE, "x": "100755"}), (["r", "x"], None))
+        # A file written over an executable one is a file written over a file.
+        self.assertEqual(push.existing({"written": {"r": (FILE, b"")}, "removed": [], "read": []}, {"r": "100755"}),
+                         (["r"], None))
+        # Changes that the tree they land on cannot hold were never `applied`'s: a file over a directory the tree keeps,
+        # at any depth, or under a file it keeps. Where the push removes what stood in the way, they land.
+        for wrote, tree_said in (({"tests": (FILE, b"x")}, {"tests/t.py": FILE}), ({"a/b": (FILE, b"")}, {"a": FILE}),
+                                 ({"a": (FILE, b"")}, {"a/b/c": FILE}), ({"a/b/c": (FILE, b"")}, {"a": FILE}),
+                                 ({"tests/unit": (FILE, b"")}, {"tests/unit/group/t.py": FILE}),
+                                 ({"tests/unit/x/y": (FILE, b"")}, {"tests/unit": FILE})):
+            said = {"written": wrote, "removed": [], "read": []}
+            self.assertEqual(push.existing(said, tree_said), NOT_PERMITTED, tree_said)
+        # A file kept still stands in the way, whatever else is removed.
+        self.assertEqual(push.existing({"written": {"d": (FILE, b"")}, "removed": ["d/drop"], "read": []},
+                                       {"d/drop": FILE, "d/keep": FILE}), NOT_PERMITTED)
+        self.assertEqual(push.existing({"written": {"a/b": (FILE, b"")}, "removed": ["a"], "read": []}, {"a": FILE}),
+                         (["a"], None))
+        self.assertEqual(push.existing({"written": {"d": (FILE, b"")}, "removed": ["d/b"], "read": []},
+                                       {"d/b": FILE, "e": FILE}), (["d/b"], None))
+        # A tree in no shape a port gives is the port's read that this cannot take: a person's, as the patch guard's.
+        for tree_said in (list(tree), None, Mapping(tree), dict(tree, **{"tests/t.py": None}), {5: FILE},
+                          {Unequal("tests/t.py"): FILE}, dict(tree, **{"tests/t.py": Text(FILE)}), {"x": "040000"},
+                          # A file that is a directory to another, which no tree holds, at any depth
+                          dict(tree, **{"docs": FILE}), dict(tree, **{"x/y": FILE, "x/y/z/w": FILE}),
+                          # and a path deeper than any name read, before it is split
+                          dict(tree, **{"/".join("d" * (len(patch.DEEPEST) + 1)): FILE}), {"tests//t.py": FILE}, {"/a": FILE},
+                          # and what the patch guard holds as no tree: a dotted part names another path, as does git's own
+                          {"tests/./t.py": FILE}, {"dir/": FILE}, {".GIT/x": FILE}, {"tests/t.py\0": FILE},
+                          {"tests/\ud800.py": FILE}, {"x": Raising(FILE)}):
+            self.assertEqual(push.existing(changes, tree_said), (None, patch.TREE_UNREAD), tree_said)
         # What `applied` gave is what is asked about, as it gave it.
         got, reason = patch.applied(CHANGE + NEW + GONE + COPIED, TREE, HELD)
         self.assertIsNone(reason)
         self.assertEqual(push.touched(got), ((["docs/a.md", "docs/c.md", "docs/n.md", "tests/t.py"], ["docs/a.md"]), None))
+        self.assertEqual(push.existing(got, TREE), (["docs/a.md", "tests/t.py"], None))
         self.assertIsNotNone(push.began(dict(PUSH, changes=got, blobs={path: "" for path in got["written"]}))[0])
 
 
@@ -1476,6 +1539,163 @@ class Push(unittest.TestCase):
             for path in (AT_BRANCH, AT_COMMIT, AT_TREE, GIT + "blobs/" + BLOB_A, GIT + "blobs/" + BLOB_T):
                 self.assertFalse(push.permits(bad, "GET", path, None), (said, path))
                 self.assertEqual(push.seen(bad, "GET", path, None, ABSENT), NOT_PERMITTED, (said, path))
+
+
+    # What a push writes, once it read its branch and the admitted tree's listing: a blob of each written content, then
+    # one tree of exactly the changes upon that tree.
+    TREE = {"base_tree": ROOT_TREE, "tree": [{"path": "docs/a.md", "mode": FILE, "type": "blob", "sha": MADE},
+                                             {"path": "docs/n.md", "mode": "100755", "type": "blob", "sha": NEW_A},
+                                             {"path": "tests/t.py", "mode": FILE, "type": "blob", "sha": None}]}
+
+    @staticmethod
+    def made(state=None):
+        """`state`, or `read`'s, after a blob was made of each written file, `docs/a.md`'s named `MADE`."""
+        state = state or Push.read()
+        for content, name in (("QQo=", MADE), ("eAo=", NEW_A)):
+            state, why = push.seen(state, "POST", GIT + "blobs", {"content": content, "encoding": "base64"},
+                                   {"status": "201", "body": {"sha": name}})
+            assert why is None, why
+        return state
+
+    def test_nothing_is_written_before_the_branch_and_the_listing_were_read(self):
+        blob = {"content": "QQo=", "encoding": "base64"}
+        first, _ = push.began(PUSH)
+        branched, _ = push.seen(first, "GET", AT_BRANCH, None, ABSENT)
+        committed, _ = push.seen(branched, "GET", AT_COMMIT, None, COMMIT)
+        for state in (first, branched, committed, self.read(READING)):
+            self.assertFalse(push.permits(state, "POST", GIT + "blobs", blob))
+            self.assertEqual(push.seen(state, "POST", GIT + "blobs", blob, {"status": "201", "body": {"sha": MADE}}),
+                             NOT_PERMITTED)
+        state = self.read()
+        self.assertTrue(push.permits(state, "POST", GIT + "blobs", blob))
+        self.assertFalse(push.permits(state, "PUT", GIT + "blobs", blob))
+        # A state that says the listing was read but not the branch is no state `seen` gives: nothing leaves.
+        self.assertFalse(push.permits(dict(state, branch_read=False), "POST", GIT + "blobs", blob))
+        # Once a write began, nothing more is read.
+        once, _ = push.seen(state, "POST", GIT + "blobs", blob, {"status": "201", "body": {"sha": MADE}})
+        self.assertTrue(push.permits(state, "GET", GIT + "blobs/" + BLOB_A, None))
+        self.assertFalse(push.permits(once, "GET", GIT + "blobs/" + BLOB_A, None))
+        # A push that only removes makes no blob: once its tree is made, nothing is read either.
+        gone = dict(PUSH, changes={"written": {}, "removed": ["tests/t.py"], "read": []}, blobs={})
+        body = {"base_tree": ROOT_TREE, "tree": [{"path": "tests/t.py", "mode": FILE, "type": "blob", "sha": None}]}
+        made, _ = push.seen(self.read(gone), "POST", GIT + "trees", body, {"status": "201", "body": {"sha": NEW_A}})
+        self.assertEqual(made["new"], NEW_A)
+        self.assertFalse(push.permits(made, "GET", GIT + "blobs/" + BLOB_A, None))
+        # A tree made is held only once the listing was read.
+        self.assertFalse(push.permits(dict(push.began(gone)[0], new=NEW_A), "GET", AT_BRANCH, None))
+
+    def test_a_blob_is_made_once_of_each_written_content(self):
+        state = self.read()
+        made = self.made(state)
+        self.assertEqual(made, dict(state, made={"docs/a.md": MADE, "docs/n.md": NEW_A}))
+        # Each content once, and only one the push writes, as `send` would ask it.
+        for body in ({"content": "QQo=", "encoding": "base64"}, {"content": "eAo=", "encoding": "base64"},
+                     {"content": "Ywo=", "encoding": "base64"}):
+            self.assertFalse(push.permits(made, "POST", GIT + "blobs", body), body)
+        for body in ({"content": "Ywo=", "encoding": "base64"}, {"content": "QQo=", "encoding": "utf-8"}, {"content": "QQo="}, dict(content="QQo=", encoding="base64", x=1),
+                     {"content": Text("QQo="), "encoding": "base64"}, {"content": "QQo=", "encoding": Text("base64")},
+                     Mapping(content="QQo=", encoding="base64"), {Raising("content"): "QQo=", "encoding": "base64"}, None):
+            self.assertFalse(push.permits(state, "POST", GIT + "blobs", body), body)
+        # Two files of one content are one blob.
+        same = dict(PUSH, changes=dict(WROTE, written={"docs/a.md": (FILE, b"A\n"), "docs/b.md": (FILE, b"A\n")}),
+                    blobs={"docs/a.md": "QQo=", "docs/b.md": "QQo="})
+        both, _ = push.seen(self.read(same), "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"},
+                            {"status": "201", "body": {"sha": MADE}})
+        self.assertEqual(both["made"], {"docs/a.md": MADE, "docs/b.md": MADE})
+        entries = [{"path": path, "mode": FILE, "type": "blob", "sha": MADE} for path in ("docs/a.md", "docs/b.md")]
+        self.assertTrue(push.permits(both, "POST", GIT + "trees", {"base_tree": ROOT_TREE, "tree": entries + [
+            {"path": "tests/t.py", "mode": FILE, "type": "blob", "sha": None}]}))
+        # Files of one content are named by one blob in any state.
+        self.assertFalse(push.permits(dict(self.read(same), made={"docs/a.md": MADE}), "POST", GIT + "blobs",
+                                      {"content": "QQo=", "encoding": "base64"}))
+        # A state that says it made what it did not lets nothing more leave.
+        blob = {"content": "eAo=", "encoding": "base64"}
+        half, _ = push.seen(state, "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"},
+                            {"status": "201", "body": {"sha": MADE}})
+        self.assertTrue(push.permits(half, "POST", GIT + "blobs", blob))
+        for bad in (dict(half, made={"docs/b.md": MADE}), dict(half, made={"docs/a.md": "x"}), dict(half, new=NEW_A),
+                    dict(half, made=Mapping(half["made"])), dict(half, made={"docs/a.md": Text(MADE)}),
+                    dict(half, before=None, tree=None)):
+            self.assertFalse(push.permits(bad, "POST", GIT + "blobs", blob), bad["made"])
+
+    def test_the_one_tree_names_exactly_the_changes_by_the_blobs_made(self):
+        made = self.made()
+        # Not before every blob is made.
+        half, _ = push.seen(self.read(), "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"},
+                            {"status": "201", "body": {"sha": MADE}})
+        self.assertFalse(push.permits(half, "POST", GIT + "trees", self.TREE))
+        self.assertTrue(push.permits(made, "POST", GIT + "trees", self.TREE))
+        tree, why = push.seen(made, "POST", GIT + "trees", self.TREE, {"status": "201", "body": {"sha": "c" * 40}})
+        self.assertEqual((tree, why), (dict(made, new="c" * 40), None))
+        self.assertFalse(push.permits(tree, "POST", GIT + "trees", self.TREE))
+        entries = self.TREE["tree"]
+        for said, entries_said in (
+                ("an entry fewer", entries[:2]), ("an entry twice", entries + entries[:1]),
+                ("a path twice in place of another", [entries[0], entries[0], entries[2]]),
+                ("another path", [dict(entries[0], path="docs/b.md")] + entries[1:]),
+                ("another blob", [dict(entries[0], sha=NEW_A)] + entries[1:]),
+                ("another mode", [dict(entries[0], mode="100755")] + entries[1:]),
+                ("a removed file of another mode", entries[:2] + [dict(entries[2], mode="100755")]),
+                ("a removed file's blob", entries[:2] + [dict(entries[2], sha=MADE)]),
+                ("a written file removed", [dict(entries[0], sha=None)] + entries[1:]),
+                ("another file removed", entries[:2] + [dict(entries[2], path="docs/b.md")]),
+                ("a mode of another kind", [dict(entries[0], mode=Raising(FILE))] + entries[1:]),
+                ("another type", [dict(entries[0], type="commit")] + entries[1:]),
+                ("a key more", [dict(entries[0], size=2)] + entries[1:]),
+                ("an entry of another kind", [Mapping(entries[0])] + entries[1:]),
+                ("a path of another kind", [dict(entries[0], path=Text("docs/a.md"))] + entries[1:]),
+                ("a list of another kind", Listed(entries))):
+            self.assertFalse(push.permits(made, "POST", GIT + "trees", dict(self.TREE, tree=entries_said)), said)
+        for body in (dict(self.TREE, base_tree=PARENT), dict(self.TREE, x=1), Mapping(self.TREE), {"tree": entries}):
+            self.assertFalse(push.permits(made, "POST", GIT + "trees", body), body)
+        # Changes the admitted tree cannot hold, as `existing` reads them, write nothing: a file over a directory,
+        # under a link, over a submodule, or a submodule removed.
+        for written, removed in (({"docs": (FILE, b"A\n")}, []), ({"bin/l/y": (FILE, b"A\n")}, []),
+                                 ({"vendor": (FILE, b"A\n")}, []), ({"x": (FILE, b"A\n")}, ["vendor"])):
+            told = dict(PUSH, changes={"written": written, "removed": removed, "read": []},
+                        blobs={path: "QQo=" for path in written})
+            state = self.read(told)
+            self.assertFalse(push.permits(state, "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"}), written)
+            held = dict(state, made={path: MADE for path in written})
+            body = {"base_tree": ROOT_TREE, "tree": [{"path": path, "mode": FILE, "type": "blob", "sha": MADE} for path in written]
+                    + [{"path": path, "mode": LISTING["tree"][path], "type": "blob", "sha": None} for path in removed]}
+            self.assertFalse(push.permits(held, "POST", GIT + "trees", body), written)
+        # A removed file the listing does not hold was never `applied`'s to remove.
+        gone = self.read(dict(PUSH, changes=dict(WROTE, removed=["tests/u.py"])))
+        self.assertFalse(push.permits(gone, "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"}))
+        self.assertFalse(push.permits(dict(gone, made=made["made"]), "POST", GIT + "trees",
+                                      dict(self.TREE, tree=entries[:2] + [dict(entries[2], path="tests/u.py")])))
+        # Nor to another repo's git data, nor one name for two contents.
+        self.assertFalse(push.permits(made, "POST", "/repos/combsmith/software-factorx/git/trees", self.TREE))
+        two = dict(made, made={"docs/a.md": MADE, "docs/n.md": MADE})
+        self.assertFalse(push.permits(two, "POST", GIT + "trees", dict(self.TREE, tree=[entries[0], dict(entries[1], sha=MADE), entries[2]])))
+
+    def test_each_write_says_whose_a_stop_is(self):
+        state, blob = self.read(), {"content": "QQo=", "encoding": "base64"}
+        made = self.made(state)
+        for answer, why in (
+                # GitHub refused the write, or answered with what was not made.
+                ({"status": "422", "body": {}}, push.ANSWER_REFUSED), ({"status": "401", "body": {}}, push.ANSWER_REFUSED),
+                ({"status": "429", "body": {}}, push.ANSWER_REFUSED),
+                ({"status": "200", "body": {"sha": MADE}}, push.ANSWER_REFUSED),
+                ({"status": "201", "body": {"sha": "x"}}, push.ANSWER_REFUSED), ({"status": "201", "body": None}, push.ANSWER_REFUSED),
+                ({"status": "201", "body": {"sha": Text(MADE)}}, push.ANSWER_REFUSED),
+                ({"status": "201", "body": {Raising("sha"): MADE}}, push.ANSWER_REFUSED),
+                # No answer, or GitHub's own failure.
+                (None, push.UNANSWERED), ({"status": "502", "body": {}}, push.UNANSWERED),
+                # An answer in no shape `send` gives.
+                ({"status": 201, "body": {"sha": MADE}}, push.NOT_PERMITTED), ({"status": "201"}, push.NOT_PERMITTED)):
+            self.assertEqual(push.seen(state, "POST", GIT + "blobs", blob, answer), (None, why), answer)
+            self.assertEqual(push.seen(made, "POST", GIT + "trees", self.TREE, answer), (None, why), answer)
+        # A blob named as another content's was not made of these bytes.
+        half, _ = push.seen(state, "POST", GIT + "blobs", blob, {"status": "201", "body": {"sha": MADE}})
+        self.assertEqual(push.seen(half, "POST", GIT + "blobs", {"content": "eAo=", "encoding": "base64"},
+                                   {"status": "201", "body": {"sha": MADE}}), (None, push.ANSWER_REFUSED))
+        # A tree named as a blob made is not the tree; one that is the admitted one made nothing of the changes.
+        self.assertEqual(push.seen(made, "POST", GIT + "trees", self.TREE, {"status": "201", "body": {"sha": MADE}}),
+                         (None, push.ANSWER_REFUSED))
+        self.assertEqual(push.seen(made, "POST", GIT + "trees", self.TREE, {"status": "201", "body": {"sha": ROOT_TREE}}),
+                         (None, push.ANSWER_REFUSED))
 
 
 if __name__ == "__main__":

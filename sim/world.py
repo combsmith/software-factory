@@ -159,6 +159,10 @@ NEVER_RUN = "9000000001"
 # On one seed in nine the push that left the head is now and then missing from the branch's activity for a pass, and
 # the last pusher reads null (a_push_is_missing_from_the_activity).
 MISSING_PUSH_EVERY, MISSING_PUSH = 9, 5
+# On one seed in five a Run killed past its limit may end on a code only a person can mend, as most do there. It is drawn
+# from the seed's own generator, so every other seed stays as it was (issue 1223).
+PERSON_EVERY, PERSON = 5, 4
+PERSON_SHARE = 0.6
 # GitHub's id of a run, as P-17 listed one, for the first Run on an item; each Run after it is one more.
 FIRST_RUN_ID = 39086879694
 # On every seed a reviewer App edits the description seconds after the pull request opens, before any approval, so it
@@ -186,6 +190,23 @@ def queue_in_lane(runs: list, run: dict, note) -> None:
         older.update(status="completed", conclusion="cancelled", outcome="superseded")
         note("run %s: cancelled by its concurrency group" % older["run"])
     runs.append(run)
+
+
+def held_for_a_person(runs: list, role: str, last_writer) -> bool:
+    """Whether `role`'s last Run on the item, in either world, of those that ran since a writer acted, ended on a code
+    only a person can mend: none of that Role's Runs may start until a person acts (issue 1223). A Run superseded, or
+    cancelled with no outcome, ran nothing; of two started in one minute, either that ended so holds."""
+    ran = [r for r in runs if r["role"] == role and r["status"] == "completed" and r.get("outcome") != "superseded"
+           and not (r.get("outcome") is None and r["conclusion"] == "cancelled")
+           and (last_writer is None or r["started_at"] > last_writer)]
+    latest = max((r["started_at"] for r in ran), default=None)
+    return any(r.get("outcome") == t.ENDED_PERSON for r in ran if r["started_at"] == latest)
+
+
+def ended_person(persons) -> str:
+    """`person` for a killed Run on a seed whose Runs may end on a person's code, in either world, drawn from that
+    seed's own generator `persons` (issue 1223); None on every other seed and draw, which then draw as they did."""
+    return t.ENDED_PERSON if persons is not None and persons.random() < PERSON_SHARE else None
 
 
 def spent_no_model(run: dict, count: int) -> None:
@@ -277,6 +298,8 @@ class World:
         # Whether this seed's activity can miss a push, drawn from its own generator, so every other seed stays as it was.
         self.activity = random.Random("activity %d" % seed) if seed % MISSING_PUSH_EVERY == MISSING_PUSH else None
         self.missing_passes = 0    # passes that read the last pusher null
+        self.person_holds = 0      # passes that held the item for a person, on a Run that ended on their code
+        self.persons = random.Random("persons %d" % seed) if seed % PERSON_EVERY == PERSON else None
         # GitHub: an_app_edits_a_description
         # When the description was last edited: the reviewer App's summary, seconds after the pull request opened, which
         # was before the world's first minute.
@@ -767,6 +790,12 @@ class World:
         wrong = validate(d, DECISION_SCHEMA)
         self.check(not wrong, "every Decision is valid: %s" % "; ".join(wrong))
         self.note("pass: %s %s -> %s" % (d["state"], d["reason"], d["outcome"]))
+        # A Role whose last Run the pass read ended on a person's code is admitted again only once a person acts. A
+        # pass that read the list late may miss that Run; a Run it admits so supersedes itself as it starts (I-38).
+        self.person_holds += d["reason"] == "run_needs_person"
+        self.check(d["outcome"] != t.ADMIT
+                   or not held_for_a_person(runs, d["admit"]["role"], facts["last_writer_action_at"]),
+                   "a Run admitted for a Role held for a person")
         # A Run listed before its run-name may be the Run in flight on this item: while one is listed inside
         # max_unnamed_run_seconds of its creation, no Run is admitted and no approval issued (I-46). One past the window
         # is no Run waiting for its name: it stalls nothing, and the pass names it as one alert (issue 270).
@@ -1075,6 +1104,7 @@ class World:
         # A Run's record says when it was made; when it left its lane and began, its job says (trials/P-64.json).
         # GitHub: a_run_begins_with_its_job
         run.update(status="in_progress", began_at=self.now())
+        self.check(not held_for_a_person(self.runs, run["role"], self.last_writer), "a Run started for a Role held for a person")
         self.caused("factory")
         self.model_runs += 1
         self.note("run %s: started %s %s" % (run["run"], run["role"], run["intent"]))
@@ -1112,7 +1142,7 @@ class World:
             # the pause and the ceiling, no attempt (issue 433). Its Run may leave another, or none where apply is killed
             # too: with none, it is an attempt (issue 286). One cancelled with no outcome is no attempt (P-42, issue 388).
             if self.rng.random() < 0.8:
-                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None]))
+                run.update(conclusion="failure", outcome=ended_person(self.persons) or self.pick(["item", "capacity", "environment", None]))
             else:
                 run.update(conclusion="cancelled", outcome=None)
             spent_no_model(run, len(self.runs))
