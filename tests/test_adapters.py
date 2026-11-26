@@ -654,6 +654,56 @@ class Transport(unittest.TestCase):
         finally:
             github.LARGEST = largest
 
+    def test_a_header_sent_on_two_lines_is_read_as_both(self):  # issue 1218
+        # GitHub may send a notice's Link on a line of its own beside the one that pages a list: both are read, joined
+        # as RFC 9110 joins a list's lines, in the order sent, so a read never loses its next page to the other.
+        paging = '<https://api.github.com/x?page=2>; rel="next", <https://api.github.com/x?page=3>; rel="last"'
+        notice = '<https://docs.github.com/en/rest>; rel="deprecation"; type="text/html"'
+
+        def lines(*links):
+            text = "Content-Type: application/json\r\n" + "".join("Link: %s\r\n" % one for one in links) + "\r\n"
+            return github.http.client.parse_headers(io.BytesIO(text.encode("latin-1")))
+
+        class Answer(io.BytesIO):
+            status = 200
+
+        class Opener:
+            def __init__(self, headers, error=False):
+                self.headers, self.error = headers, error
+
+            def open(self, req, timeout=None):
+                if self.error:
+                    raise github.urllib.error.HTTPError(req.full_url, 404, "x", self.headers, io.BytesIO(b"{}"))
+                answer = Answer(b"[]")
+                answer.headers = self.headers
+                return answer
+        live = github.Live("t")
+        before = '<https://api.github.com/x?page=1>; rel="prev"'
+        for links in ((paging, notice), (notice, paging), (paging,), (before, paging, notice)):
+            for error in (False, True):
+                live.opener = Opener(lines(*links), error)
+                got = live.send(github.request("GET", "/x"))
+                self.assertEqual((got["status"], got["headers"]["link"]), (404 if error else 200, ", ".join(links)))
+                self.assertTrue(pause.NEXT.search(got["headers"]["link"]), links)
+        # One line of each name is read as GitHub sent it, whatever its case; and two lines of one name in two cases
+        # are both read (Astra).
+        live.opener = Opener({"Content-Type": "application/json", "LINK": paging})
+        self.assertEqual(live.send(github.request("GET", "/x"))["headers"], {"content-type": "application/json",
+                                                                             "link": paging})
+        mixed = "Content-Type: application/json\r\nLink: %s\r\nlink: %s\r\n\r\n" % (paging, notice)
+        live.opener = Opener(github.http.client.parse_headers(io.BytesIO(mixed.encode("latin-1"))))
+        self.assertEqual(live.send(github.request("GET", "/x"))["headers"]["link"], paging + ", " + notice)
+        # A type sent twice is neither, the same twice too, as is one line that names two: its body is read as text,
+        # never as JSON (Astra, Muse, cubic).
+        for types in (("application/json; charset=utf-8", "text/plain"), ("text/plain", "application/json"),
+                      ("application/json", "application/json"), ("text/plain,application/json",)):
+            text = "".join("Content-Type: %s\r\n" % one for one in types) + "\r\n"
+            live.opener = Opener(github.http.client.parse_headers(io.BytesIO(text.encode("latin-1"))))
+            self.assertEqual(live.send(github.request("GET", "/x"))["body"], "[]", types)
+        # One type whose quoted parameter holds a comma is one type (Kimi, cubic).
+        live.opener = Opener({"Content-Type": 'application/json; profile="https://example.test/a,b"'})
+        self.assertEqual(live.send(github.request("GET", "/x"))["body"], [])
+
 
 class Own(unittest.TestCase):
     def test_the_pull_requests_own_facts_and_the_title_beside_them(self):
