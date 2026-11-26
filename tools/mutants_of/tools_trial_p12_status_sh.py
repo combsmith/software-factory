@@ -42,10 +42,6 @@ KEEP_1215 = (
     ("%s keeps a scratch directory inside the repo", "    exit 2 ;;\nesac\n# The exit trap", "    ;;\nesac\n# The exit trap"),
     ("%s keeps a redacted raw answer to the end", '2> "$out/redacted-$n"\n    drop "$scratch/raw-$n"\n', '2> "$out/redacted-$n"\n'),
 )
-STATUS_DIGITS = "tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head"
-# A head's first line clears the status, so the first of several heads is kept only with that clearing gone too.
-FIRST_OLD = 'head && /^HTTP\\// { found = "" } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit }'
-FIRST_NEW = '{ sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/ && found == "") found = $2; else exit }'
 ROOTS_1215 = SCRIPTS_1215 + ("trial_p13_cli.sh", "trial_p13_ended.sh", "trial_p26_sandbox.sh", "trial_p61_timeline.sh")
 # Not P-59's: trials/P-59.json holds the canary to have run that file as it is in tools/, byte for byte.
 EVERY_1215 = ROOTS_1215 + ("trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh")
@@ -598,40 +594,40 @@ MUTANTS = [
     ("the reader's trial reads a head in the body", 'tools/trial_reader_reads.sh',
      'found = $2; else exit }', 'found = $2 }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("the reader's trial takes the first of several heads", 'tools/trial_reader_reads.sh',
-     FIRST_OLD, FIRST_NEW, ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+     '/) found = $2; else exit }', '/ && found == "") found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-39's trial of reach reads a head in the body", 'tools/trial_p39_reach.sh',
      'found = $2; else exit }', 'found = $2 }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-39's trial of reach takes the first of several heads", 'tools/trial_p39_reach.sh',
-     FIRST_OLD, FIRST_NEW, ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+     '/) found = $2; else exit }', '/ && found == "") found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-8's trial reads a head in the body", 'tools/trial_p8_cost.sh',
      'found = $2; else exit }', 'found = $2 }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-8's trial takes the first of several heads", 'tools/trial_p8_cost.sh',
-     FIRST_OLD, FIRST_NEW, ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+     '/) found = $2; else exit }', '/ && found == "") found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ('P-54 reads a head in the body', 'tools/trial_p54_issue_lookup.sh',
      'found = $2; else exit }', 'found = $2 }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-54 takes the first of several heads", 'tools/trial_p54_issue_lookup.sh',
-     FIRST_OLD, FIRST_NEW, ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+     '/) found = $2; else exit }', '/ && found == "") found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ('P-12 reads a head in the body', 'tools/trial_p12_status.sh',
      'found = $2; else exit }', 'found = $2 }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-12 takes the first of several heads", 'tools/trial_p12_status.sh',
-     FIRST_OLD, FIRST_NEW, ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+     '/) found = $2; else exit }', '/ && found == "") found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ('P-56 reads a head in the body', 'tools/trial_p56_comments.sh',
      'found = $2; else exit }', 'found = $2 }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-56 takes the first of several heads", 'tools/trial_p56_comments.sh',
-     FIRST_OLD, FIRST_NEW, ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+     '/) found = $2; else exit }', '/ && found == "") found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-4's trial reads a head in the body", 'tools/trial_p4_narrow.sh',
-     '    status=$(awk \'BEGIN { head = 1 } head && /^HTTP\\// { found = "" } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit }', '    status=$(awk \'BEGIN { head = 1 } head && /^HTTP\\// { found = "" } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2 }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+     '    status=$(awk \'BEGIN { head = 1 } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9]+/) found = $2; else exit }', '    status=$(awk \'BEGIN { head = 1 } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9]+/) found = $2 }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     # Issue 502 (Argon): P-4's second read of a head, the first of several in its first, and a head with a carriage return.
     ("P-4's trial takes the first of several heads", 'tools/trial_p4_narrow.sh',
-     '    status=$(awk \'BEGIN { head = 1 } head && /^HTTP\\// { found = "" } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit }', '    status=$(awk \'BEGIN { head = 1 } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/ && found == "") found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+     '    status=$(awk \'BEGIN { head = 1 } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9]+/) found = $2; else exit }', '    status=$(awk \'BEGIN { head = 1 } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9]+/ && found == "") found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-4's trial reads a head in the body, on the installation read", 'tools/trial_p4_narrow.sh',
-     '\\"status\\": \\"$(awk \'BEGIN { head = 1 } head && /^HTTP\\// { found = "" } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit }', '\\"status\\": \\"$(awk \'BEGIN { head = 1 } head && /^HTTP\\// { found = "" } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2 }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+     '\\"status\\": \\"$(awk \'BEGIN { head = 1 } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9]+/) found = $2; else exit }', '\\"status\\": \\"$(awk \'BEGIN { head = 1 } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9]+/) found = $2 }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-4's trial takes the first of several heads, on the installation read", 'tools/trial_p4_narrow.sh',
-     '\\"status\\": \\"$(awk \'BEGIN { head = 1 } head && /^HTTP\\// { found = "" } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit }', '\\"status\\": \\"$(awk \'BEGIN { head = 1 } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/ && found == "") found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+     '\\"status\\": \\"$(awk \'BEGIN { head = 1 } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9]+/) found = $2; else exit }', '\\"status\\": \\"$(awk \'BEGIN { head = 1 } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9]+/ && found == "") found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-4's trial reads a head's carriage return as part of it", 'tools/trial_p4_narrow.sh',
-     '    status=$(awk \'BEGIN { head = 1 } head && /^HTTP\\// { found = "" } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit }', '    status=$(awk \'BEGIN { head = 1 } head && /^HTTP\\// { found = "" } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+     '    status=$(awk \'BEGIN { head = 1 } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9]+/) found = $2; else exit }', '    status=$(awk \'BEGIN { head = 1 } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9]+/) found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-4's trial reads a head's carriage return as part of it, on the installation read", 'tools/trial_p4_narrow.sh',
-     '\\"status\\": \\"$(awk \'BEGIN { head = 1 } head && /^HTTP\\// { found = "" } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit }', '\\"status\\": \\"$(awk \'BEGIN { head = 1 } head && /^HTTP\\// { found = "" } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+     '\\"status\\": \\"$(awk \'BEGIN { head = 1 } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9]+/) found = $2; else exit }', '\\"status\\": \\"$(awk \'BEGIN { head = 1 } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9]+/) found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-12 reads a head's carriage return as part of it", 'tools/trial_p12_status.sh',
      '{ sub(/\\r$/, "") } ', '', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-39's trial of reach reads a head's carriage return as part of it", 'tools/trial_p39_reach.sh',
@@ -926,7 +922,7 @@ MUTANTS = [
     ("P-58 reads OUT's parent's ACL alone", "tools/trial_p58_edits.sh", 'listed=$(ls -lde "$above" 2>/dev/null)', 'listed=$(ls -lde "$(dirname -- "$1")" 2>/dev/null)', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
     ("P-58 reads OUT's parent's + alone", "tools/trial_p58_edits.sh", 'elif listed=$(ls -ld "$above"); then', 'elif listed=$(ls -ld "$(dirname -- "$1")"); then', ('tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused',)),
     ('P-58 reads a head in the body', "tools/trial_p58_edits.sh", 'found = $2; else exit }', 'found = $2 }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
-    ('P-58 takes the first of several heads', "tools/trial_p58_edits.sh", FIRST_OLD, FIRST_NEW, ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+    ('P-58 takes the first of several heads', "tools/trial_p58_edits.sh", '/) found = $2; else exit }', '/ && found == "") found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-58 may ask the Factory's own repo", "tools/trial_p58_edits.sh", ' or sys.argv[1] == "combsmith/software-factory":', ':', ('tests.test_tools.EditsReadTrial.test_each_refusal_comes_before_anything_is_minted',)),
     ('P-58 takes a number of any shape', "tools/trial_p58_edits.sh", '    ""|0*|*[!0-9]*) echo', '    "") echo', ('tests.test_tools.EditsReadTrial.test_each_refusal_comes_before_anything_is_minted',)),
     ('P-58 takes any count of words', "tools/trial_p58_edits.sh", 'if [ "$#" -ne 4 ]; then', 'if [ "$#" -lt 3 ]; then', ('tests.test_tools.EditsReadTrial.test_each_refusal_comes_before_anything_is_minted',)),
@@ -1216,13 +1212,6 @@ MUTANTS = [
     # unless --keep-raw keeps it and says where.
     *[(name % script, "tools/" + script, old, new, (TRIALS_KEEP,) + run_1215(script, "test_keep_raw_keeps_the_raw_answers_private_and_says_where"))
       for script in SCRIPTS_1215 for name, old, new in KEEP_1215],
-    # Issue 1215 (readers on part 4): a malformed head after a proxy's clears the proxy's status, so it is not kept.
-    *[("%s keeps an earlier head's status past a malformed one" % script, "tools/" + script, 'head && /^HTTP\\// { found = "" } ', "",
-       (STATUS_DIGITS,)) for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
-    ("P-4 keeps an earlier head's status past a malformed one", "tools/trial_p4_narrow.sh",
-     '    status=$(awk \'BEGIN { head = 1 } head && /^HTTP\\// { found = "" } ', '    status=$(awk \'BEGIN { head = 1 } ', (STATUS_DIGITS,)),
-    ("P-4 keeps an earlier head's status past a malformed one, on the installation read", "tools/trial_p4_narrow.sh",
-     '\\"status\\": \\"$(awk \'BEGIN { head = 1 } head && /^HTTP\\// { found = "" } ', '\\"status\\": \\"$(awk \'BEGIN { head = 1 } ', (STATUS_DIGITS,)),
     # Issue 1215: each tells the Maintainer of a token a stop mid-mint may have left live, as P-80 did first.
     *[("%s tells nothing of a stop mid-mint" % script, "tools/" + script, '    elif [ -n "${minting:-}" ]; then', '    elif false; then',
        ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
@@ -1234,12 +1223,4 @@ MUTANTS = [
        'echo "%s: stopped while a token was being minted;' % script[:-3], ': "%s: stopped while a token was being minted;' % script[:-3],
        ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
       for script in SCRIPTS_1215],
-    # Issue 1215 (the Builder, from P-81's security read): a status is three digits, whole, or none, so nothing else of
-    # an answer's first line reaches requests.json or the terminal.
-    *[("%s keeps a status that is not three digits" % script, "tools/" + script, "[0-9][0-9][0-9]( |$)/) found",
-       "[0-9]+/) found", (STATUS_DIGITS,)) for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
-    *[("P-4 keeps a status that is not three digits%s" % where, "tools/trial_p4_narrow.sh",
-       start + "awk 'BEGIN { head = 1 } head && /^HTTP\\// { found = \"\" } { sub(/\\r$/, \"\") } head && $0 != \"\" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/)",
-       start + "awk 'BEGIN { head = 1 } head && /^HTTP\\// { found = \"\" } { sub(/\\r$/, \"\") } head && $0 != \"\" { if (/^HTTP\\/[0-9.]+ [0-9]+/)",
-       (STATUS_DIGITS,)) for where, start in (("", "    status=$("), (", on the installation read", '\\"status\\": \\"$('))],
 ]

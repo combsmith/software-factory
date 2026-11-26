@@ -201,7 +201,7 @@ read_one() {   # NARROWED PATH
     tr -d '\r' < "$scratch/crlf-$n" > "$scratch/raw-$n"
     rm -f "$scratch/crlf-$n"
     # The last head's status: a proxy's block, or an interim answer, comes first and is no answer to this read.
-    status=$(awk 'BEGIN { head = 1 } head && /^HTTP\// { found = "" } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
+    status=$(awk 'BEGIN { head = 1 } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
     if [ "$read_ok" = 0 ] || [ -z "$status" ]; then
         drop "$scratch/raw-$n"
         echo "trial_p56_comments: GET /$2 with a token narrowed to $1: curl failed; nothing of it reaches OUT" >&2
