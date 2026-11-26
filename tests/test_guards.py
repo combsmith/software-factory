@@ -1131,6 +1131,7 @@ REPO = "combsmith/software-factory"
 BRANCH = "factory-work/issue-838-1"
 PARENT, ROOT_TREE, MADE = "a" * 40, "b" * 40, "d" * 40
 NEW_A = "e" * 40
+NEW_TREE, COMMITTED = "c" * 40, "f" * 40
 WROTE = {"written": {"docs/a.md": (FILE, b"A\n"), "docs/n.md": ("100755", b"x\n")}, "removed": ["tests/t.py"],
          "read": []}
 BLOBS = {"docs/a.md": "QQo=", "docs/n.md": "eAo="}
@@ -1473,9 +1474,10 @@ class Push(unittest.TestCase):
             self.assertEqual(push.seen(committed, "GET", AT_TREE, None, listing), NOT_PERMITTED, said)
 
     def test_each_read_says_whose_a_stop_is(self):
-        self.assertEqual((push.BRANCH_MOVED, push.ANSWER_REFUSED, push.UNANSWERED),
-                         ("push_branch_moved", "push_answer_refused", "push_unanswered"))
+        self.assertEqual((push.BRANCH_MOVED, push.ANSWER_REFUSED, push.UNANSWERED, push.RATE_LIMITED),
+                         ("push_branch_moved", "push_answer_refused", "push_unanswered", "push_rate_limited"))
         moved, refused, unanswered = (None, push.BRANCH_MOVED), (None, push.ANSWER_REFUSED), (None, push.UNANSWERED)
+        limited = (None, push.RATE_LIMITED)
         for told, answer, why in (
                 # The branch as the Decision did not admit it: someone else wrote it.
                 (PUSH, ref(NEW_A), moved), (PUSH, ref(PARENT), moved), (MOVE, ABSENT, moved), (MOVE, ref(NEW_A), moved),
@@ -1492,7 +1494,7 @@ class Push(unittest.TestCase):
                 # No answer, or one read as none.
                 (PUSH, None, unanswered), (MOVE, {"status": "500", "body": {}}, unanswered),
                 (PUSH, {"status": "401", "body": {}}, unanswered),
-                (MOVE, {"status": "403", "body": {}}, unanswered), (PUSH, {"status": "429", "body": {}}, unanswered), (MOVE, {"status": "599", "body": {}}, unanswered),
+                (MOVE, {"status": "403", "body": {}}, unanswered), (PUSH, {"status": "429", "body": {}}, limited), (MOVE, {"status": "599", "body": {}}, unanswered),
                 # An answer in no shape `send` gives is the caller's to have checked.
                 (PUSH, {"status": 404, "body": {}}, NOT_PERMITTED), (PUSH, {"status": "404"}, NOT_PERMITTED),
                 (PUSH, Mapping(ABSENT), NOT_PERMITTED), (PUSH, {"status": "5oops", "body": {}}, NOT_PERMITTED),
@@ -1504,7 +1506,7 @@ class Push(unittest.TestCase):
             self.assertEqual(push.seen(push.began(told)[0], "GET", AT_BRANCH, None, answer), why, (told["head"], answer))
         first, _ = push.seen(push.began(PUSH)[0], "GET", AT_BRANCH, None, ABSENT)
         for answer, why in (({"status": "404", "body": {}}, refused), ({"status": "403", "body": {}}, refused),
-                            ({"status": "401", "body": {}}, unanswered), ({"status": "429", "body": {}}, unanswered), ({"status": "200", "body": {"sha": NEW_A, "tree": {"sha": ROOT_TREE}}}, refused),
+                            ({"status": "401", "body": {}}, unanswered), ({"status": "429", "body": {}}, limited), ({"status": "200", "body": {"sha": NEW_A, "tree": {"sha": ROOT_TREE}}}, refused),
                             ({"status": "200", "body": {"sha": PARENT, "tree": {"sha": "x"}}}, refused),
                             ({"status": "200", "body": {"sha": PARENT, "tree": ROOT_TREE}}, refused),
                             ({"status": "200", "body": {"sha": PARENT}}, refused), ({"status": "200", "body": None}, refused),
@@ -1672,8 +1674,9 @@ class Push(unittest.TestCase):
         made = self.made(state)
         for answer, why in (
                 # GitHub refused the write, or answered with what was not made.
-                ({"status": "422", "body": {}}, push.ANSWER_REFUSED), ({"status": "401", "body": {}}, push.ANSWER_REFUSED),
-                ({"status": "429", "body": {}}, push.ANSWER_REFUSED),
+                ({"status": "422", "body": {}}, push.ANSWER_REFUSED), ({"status": "403", "body": {}}, push.ANSWER_REFUSED),
+                # A token expired is the port's; GitHub's limit on it, capacity.
+                ({"status": "401", "body": {}}, push.UNANSWERED), ({"status": "429", "body": {}}, push.RATE_LIMITED),
                 ({"status": "200", "body": {"sha": MADE}}, push.ANSWER_REFUSED),
                 ({"status": "201", "body": {"sha": "x"}}, push.ANSWER_REFUSED), ({"status": "201", "body": None}, push.ANSWER_REFUSED),
                 ({"status": "201", "body": {"sha": Text(MADE)}}, push.ANSWER_REFUSED),
@@ -1693,6 +1696,114 @@ class Push(unittest.TestCase):
                          (None, push.ANSWER_REFUSED))
         self.assertEqual(push.seen(made, "POST", GIT + "trees", self.TREE, {"status": "201", "body": {"sha": ROOT_TREE}}),
                          (None, push.ANSWER_REFUSED))
+
+
+    # What a push writes past its tree, and reads back: the tree made, one commit of it, the branch written once at
+    # that commit, and the branch read again.
+    AFTER = {"tree": {"docs/a.md": FILE, "docs/b.md": FILE, "docs/n.md": "100755", "bin/l": "120000", "vendor": "160000",
+                      "bin/x": "100755"},
+             "blobs": {"docs/a.md": (MADE, 2), "docs/b.md": (BLOB_A, 2), "docs/n.md": (NEW_A, 2), "bin/l": (BLOB_L, 4),
+                       "bin/x": (BLOB_X, 9)}, "sha": NEW_TREE, "whole": True}
+    BACK = {"status": "200", "body": {"sha": COMMITTED, "message": PUSH["message"], "tree": {"sha": NEW_TREE},
+                                      "parents": [{"sha": PARENT}]}}
+
+    def landing(self, told=PUSH):
+        """Each request of `told` from its tree on, in order, with the answer under which it goes on."""
+        write = (("PATCH", GIT + "refs/heads/" + BRANCH, {"sha": COMMITTED, "force": False}, ref(COMMITTED))
+                 if told["head"] else
+                 ("POST", GIT + "refs", {"ref": "refs/heads/" + BRANCH, "sha": COMMITTED}, dict(ref(COMMITTED), status="201")))
+        return [("POST", GIT + "trees", self.TREE, {"status": "201", "body": {"sha": NEW_TREE}}),
+                ("GET", GIT + "trees/" + NEW_TREE + "?recursive=1", None, self.AFTER),
+                ("POST", GIT + "commits", {"message": told["message"], "tree": NEW_TREE, "parents": [PARENT]},
+                 {"status": "201", "body": {"sha": COMMITTED}}),
+                ("GET", GIT + "commits/" + COMMITTED, None, self.BACK), write, ("GET", AT_BRANCH, None, ref(COMMITTED))]
+
+    def upto(self, told, steps):
+        """The state of `told` once its blobs were made and the first `steps` of `landing` went on."""
+        state = self.made(self.read(told, ref(PARENT) if told["head"] else None))
+        for method, path, body, answer in self.landing(told)[:steps]:
+            state, why = push.seen(state, method, path, body, answer)
+            assert why is None, (path, why)
+        return state
+
+    def test_a_push_lands_one_commit_of_its_tree_read_back_and_reads_its_branch_at_it(self):
+        for told in (PUSH, MOVE):
+            state, landing = self.upto(told, 0), self.landing(told)
+            for at, (method, path, body, answer) in enumerate(landing):
+                # Each request leaves in its turn alone, and once.
+                for later in landing[at + 1:]:
+                    self.assertFalse(push.permits(state, *later[:3]), (at, later[:2]))
+                self.assertTrue(push.permits(state, method, path, body), (at, path))
+                state, why = push.seen(state, method, path, body, answer)
+                self.assertIsNone(why, (at, path))
+                self.assertFalse(push.permits(state, method, path, body), (at, path))
+            self.assertEqual([state[key] for key in ("new", "checked", "commit", "commit_back", "moved", "landed")],
+                             [NEW_TREE, True, COMMITTED, True, True, True])
+            for method, path, body, _ in landing[:1] + self.landing(MOVE if told is PUSH else PUSH)[4:5]:
+                self.assertFalse(push.permits(state, method, path, body), path)
+        # The commit is of the tree made, on the admitted commit, with the push's message, and nothing else.
+        checked, commit = self.upto(PUSH, 2), self.landing()[2][2]
+        for body in (dict(commit, message="Other"), dict(commit, tree=ROOT_TREE), dict(commit, parents=[PARENT, NEW_A]),
+                     dict(commit, parents=[NEW_A]), dict(commit, parents=(PARENT,)), dict(commit, message=Text(commit["message"])),
+                     dict(commit, parents=[Text(PARENT)]), dict(commit, x=1), Mapping(commit)):
+            self.assertFalse(push.permits(checked, "POST", GIT + "commits", body), body)
+        # The branch is made where none was admitted and moved where one was, at the commit read back, never by force.
+        made, moving = self.upto(PUSH, 4), self.upto(MOVE, 4)
+        for state, method, path, body in (
+                (made, "POST", GIT + "refs", {"ref": "refs/heads/" + BRANCH, "sha": NEW_A}),
+                (made, "POST", GIT + "refs", {"ref": "refs/heads/main", "sha": COMMITTED}),
+                (made, "POST", GIT + "refs", {"ref": Text("refs/heads/" + BRANCH), "sha": COMMITTED}),
+                (moving, "PATCH", GIT + "refs/heads/" + BRANCH, {"sha": COMMITTED, "force": True}),
+                (moving, "PATCH", GIT + "refs/heads/" + BRANCH, {"sha": COMMITTED, "force": 0}),
+                (moving, "PATCH", GIT + "refs/heads/" + BRANCH, {"sha": COMMITTED}),
+                (moving, "PATCH", GIT + "refs/heads/main", {"sha": COMMITTED, "force": False}),
+                (moving, "POST", GIT + "refs/heads/" + BRANCH, {"sha": COMMITTED, "force": False})):
+            self.assertFalse(push.permits(state, method, path, body), (method, path, body))
+        # Nothing past the tree is written by a state that says it read back what it did not.
+        for bad in (dict(made, checked=False), dict(made, commit_back=False), dict(made, new=None),
+                    dict(made, commit=None), dict(made, commit="x"), dict(made, landed=True), dict(made, checked=1)):
+            self.assertFalse(push.permits(bad, *self.landing()[4][:3]))
+
+    def test_each_read_back_and_branch_write_says_whose_a_stop_is(self):
+        refused, moved, unanswered = (None, push.ANSWER_REFUSED), (None, push.BRANCH_MOVED), (None, push.UNANSWERED)
+        limited, gone = (None, push.RATE_LIMITED), {"status": "404", "body": {}}
+        after, blobs = self.AFTER, self.AFTER["blobs"]
+        for told in (PUSH, MOVE):
+            landing = self.landing(told)
+            for step, answer, why in (
+                    # The tree read back is the admitted one with exactly the changes in it, or a refusal.
+                    (1, dict(after, blobs=dict(blobs, **{"docs/a.md": (BLOB_A, 2)})), refused),
+                    (1, dict(after, blobs=dict(blobs, **{"docs/a.md": (MADE, 3)})), refused),
+                    (1, dict(after, tree=dict(after["tree"], **{"docs/a.md": "100755"})), refused),
+                    (1, dict(after, tree=dict(after["tree"], **{"tests/t.py": FILE}), blobs=dict(blobs, **{"tests/t.py": (BLOB_T, 0)})), refused),
+                    (1, dict(after, whole=False), NOT_PERMITTED), (1, None, unanswered),
+                    # A commit named as what was made before it is none made.
+                    (2, {"status": "201", "body": {"sha": PARENT}}, refused), (2, {"status": "201", "body": {"sha": NEW_TREE}}, refused),
+                    (2, {"status": "422", "body": {}}, refused), (2, {"status": "401", "body": {}}, unanswered),
+                    (2, {"status": "429", "body": {}}, limited),
+                    # The commit read back is the one made: its tree, its one parent, its message.
+                    (3, dict(self.BACK, body=dict(self.BACK["body"], tree={"sha": ROOT_TREE})), refused),
+                    (3, dict(self.BACK, body=dict(self.BACK["body"], parents=[{"sha": PARENT}, {"sha": NEW_A}])), refused),
+                    (3, dict(self.BACK, body=dict(self.BACK["body"], message="Other")), refused),
+                    (3, dict(self.BACK, body=dict(self.BACK["body"], sha=NEW_A)), refused),
+                    (3, gone, refused), (3, {"status": "403", "body": {}}, refused), (3, None, unanswered),
+                    (3, {"status": "401", "body": {}}, unanswered), (3, {"status": "429", "body": {}}, limited),
+                    # A branch write refused as no fast-forward, or as standing, was overtaken; any other refusal,
+                    # a protection's 403 among them, is a person's.
+                    (4, {"status": "422", "body": {}}, moved), (4, {"status": "403", "body": {}}, refused),
+                    (4, {"status": "404", "body": {}}, refused), (4, dict(ref(NEW_A), status=landing[4][3]["status"]), refused),
+                    (4, dict(ref(COMMITTED), status="202"), refused),
+                    (4, {"status": "401", "body": {}}, unanswered), (4, {"status": "429", "body": {}}, limited),
+                    (4, {"status": "502", "body": {}}, unanswered), (4, None, unanswered),
+                    # The branch read again at another commit, or gone, was written by someone else; read as none, it
+                    # has not landed.
+                    (5, ref(NEW_A), moved), (5, gone, moved), (5, {"status": "403", "body": {}}, refused),
+                    (5, ref(COMMITTED, BRANCH + "x"), refused), (5, None, unanswered), (5, {"status": "401", "body": {}}, unanswered),
+                    (5, {"status": "500", "body": {}}, unanswered), (5, {"status": "429", "body": {}}, limited)):
+                self.assertEqual(push.seen(self.upto(told, step), *landing[step][:3], answer), why, (told["head"], step, answer))
+        # A branch made answers 201 and one moved 200: the other status is no answer of that write.
+        self.assertEqual(push.seen(self.upto(PUSH, 4), *self.landing()[4][:3], ref(COMMITTED)), refused)
+        self.assertEqual(push.seen(self.upto(MOVE, 4), *self.landing(MOVE)[4][:3], dict(ref(COMMITTED), status="201")), refused)
 
 
 if __name__ == "__main__":
