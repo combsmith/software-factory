@@ -3,6 +3,7 @@
 ADVICE = "adapters/advice.py"
 ADVICE_FOUND = ("tests.test_advisory.Parser.test_a_readers_findings_become_advisory_findings_whose_ids_are_not_of_their_text",)
 ADVICE_READ = ("tests.test_advisory.Parser.test_an_answer_is_a_read_only_when_it_completed_whole_from_the_pinned_model_and_parses",)
+ADVICE_AGREE = ("tests.test_advisory.Schemas.test_an_advisory_results_status_findings_and_texts_agree_as_the_parser_builds_them",)
 ADVICE_COST = ("tests.test_advisory.Parser.test_a_result_says_what_the_read_cost_and_a_read_never_asked_says_why",)
 
 TARGETS = ("adapters/advice.py",)
@@ -163,4 +164,24 @@ MUTANTS = [
     ('a failed read is incomplete', ADVICE,
      '"failed" if reason in FAILED else "incomplete"',
      '"incomplete"', ADVICE_READ),
+    # Issue 1175: what advice/1's schema cannot say of a Result, its parts agreeing, is held beside it.
+    ("an advisory Result's status need not be the one its reason gives", ADVICE,
+     '    if result["status"] != _status(result["reason"]):\n        problems.append("$.status: not the one its reason gives")\n',
+     '', ADVICE_AGREE),
+    ('an advisory read not completed may hold Findings', ADVICE,
+     '    if result["status"] != "completed" and (found or result["texts"] or result["off_change"]):\n',
+     '    if result["status"] != "completed" and (found or result["texts"]):\n', ADVICE_AGREE),
+    ("an advisory Finding keyed by another id is its own", ADVICE,
+     '        if finding["surface"]["key"] != finding["id"] or finding["source"]["lens"] != lens',
+     '        if finding["source"]["lens"] != lens', ADVICE_AGREE),
+    ("an advisory Finding of another Lens's source is its own", ADVICE,
+     ' or finding["source"]["lens"] != lens \\\n', ' \\\n', ADVICE_AGREE),
+    ("an advisory Finding whose id is another Lens's is its own", ADVICE,
+     ' \\\n                or finding["id"].split(":")[0] != lens:\n', ':\n', ADVICE_AGREE),
+    ('two advisory Findings may share an id', ADVICE,
+     '    if len({finding["id"] for finding in found}) != len(found):\n        problems.append("$.findings: two share an id")\n',
+     '', ADVICE_AGREE),
+    ("an advisory text may be of another Finding", ADVICE,
+     '    if [finding["id"] for finding in found] != [text["id"] for text in result["texts"]]:\n',
+     '    if len(found) != len(result["texts"]):\n', ADVICE_AGREE),
 ]

@@ -42,8 +42,33 @@ def _usage(told: dict, asks: int, seconds) -> dict:
             "cost_usd": None, "seconds": seconds}
 
 
+def _status(reason) -> str:
+    return "completed" if reason is None else "failed" if reason in FAILED else "incomplete"
+
+
+def unsuited(result: dict) -> list:
+    """What advice/1's schema cannot say of a Result it holds, as `$.place: problem` lines: its status is the one its
+    reason gives, a read not completed holds no Finding, text or count, and each Finding is its Lens's own, keyed by
+    its own id, which no other shares, with one text of that id in its order. tools/check_examples.py holds every
+    example to it, as the parser's own Results are."""
+    lens, found, problems = result["lens"], result["findings"], []
+    if result["status"] != _status(result["reason"]):
+        problems.append("$.status: not the one its reason gives")
+    if result["status"] != "completed" and (found or result["texts"] or result["off_change"]):
+        problems.append("$.findings: a read not completed holds Findings, texts or a count off the change")
+    for at, finding in enumerate(found):
+        if finding["surface"]["key"] != finding["id"] or finding["source"]["lens"] != lens \
+                or finding["id"].split(":")[0] != lens:
+            problems.append("$.findings[%d]: not keyed by its own id, or not its Lens's own" % at)
+    if len({finding["id"] for finding in found}) != len(found):
+        problems.append("$.findings: two share an id")
+    if [finding["id"] for finding in found] != [text["id"] for text in result["texts"]]:
+        problems.append("$.texts: not one for each Finding, by its id and in its order")
+    return problems
+
+
 def _result(told: dict, reason, findings: list, texts: list, off: int, usage: dict, schemas: dict) -> dict:
-    status = "completed" if reason is None else "failed" if reason in FAILED else "incomplete"
+    status = _status(reason)
     result = {"schema": "advice/1", "run": told["run"], "release": told["release"], "lens": told["lens"],
               "status": status, "reason": reason, "findings": findings, "texts": texts, "off_change": off, "usage": usage}
     if validate(result, schemas["advice"], schemas=schemas):

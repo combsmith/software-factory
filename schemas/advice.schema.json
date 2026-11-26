@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "advice/1: one advisory Lens's Result for one review Run, the file the advise step always ends in (decision 0224). It holds codes: a status, a reason from a fixed list, Findings that are each a finding/1 of an advisory source on an annotation, uncategorised and with no criterion, and what the read cost. A reader's words are under `body` alone, one text for each Finding, by its id. It approves nothing and names no Role.",
+  "title": "advice/1: one advisory Lens's Result for one review Run, the file the advise step always ends in (decision 0224). It holds codes: a status, a reason from a fixed list, Findings that are each a finding/1 of an advisory source on an annotation, uncategorised and with no criterion, and what the read cost. A reader's words are under `body` alone, one text for each Finding, by its id. It approves nothing and names no Role. That its status is the one its reason gives, that a read not completed holds nothing, and that each Finding is its Lens's own, keyed by its id, with one text of that id, no schema here can say: adapters/advice.py's `unsuited` says it, and tools/check_examples.py holds every example to it.",
   "type": "object",
   "additionalProperties": false,
   "required": [
