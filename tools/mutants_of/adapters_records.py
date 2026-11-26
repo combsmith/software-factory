@@ -7,8 +7,19 @@ BEGUN = ("tests.test_adapters.Records.test_when_a_run_began_is_asked_once_and_ke
 KEPT_BEGUN = ("tests.test_adapters.Records.test_what_a_pass_record_holds_of_a_beginning_is_kept",)
 BOUNDED = ("tests.test_adapters.Records.test_the_asking_is_bounded_to_the_items_given",)
 
+RESET = ("tests.test_adapters.Records.test_githubs_reset_is_read_with_the_outcome_and_kept_and_a_completed_run_says_when_it_ended",)
 TARGETS = ("adapters/records.py",)
 MUTANTS = [
+    # When GitHub's limit resets, and when a Run ended, from which the pass waits it out (decision 9999).
+    ("a completed Run says no end", "adapters/records.py",
+     '        record["ended_at"] = row["updated_at"]\n', "        pass\n", RESET),
+    ("an end that cannot be read is kept", "adapters/records.py",
+     'if status == "completed" and _time(row.get("updated_at")):', 'if status == "completed" and row.get("updated_at"):',
+     RESET),
+    ("GitHub's reset is not read with the outcome", "adapters/records.py",
+     '            record["github_reset"] = reset[0]\n', "            pass\n", RESET),
+    ("GitHub's reset is not kept from the record before", "adapters/records.py",
+     'SAID = (("engine_started", bool), ("github_reset", int))', 'SAID = (("engine_started", bool),)', RESET),
     # Issue 342: a pull request the Factory opens is bound to its issue by the Run that opened it, as well as its branch.
     ("another item's Runs are asked for their jobs", 'adapters/records.py',
      '        if on is not None and record["item"] != on:\n', '        if False:\n', ('tests.test_adapters.Records.test_a_read_of_one_items_runs_asks_them_alone_and_all_of_them',)),

@@ -285,7 +285,7 @@ def now(pr: dict) -> str:
 
 def kernel(pr: dict) -> dict:
     ctx = context(passes_since=now(pr), **pr.get("context", {}))
-    return decide(pr["facts"], pr["runs"], ctx, CONFIG, now(pr))
+    return decide(pr["facts"], pr["runs"], ctx, pr.get("config", CONFIG), now(pr))
 
 
 # Facts for the reasons that keep the State they were given: a Pause, capacity, concurrency, a Run that cannot be told
@@ -296,6 +296,11 @@ STILL = {
     "pause_unreadable": dict(base([reviewed()]), context={"paused": None}),
     "capacity": dict(base(), context={"model_deferred_until": "2099-01-01T00:00:00Z"}),
     "capacity_unreadable": dict(base(), context={"active_runs": None}),
+    # A Role that pushes waits for GitHub's reset in its installation, or for a wait that can be read (decision 9999).
+    "github_capacity": dict(base(), context={"github_deferred": [{"role": "pr-review", "owner": "combsmith",
+                                                                  "until": "2099-01-01T00:00:00Z"}]},
+                            config=dict(CONFIG, pushers=["pr-review"])),
+    "github_capacity_unreadable": dict(base(), config=dict(CONFIG, pushers=None)),
     "concurrency": dict(base(), context={"active_runs": CONFIG["limits"]["org_max_active_runs"]}),
     "run_unidentified": dict(base(), context={"unidentified_runs": [{"run": "39086879694", "created_at": at(0),
                                                                      "status": "in_progress"}]}),

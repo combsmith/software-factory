@@ -76,6 +76,7 @@ HOLD_BEFORE_LABEL = ('tests.test_issue.WhatARunWrites.test_an_issues_hold_is_rea
 STANDS_UNREAD = ('tests.test_issue.Stands.test_what_cannot_be_read_gives_none',)
 F849_KERNEL = ("tests.test_issue.Unreadable.test_a_timeline_past_the_ports_bound_defers_on_its_own_code_and_calls_a_person",)
 STALE = "tests.test_decide.Staleness."
+GITHUB = "tests.test_decide.GitHubsLimit."
 
 # Where the boundary cases of decision 0029 are.
 REPORTED = "tests.test_decide.AReviewThatReported."
@@ -2416,6 +2417,39 @@ MUTANTS = ISSUE + OUTSIDE + [
      '    if unnamed_within(context, now, limits) != []:\n', '    if unnamed_within(context, now, limits):\n',
      (UNIDENTIFIED + "test_a_list_of_unidentified_runs_that_cannot_be_read_defers",
       "tests.test_issue.UnidentifiedRuns.test_an_unidentified_run_defers_an_issues_run")),
+    # A Role that pushes waits, in its App's installation alone, until GitHub's limit resets (decision 9999).
+    ("a Run GitHub limited does not wait", "kernel/derive.py",
+     '    if waiting:\n        return _decision(facts, state, "github_capacity", evidence, t.DEFER)\n', "",
+     (GITHUB + "test_a_pushing_roles_run_waits_in_its_installation_until_the_reset",) + ISSUE_TESTS),
+    ("a wait for GitHub that cannot be read admits", "kernel/derive.py",
+     '    if waiting is None:\n        return _decision(facts, state, "github_capacity_unreadable", evidence, t.DEFER)\n',
+     "", (GITHUB + "test_a_wait_or_a_list_of_pushers_that_cannot_be_read_defers_a_pushing_role_alone",)),
+    ("a Role that does not push waits for GitHub too", "kernel/derive.py",
+     "    if role not in pushers:\n        return False\n", "",
+     (GITHUB + "test_a_wait_or_a_list_of_pushers_that_cannot_be_read_defers_a_pushing_role_alone",)),
+    ("a list of the Roles that push holding no name is read", "kernel/derive.py",
+     "isinstance(pushers, list) and all(isinstance(name, str) for name in pushers)", "isinstance(pushers, list)",
+     (GITHUB + "test_a_wait_or_a_list_of_pushers_that_cannot_be_read_defers_a_pushing_role_alone",)),
+    ("a wait for GitHub whose time is no moment is compared", "kernel/derive.py",
+     '               and is_time(w.get("until")) for w in waits):\n', '               for w in waits):\n',
+     (GITHUB + "test_a_wait_or_a_list_of_pushers_that_cannot_be_read_defers_a_pushing_role_alone",)),
+    ("a wait for GitHub at its reset still holds", "kernel/derive.py",
+     'w["until"] > now for w in waits)', 'w["until"] >= now for w in waits)',
+     (GITHUB + "test_a_pushing_roles_run_waits_in_its_installation_until_the_reset",)),
+    ("another installation's wait for GitHub holds", "kernel/derive.py",
+     'w["role"] == role and w["owner"] == owner and ', 'w["role"] == role and ',
+     (GITHUB + "test_a_pushing_roles_run_waits_in_its_installation_until_the_reset",)),
+    ("an owner is read as any owner its name begins", "kernel/derive.py",
+     'w["owner"] == owner and w["until"]', 'owner.startswith(w["owner"]) and w["until"]',
+     (GITHUB + "test_a_pushing_roles_run_waits_in_its_installation_until_the_reset",)),
+    ("another Role's wait for GitHub holds", "kernel/derive.py",
+     'w["role"] == role and w["owner"] == owner', 'w["owner"] == owner',
+     (GITHUB + "test_a_pushing_roles_run_waits_in_its_installation_until_the_reset",)),
+    ("a pull request's Run is given no Role that pushes", "kernel/decide.py",
+     'limits, role, config.get("pushers"))', "limits, role, [])",
+     (GITHUB + "test_a_pushing_roles_run_waits_in_its_installation_until_the_reset",)),
+    ("an issue's Run is given no Role that pushes", ISSUE_PY,
+     'limits, role, config.get("pushers"))', "limits, role, [])", ISSUE_TESTS),
     ("a Lifecycle not the pull request's is read", "kernel/derive.py",
      '    if not (isinstance(lifecycle, dict) and lifecycle.get("work_item") == work_item):\n', "    if False:\n",
      (STALE + "test_a_lifecycle_whose_limit_cannot_be_read_shows_the_wait_as_stale",)),

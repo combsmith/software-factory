@@ -1123,6 +1123,21 @@ class Feed(unittest.TestCase):
                 json.dumps({key: value for key, value in hooks.items() if key != "person_only"}))
             self.assertEqual(configuration.kernel(pathlib.Path(d))["person_only_paths"], [])
 
+    def test_the_kernel_is_given_the_roles_granted_the_push_from_their_manifests(self):  # decision 9999
+        # One list: a Role whose Intent permits push_commits, the grant tools/check_authority.py holds; none yet.
+        self.assertEqual((configuration.kernel(ROOT)["pushers"], support.CONFIG["pushers"]), ([], []))
+        with unittest.mock.patch.object(configuration, "pushers", lambda root: ["dev-lead"] if root == ROOT else None):
+            self.assertEqual(configuration.kernel(ROOT)["pushers"], ["dev-lead"])
+        manifest = json.loads((ROOT / "roles" / "pr-review.json").read_text())
+        with tempfile.TemporaryDirectory() as d:
+            (pathlib.Path(d) / "roles").mkdir()
+            for name, effects in (("dev-lead", ["comment"]), ("pr-review", ["submit_review"]), ("qa-lead", [])):
+                pushing = dict(manifest["intents"][0], permitted_effects=effects + ["push_commits"])
+                intents = [dict(manifest["intents"][0], permitted_effects=effects)] + ([pushing] if name != "qa-lead" else [])
+                (pathlib.Path(d) / "roles" / ("%s.json" % name)).write_text(json.dumps(dict(manifest, name=name,
+                                                                                         intents=intents)))
+            self.assertEqual(configuration.pushers(pathlib.Path(d)), ["dev-lead", "pr-review"])
+
     def test_a_path_a_model_lens_reads_is_never_given_as_a_persons_alone(self):  # decision 0207
         # No path is on both lists today. Were one, a model Lens's input is the stricter name and is not masked: the
         # path is left off what the Kernel is given as a person's, so its change waits as a Lens's input does.
