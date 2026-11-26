@@ -605,6 +605,7 @@ An issue has facts of its own (§4.1, the issue Lifecycle):
 | `last_writer_action_at`, `last_writer_comment_at` | The last action on the issue by a person with write access, and that person's last comment |
 | `acts_since_writer` | As for a pull request: the Factory's acts on the issue since a person with write access last acted, which the act ceiling bounds (decision 0031) |
 | `branch_head` | The head of the branch the next opening Run would push to, a commit's whole name, or null while it does not exist; null is "no branch" only where `complete.branch` says the port read it (decision 0242, issue 1059). The opening Run is admitted for it, and `apply` refuses once it has moved (decision 0031) |
+| `branch_pushed` | Where `branch_head` is a commit, whether an earlier opening Run of the issue recorded pushing it to that branch, by that commit's sha and the branch named in its `applied/1` (decision 1208). False (including where a record has expired, or a Run that did not succeed uploaded none) holds the issue for a person, `branch_not_pushed`; a value neither true nor false defers the opening Run as a branch not read. The port leaves it untold while an opening Run is in flight, whose record is not yet read. Null while no branch stands; true or false then contradicts the read and defers the opening Run |
 | `base_head` | The default branch's head as the pass read it. Where `branch_head` is null, the opening Run is admitted for it: the Run reads that commit and its one commit lands on it. A commit's whole name; left out, it is unread and that Run is deferred. `apply` does not refuse when the default branch has moved since; its read that the commit is still on the default branch is owed with the push (decision 0226) |
 | `complete`, `read_at` | As for a pull request; `complete` says whether the `timeline`, the `linked` pull requests and the `runs` were read in full, and `branch` whether `branch_head` was read; a branch not read defers the opening Run alone |
 
@@ -737,7 +738,7 @@ that it has already happened.
 
 | Effect | Recovery key | Naturally idempotent |
 |---|---|---|
-| `push_commits` | The tree digest of the branch head, read back | Yes |
+| `push_commits` | The sha of the commit the Run itself pushed, from its own bundle; the head read back is compared with it, never recorded in its place (decision 1207) | Yes |
 | `open_pull_request` | The head branch name | Yes |
 | `submit_review` | A review by this actor on this commit | Yes |
 | `resolve_thread` | The thread's resolved flag. The Controller's act, carried out by the queue App (decision 0086) | Yes |
@@ -949,7 +950,7 @@ A Run that dies before it uploads anything still has a run record, and counts as
 subject to the fault classes below. Its
 cost is not known exactly; its duration is the estimate.
 
-**Whose fault a failure was.** A failed Run is one of four kinds, and only the first is an attempt.
+**Whose fault a failure was.** A failed Run is one of five kinds, and only the first is an attempt.
 
 | Outcome | Example | Counts as an attempt | Then |
 |---|---|---|---|
@@ -957,6 +958,7 @@ cost is not known exactly; its duration is the estimate.
 | `capacity` | The model window ran out mid-Run | No | Every model Run is deferred until the window is expected to reset |
 | `environment` | A token expired; an App was uninstalled; GitHub was unavailable | No | Several in a row pause Admission automatically, raise one alert, and clear when a probe Run succeeds. A Run GitHub started no job of counts the same, named `runs_never_started` (decision 0116) |
 | `superseded` | The item was held or changed before `apply`, or a newer Run in its group replaced it while it waited | No | The next pass decides afresh |
+| `person` | A file the patch reads that GitHub will never hand over; the code itself stays in the outcome's reason | No | The item is held as `run_needs_person`, and a writer's action renews it as it renews the attempts. Read before the brakes; it counts toward the Run ceiling, as it reached a model (issue 838) |
 
 A pass reads `outcome.json` only for Runs that did not succeed, which are few. A killed Run has no
 outcome file; one that ran, its conclusion `failure` or `timed_out`, is read as `item`, an attempt,

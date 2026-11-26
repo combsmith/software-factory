@@ -557,4 +557,9 @@ MUTANTS = [
      'served is not None and listed_whole, ', 'served is not None, ', ("tests.test_controller.Entry.test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed",)),
     ("an issue a list read short gave is told as the tracking issue", 'controller/__main__.py',
      ' if apart is not None and listed_whole else set()\n', ' if apart is not None else set()\n', ("tests.test_controller.Entry.test_an_issue_that_left_is_read_with_its_close_and_one_read_short_is_owed",)),
+    # The head match: each issue is read with the pass's run list and the Role that opens pull requests.
+    ("the issues are read with no run list", 'controller/__main__.py',
+     'runs=runs, role=facts_.opener_role(config["kernel"]),', 'runs=None, role=facts_.opener_role(config["kernel"]),', ("tests.test_controller.Entry.test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is",)),
+    ("the issues are read with no opening Role", 'controller/__main__.py',
+     'runs=runs, role=facts_.opener_role(config["kernel"]),', 'runs=runs, role=None,', ("tests.test_controller.Entry.test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is",)),
 ]

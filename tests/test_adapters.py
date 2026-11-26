@@ -24,8 +24,10 @@ from unittest import mock
 from adapters import acceptance, applied, artifacts, branches, checks, draft_checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
     passes, pull, push, records, pause, rules, texts, threads, timeline
 from controller import shared
+from guards import patch
+from guards import push as guard
 from harness import task
-from kernel import brakes
+from kernel import brakes, terms
 from tests.support import pending
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -1592,6 +1594,14 @@ class Records(unittest.TestCase):
         self.assertEqual(records.known([record(second), record(lost)]), records.known([record(lost)]))
         # A fault is kept from one record; none from one record alone, or after a fault, is not.
         self.assertIn(("r_000000Z", "2026-10-21T00:00:00Z"), records.known([record(lost)]))
+        # Every fault outcome/1 names is kept, a person's among them (issue 838), and no other.
+        faults = json.loads((ROOT / "schemas" / "outcome.schema.json").read_text())["properties"]["outcome"]["enum"]
+        self.assertEqual(records.CONCLUDED, set(faults) - {None})
+        run_record = json.loads((ROOT / "schemas" / "run-record.schema.json").read_text())
+        self.assertEqual(run_record["properties"]["outcome"]["enum"], faults)
+        for fault in sorted(set(faults) - {None}):
+            told = dict(record(first), runs=[dict(first["runs"][0], outcome=fault)])
+            self.assertEqual(records.known([told]), {("r_000000Z", "2026-10-21T00:00:00Z"): fault}, fault)
         faulted_then_none = dict(record(second), runs=[dict(second["runs"][2], outcome="item")])
         self.assertEqual(records.known([faulted_then_none, record(second)]), {
             ("r_000000Z", "2026-10-21T00:00:00Z"): "item", ("r_000001Z", "2026-10-21T01:00:00Z"): "item"})
@@ -2097,7 +2107,7 @@ class Artifacts(unittest.TestCase):
         return artifacts.outcome(github.Replay(stored("o/r", 7, zipped, **listed)), "o/r", 7, self.RUN)
 
     def test_a_runs_outcome_is_read_from_its_one_file_and_held_to_outcome_1(self):
-        for fault in ("item", "capacity", "environment", "superseded"):
+        for fault in ("item", "capacity", "environment", "superseded", "person"):
             self.assertEqual(self.read(outcome_zip(outcome_of(self.RUN, fault))), (fault, True), fault)
         # Whether its Engine step started is handed to `started`, where it says; an outcome that says it otherwise is no
         # outcome/1 (issue 757).
@@ -6790,7 +6800,8 @@ class Branches(unittest.TestCase):
                     raise github.Unanswered("not in the table")
                 status, body, headers = answers[req["path"]]
                 return {"status": status, "headers": headers, "body": body}
-        return branches.work_head(Answers(), "o/r", number, opener), asked
+        *got, self.named = branches.work_head(Answers(), "o/r", number, opener)
+        return tuple(got), asked
 
     def branch(self, k: int, sha=SHA) -> tuple:
         return 200, {"ref": "refs/heads/factory-work/issue-41-%d" % k, "object": {"type": "commit", "sha": sha}}, {}
@@ -6800,12 +6811,15 @@ class Branches(unittest.TestCase):
         none = (200, [], {})
         self.assertEqual(self.head({self.pulls(1): none, self.ref(1): self.branch(1)}),
                          ((self.SHA, True), [self.pulls(1), self.ref(1)]))
+        self.assertEqual(self.named, "factory-work/issue-41-1")     # the name read, which a push must name (1208)
         self.assertEqual(self.head({self.pulls(1): none, self.ref(1): (404, {"message": "Not Found"}, {})})[0],
                          (None, True))
+        self.assertEqual(self.named, "factory-work/issue-41-1")
         # Two the Factory opened, closed or merged, of any state, beside a person's: branch 3.
         got = self.head({self.pulls(1): (200, [self.opened(1, by=(5, "User")), self.opened(1)], {}),
                          self.pulls(2): (200, [self.opened(2)], {}), self.pulls(3): (200, [], {}), self.ref(3): self.branch(3)})
         self.assertEqual(got, ((self.SHA, True), [self.pulls(1), self.pulls(2), self.pulls(3), self.ref(3)]))
+        self.assertEqual(self.named, "factory-work/issue-41-3")
         # A branch whose pull requests are none of the opener's, a person's or one of the opener's on another branch
         # than the one asked of, cannot be told the Factory's or not: not told. Nor can the opener's from another repo.
         stray = dict(self.opened(1), head={"ref": "factory-work/issue-41-9", "repo": {"full_name": "o/r"}})
@@ -6817,10 +6831,16 @@ class Branches(unittest.TestCase):
         twice = [self.opened(1), dict(self.opened(1), number=108)]
         unread = [self.opened(1), dict(self.opened(1), user={"id": 77})]
         unid = [self.opened(1), dict(self.opened(1), user={"id": "77", "type": "Bot"})]
-        for rows in ([self.opened(1, by=(5, "User"))], [stray], [forked], [self.opened(1), forked], [flat],
+        # A stranger's pull request from a fork's branch of the same name, were the head filter to list it: no fork can
+        # be made for trial P-80, so its unfavourable answer is taken, and a branch from a fork is never the Factory's.
+        stranger = dict(forked, user={"id": 5, "type": "User"})
+        for rows in ([self.opened(1, by=(5, "User"))], [stray], [forked], [self.opened(1), forked], [flat], [stranger],
                      [self.opened(1, by=(77, "User"))], [self.opened(1, by=(5, "Bot"))], twice, unread, unid, aside):
             self.assertEqual(self.head({self.pulls(1): (200, rows, {}), self.pulls(2): (200, [], {}),
                                         self.ref(1): self.branch(1), self.ref(2): self.branch(2)})[0], (None, False), rows)
+        # So it is where the stranger's fork alone holds the name and the repo holds no such branch: its ref is not asked.
+        self.assertEqual(self.head({self.pulls(1): (200, [stranger], {}), self.ref(1): (404, {}, {})}),
+                         ((None, False), [self.pulls(1)]))
         # A branch name not of the Kernel's shape, as for issue 0, is not told, and its ref is not asked.
         self.assertEqual(self.head({self.pulls(1, 0): (200, [], {})}, number=0), ((None, False), [self.pulls(1, 0)]))
         # Not told, and never read as no branch: no opener, or one untold, asks nothing.
@@ -6851,22 +6871,141 @@ class Branches(unittest.TestCase):
                        (200, {"ref": "refs/heads/factory-work/issue-41-1", "object": {"type": "tag", "sha": self.SHA}}, {}),
                        (200, [], {})):
             self.assertEqual(self.head({self.pulls(1): none, self.ref(1): answer})[0], (None, False), answer)
+            self.assertIsNone(self.named, answer)
         self.assertEqual(self.head({self.pulls(1): none})[0], (None, False))
+        self.assertIsNone(self.named)
 
     def test_the_issues_port_hands_the_work_branchs_head_and_whether_it_was_told(self):
         told = []
 
         def head(transport, repo, number, opener):
             told.append((transport is router, repo, number, opener))
-            return answer
+            return answer + ("factory-work/issue-41-1",)
         for answer in ((self.SHA, True), (None, True), (None, False)):
             router = Router(github.Replay(issue_read()), {"don-petry": "admin", "stranger": "read"})
             accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
-            with mock.patch.object(issues.branches, "work_head", head):
+            with mock.patch.object(issues.branches, "work_head", head), \
+                    mock.patch.object(issues.applied, "landed", lambda *a: ({self.SHA}, True)):
                 found, _ = issues.read(router, "o/r", 41, accounts, lambda: Issues.NOW, identities=IDENTITIES, earlier=[],
                                        opener=self.OPENER)
             self.assertEqual((found["branch_head"], found["complete"]["branch"]), answer)
         self.assertEqual(told, [(True, "o/r", 41, self.OPENER)] * 3)
+
+    def test_a_work_branch_head_the_factory_never_pushed_is_not_its_own(self):
+        # The Solution Architect's rulings of 2026-11-25: a head that stands is the Factory's only where an earlier
+        # opening Run of the issue recorded pushing it, a landed push_commits keyed by that commit's sha in its
+        # applied/1 (adapters/applied.py's `landed`). The records are read only where the ref read finds a branch.
+        role, other, mine = "dev-lead", "e" * 40, "factory-work/issue-41-2"
+
+        def run(name, status="completed", conclusion="success", intent="open-pull-request", number=41, who=role,
+                repo="o/r", kind="issue"):
+            return {"run": name, "role": who, "intent": intent, "status": status, "conclusion": conclusion,
+                    "item": {"repo": repo, "type": kind, "number": number}}
+
+        def listed(*runs, ids=None, **over):
+            return dict({"complete": True, "unidentified": [], "runs": list(runs),
+                         "github_ids": ids if ids is not None else {r["run"]: [900 + i] for i, r in enumerate(runs)}}, **over)
+
+        def record(name, *pushes, state="applied", kind="push_commits", branch=mine):
+            return {"schema": "applied/1", "run": name, "release": "factory/v1.0.0", "findings": [],
+                    "effects": [{"id": "e%d" % i, "type": kind, "state": state, "key": key, "reason": None,
+                                 "branch": branch} for i, key in enumerate(pushes, 1)]}
+
+        def landed(runs, kept, role_=role):
+            asked = []
+
+            def read(transport, repo, github_id, name, required=False):
+                asked.append((repo, github_id, name, required))
+                found = kept.get(name, (None, True))
+                if found == "unanswered":
+                    raise github.Unanswered("no answer")
+                return found
+            with mock.patch.object(applied.artifacts, "applied", read):
+                return applied.landed(object(), "o/r", runs, role_, 41, mine), asked
+        # Every opening Run of this issue is read, and each commit it landed is one the Factory pushed.
+        r1, r2 = run("r_A1"), run("r_A2", conclusion="failure")
+        got, asked = landed(listed(r1, r2), {"r_A1": (record("r_A1", self.SHA), True), "r_A2": (record("r_A2", other), True)})
+        self.assertEqual(got, ({self.SHA, other}, True))
+        self.assertEqual(asked, [("o/r", 900, "r_A1", True), ("o/r", 901, "r_A2", False)])
+        # A push refused or failed landed nothing; another Effect's key is no push. A Run of another Role, Intent,
+        # issue, repo or item kind is not read at all.
+        for kept in ((record("r_A1", self.SHA, state="refused"), True), (record("r_A1", self.SHA, state="failed"), True),
+                     (record("r_A1", self.SHA, kind="open_pull_request"), True), (record("r_A1", self.SHA, kind="comment"), True),
+                     (None, True), (artifacts.EXPIRED, True)):
+            self.assertEqual(landed(listed(r1), {"r_A1": kept})[0], (set(), True), kept)
+        self.assertEqual(landed(listed(r1), {"r_A1": (record("r_A1", self.SHA, state="already_applied"), True)})[0],
+                         ({self.SHA}, True))
+        # The Solution Architect's ruling on record 1207's limit: a push vouches only for the branch it names, the one
+        # asked of (record 1208). One to another slot, or another issue's branch, vouches for none of this one.
+        for elsewhere in ("factory-work/issue-41-1", "factory-work/issue-41-3", "factory-work/issue-42-2"):
+            self.assertEqual(landed(listed(r1), {"r_A1": (record("r_A1", self.SHA, branch=elsewhere), True)})[0],
+                             (set(), True), elsewhere)
+        split = record("r_A1", self.SHA, other)
+        split["effects"][1]["branch"] = "factory-work/issue-41-1"
+        self.assertEqual(landed(listed(r1), {"r_A1": (split, True)})[0], ({self.SHA}, True))
+        # A landed push that names no work branch is read as a record not read whole, as one keyed by no whole sha is.
+        for odd in (None, 7, "main", "factory-work/issue-41-0", "factory-work/issue-41-2x", "refs/heads/" + mine):
+            self.assertEqual(landed(listed(r1), {"r_A1": (record("r_A1", self.SHA, branch=odd), True)})[0],
+                             (set(), False), odd)
+        unnamed = record("r_A1", self.SHA, other)
+        del unnamed["effects"][1]["branch"]     # after a push that matches, in the same record
+        self.assertEqual(landed(listed(r1), {"r_A1": (unnamed, True)})[0], (set(), False))
+        # A push refused names nothing it landed on, and is not read for it.
+        self.assertEqual(landed(listed(r1), {"r_A1": (record("r_A1", None, state="refused", branch=None), True)})[0],
+                         (set(), True))
+        # Every Effect of a record is read. A Run that opened its pull request pushed to that pull request's branch,
+        # never the next one, so its push vouches for nothing; one whose opening did not land still does.
+        both = record("r_A1", self.SHA)
+        for state, found in (("applied", set()), ("already_applied", set()), ("refused", {self.SHA}), ("failed", {self.SHA})):
+            kept = dict(both, effects=both["effects"] + [{"id": "e2", "type": "open_pull_request", "state": state,
+                                                          "key": "146", "reason": None}])
+            self.assertEqual(landed(listed(r1), {"r_A1": (kept, True)})[0], (found, True), state)
+            kept = dict(kept, effects=kept["effects"][::-1])
+            self.assertEqual(landed(listed(r1), {"r_A1": (kept, True)})[0], (found, True), state)
+        # A Run skipped, as opened or past its retention, ends nothing: a later Run's push is still read.
+        opened_pr = dict(both, effects=both["effects"] + [{"id": "e2", "type": "open_pull_request", "state": "applied",
+                                                           "key": "146", "reason": None}])
+        for first in ((opened_pr, True), (artifacts.EXPIRED, True)):
+            self.assertEqual(landed(listed(r1, r2), {"r_A1": first, "r_A2": (record("r_A2", other), True)})[0],
+                             ({other}, True), first[0])
+        for stranger in (run("r_B1", who="qa-lead"), run("r_B1", intent="investigate-issue"), run("r_B1", number=42),
+                         run("r_B1", repo="o/other"), run("r_B1", kind="pull_request")):
+            self.assertEqual(landed(listed(stranger), {"r_B1": "unanswered"}), ((set(), True), []), stranger)
+        # Not whole, never none: a Run in flight, one named by no GitHub run or two, a record not read whole or not
+        # answered, a push keyed by no whole sha; a run list short or naming a Run before its name; no Role.
+        for runs, kept in ((listed(run("r_A1", status="in_progress")), {}),
+                           (listed(r1, ids={}), {}), (listed(r1, ids={"r_A1": [1, 2]}), {}),
+                           (listed(r1), {"r_A1": (None, False)}), (listed(r1), {"r_A1": "unanswered"}),
+                           (listed(r1), {"r_A1": (record("r_A1", self.SHA[:7]), True)}),
+                           (listed(r1), {"r_A1": (record("r_A1", self.SHA + "0"), True)}),
+                           (listed(r1), {"r_A1": (record("r_A1", "g" * 40), True)}),
+                           (listed(r1, r2), {"r_A1": (record("r_A1", self.SHA), True), "r_A2": (None, False)}),
+                           (listed(r1, r2), {"r_A1": (record("r_A1", self.SHA), True), "r_A2": "unanswered"}),
+                           (listed(r1), {"r_A1": (record("r_A1", None), True)}),
+                           (listed(r1, complete=False), {}), (listed(r1, unidentified=["x"]), {}), (None, {})):
+            self.assertEqual(landed(runs, kept)[0], (set(), False), (runs, kept))
+        self.assertEqual(landed(listed(r1), {}, role_=None)[0], (set(), False))
+        # The port: a head no opening Run recorded is told false; one recorded, true; records not whole leave the branch
+        # not told; no branch asks nothing and tells nothing.
+        runs = listed(r1)
+        for head, found, told in (((self.SHA, True, mine), ({self.SHA}, True), (self.SHA, True, True)),
+                                  ((self.SHA, True, mine), ({other}, True), (self.SHA, True, False)),
+                                  ((self.SHA, True, mine), (set(), True), (self.SHA, True, False)),
+                                  ((self.SHA, True, mine), ({self.SHA}, False), (None, False, None)),
+                                  ((None, True, mine), None, (None, True, None)), ((None, False, None), None, (None, False, None))):
+            asked = []
+
+            def read(transport, repo, runs_, role_, number, branch):
+                asked.append((transport is router, repo, runs_ is runs, role_, number, branch))
+                return found
+            router = Router(github.Replay(issue_read()), {"don-petry": "admin", "stranger": "read"})
+            accounts = timeline.Accounts(router, "o/r", MACHINE, {}, factory={CONTROLLER_APP[1:]})
+            with mock.patch.object(issues.branches, "work_head", lambda *a: head), \
+                    mock.patch.object(issues.applied, "landed", read):
+                facts_, _ = issues.read(router, "o/r", 41, accounts, lambda: Issues.NOW, identities=IDENTITIES, earlier=[],
+                                        opener=self.OPENER, runs=runs, role=role)
+            self.assertEqual((facts_["branch_head"], facts_["complete"]["branch"], facts_["branch_pushed"]), told, head)
+            self.assertEqual(asked, [(True, "o/r", True, role, 41, mine)] if found is not None else [], head)
 
 
 class Issues(unittest.TestCase):
@@ -8436,6 +8575,7 @@ PUSHED = json.loads((ROOT / "trials" / "P-71.json").read_text())["repo"]       #
 WORK = "factory-work/issue-9971-1"
 NAMED = "a" * 40
 MIXED = "0123456789abcdef" * 2 + "01234567"     # a name of digits and letters both
+FILE_MODE = "100644"
 
 
 def sent(transport, req):
@@ -8504,6 +8644,11 @@ class Lying(str):
 
     def split(self, sep=None, maxsplit=-1):
         return ["o", "a.md"]
+
+
+def marked(tree: dict, blobs: dict, sha: str = "0" * 40) -> dict:
+    """A listing as the push port's `listed` gives it: marked whole, at the tree `sha`."""
+    return {"tree": tree, "blobs": blobs, "sha": sha, "whole": True}
 
 
 class Push(unittest.TestCase):
@@ -8971,6 +9116,278 @@ class Push(unittest.TestCase):
                              (PUSHED, "factory-work/issue-1-%s9" % long_)):
             self.assertEqual(push.allowed(repo, branch), ({}, []), (repo, branch))
 
+
+    def listing(self, name="P-71", at=1):
+        """A listing P-71 recorded, every level of a tree, as `send` gives it, and the tree's name."""
+        found = exchanges(name)[at]
+        return {"status": "200", "body": copy.deepcopy(found["response"]["body"])}, found["response"]["body"]["sha"]
+
+    @staticmethod
+    def made(*entries):
+        """A listing of `entries`, each `(path, mode, type, sha, size)`, named as git names the tree they make."""
+        listed = [dict(path=path, mode=mode, type=kind, sha=sha, **({} if size is None else {"size": size}))
+                  for path, mode, kind, sha, size in entries]
+        folders = {"": []}
+        for entry in listed:
+            parent, _, name = entry["path"].rpartition("/")
+            folders.setdefault(parent, []).append(entry)
+        def named(path):
+            held = [("40000" if e["type"] == "tree" else e["mode"], e["path"].rpartition("/")[2],
+                     named(e["path"]) if e["type"] == "tree" else e["sha"]) for e in folders.get(path, [])]
+            return push._tree_name(held)
+        for entry in listed:
+            if entry["type"] == "tree":
+                entry["sha"] = named(entry["path"])
+        sha = named("")
+        return {"status": "200", "body": {"sha": sha, "truncated": False, "tree": listed}}, sha
+
+    @staticmethod
+    def blob(data: bytes):
+        """A blob's read as `send` gives it, and its git name."""
+        name = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+        return {"status": "200", "body": {"content": base64.b64encode(data).decode() + "\n", "encoding": "base64"}}, name
+
+    def test_a_trees_name_is_the_one_git_gives_it(self):
+        # `made` names its trees with `_tree_name`, so these names are git's own, from `git write-tree` on an index of
+        # each tree: the empty tree, one file, one file git runs, a directory beside a file whose name sorts before
+        # the directory's only as git sorts it, as if a `/` followed the directory's name, and two files, where no `/`
+        # follows either; and a directory between names on either side of `/`.
+        one = "5626abf0f72e58d7a153368ba57db4c673c0e171"
+        self.assertEqual(hashlib.sha1(b"blob 4\0one\n").hexdigest(), one)
+        a_file = "b1ea253509c6004817f83cd7659ab4e6c38b2981"
+        for entries, name in (([], "4b825dc642cb6eb9a060e54bf8d69288fbee4904"),
+                              ([("100644", "a", one)], a_file),
+                              ([("100755", "run", one)], "be8dca15050011b510eb70f535adada9005d64e9"),
+                              ([("40000", "a", a_file), ("100644", "a.b", one)], "6b252a8ed528320520dc1e328b59422a95040a51"),
+                              ([("100755", "run", one), ("40000", "a", a_file), ("100644", "a.b", one)],
+                               "48614e7e191b98b217823e28108422b4275268c8"),
+                              ([("100644", "a.b", one), ("100644", "a", one)], "01209b322f27596690a1e6285f48e6da5d375fd4"),
+                              # A directory sorts after `a.b` and `a.b.c`, and before `a0`: as if `/` followed it.
+                              ([("100644", "a0", one), ("40000", "a", a_file), ("100644", "a.b.c", one), ("100644", "a.b", one)],
+                               "1c3fd4a816b516aa9cf14d89ccfb5b81e62df0a7")):
+            self.assertEqual(push._tree_name(entries), name, entries)
+
+    def test_a_trees_listing_is_taken_whole_or_not_at_all(self):
+        # Every listing P-71 recorded is the tree git names: each directory rebuilt, the whole named as asked.
+        for name, at in (("P-71", 1), ("P-71", 8), ("P-71.moved", 2)):
+            answer, sha = self.listing(name, at)
+            self.assertIn("trees/" + sha, exchanges(name)[at]["request"]["call"])
+            self.assertIsNone(push.listed(answer, sha)[1], (name, at))
+        answer, sha = self.listing()
+        got, why = push.listed(answer, sha)
+        self.assertIsNone(why)
+        # Marked whole, at the tree it was read at, for the guard to ask: no listing of another tree, or of part of one.
+        self.assertEqual((got["sha"], set(got)), (sha, {"tree", "blobs", "sha", "whole"}))
+        self.assertIs(got["whole"], True)
+        # A tree's name that is no plain name would carry its own equality into the mark: no listing is taken under it.
+        for said in (Lying(sha), sha.upper(), sha[:39], None):
+            self.assertEqual(push.listed(answer, said), (None, patch.TREE_UNREAD), said)
+        # Git's empty tree is whole too, and marked so.
+        empty = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+        bare = push.listed({"status": "200", "body": {"sha": empty, "truncated": False, "tree": []}}, empty)
+        self.assertEqual(bare, (marked({}, {}, empty), None))
+        self.assertIs(bare[0]["whole"], True)
+        tree, blobs = got["tree"], got["blobs"]
+        self.assertEqual(tree, {"README.md": "100644", "bin/link": "120000", "bin/run.sh": "100755",
+                                "docs/notes.md": "100644", "gone.txt": "100644"})
+        self.assertEqual(blobs["bin/run.sh"], ("85ba14df52f8c72688537de6e7555fb402217b1e", 19))
+        # No answer, or one the port reads as none, is the port's; GitHub's answer of any other kind is a person's.
+        for status in ("500", "502", "401", "403", "429"):
+            self.assertEqual(push.listed(dict(answer, status=status), sha), (None, push.TREE_UNFETCHED), status)
+        self.assertEqual(push.listed(None, sha), (None, push.TREE_UNFETCHED))
+        for status in (200, None):      # a status that is not text, as `send` writes it, is no answer
+            self.assertEqual(push.listed(dict(answer, status=status), sha), (None, push.TREE_UNFETCHED), status)
+        self.assertEqual(push.listed({"body": answer["body"]}, sha), (None, push.TREE_UNFETCHED))
+        for status in ("404", "422", "201"):
+            self.assertEqual(push.listed(dict(answer, status=status), sha), (None, patch.TREE_UNREAD), status)
+        self.assertEqual(push.listed(answer, NAMED), (None, patch.TREE_UNREAD))
+        self.assertEqual(push.listed({"status": "200", "body": {"sha": "x", "truncated": False, "tree": []}}, "x"),
+                         (None, patch.TREE_UNREAD))
+
+        class Body(dict):
+            """A body of another kind."""
+
+        class Text(str):
+            """A path of another kind."""
+        def changed(edit):
+            said = copy.deepcopy(answer)
+            edit(said["body"])
+            return push.listed(said, sha)
+        file_ = {"path": "x", "mode": "100644", "type": "blob", "sha": NAMED, "size": 1}
+        for edit in (lambda b: b.update(truncated=True), lambda b: b.pop("truncated"), lambda b: b.update(truncated=0),
+                     lambda b: b.update(sha=NAMED), lambda b: b.update(tree={}), lambda b: b["tree"].append(b["tree"][0]),
+                     lambda b: b["tree"][0].update(type="tag"), lambda b: b["tree"][0].update(mode="100664"),
+                     lambda b: b["tree"][0].update(size=-1), lambda b: b["tree"][0].update(size=True),
+                     lambda b: b["tree"][0].pop("size"), lambda b: b["tree"][0].update(sha="A" * 40),
+                     lambda b: b["tree"][1].update(mode="040755"), lambda b: b["tree"].append("README.md"),
+                     lambda b: b["tree"][0].update(path=None), lambda b: b["tree"][0].update(path=Text("README.md")),
+                     lambda b: b["tree"].__setitem__(0, Body(b["tree"][0])), lambda b: b.update(tree=type("L", (list,), {})(b["tree"])),
+                     # An entry left out, one added, a directory listed again as a file, or one under no directory listed.
+                     lambda b: b["tree"].pop(), lambda b: b["tree"].append(dict(file_)),
+                     lambda b: b["tree"].append(dict(file_, path="bin")), lambda b: b["tree"].append(dict(file_, path="none/x")),
+                     lambda b: b["tree"].append(dict(file_, path="bin/")), lambda b: b["tree"][1].update(sha=None),
+                     # A type and a mode that disagree: a directory's mode on a blob, a submodule's on a blob, a blob's type on a directory.
+                     lambda b: b["tree"][0].update(mode="040000"), lambda b: b["tree"][0].update(mode="160000"),
+                     lambda b: b["tree"][1].update(type="blob")):
+            self.assertEqual(changed(edit), (None, patch.TREE_UNREAD))
+        self.assertEqual(push.listed(dict(answer, body=Body(answer["body"])), sha), (None, patch.TREE_UNREAD))
+        # A path git holds no file of: a part not named, a NUL, a lone surrogate (JSON holds one; UTF-8 does not).
+        for path in ("/README.md", "README.md/", "bin//run.sh", "READ\0ME.md", "READ\ud800ME.md", ""):
+            self.assertEqual(changed(lambda b: b["tree"][0].update(path=path)), (None, patch.TREE_UNREAD), path)
+        for path in ("/x", "x\0y", "x//y"):
+            self.assertEqual(push.listed(*self.made((path, "100644", "blob", NAMED, 1))), (None, patch.TREE_UNREAD), path)
+        lone = {"path": "x\udc80", "mode": "100644", "type": "blob", "sha": NAMED, "size": 1}
+        self.assertEqual(push.listed({"status": "200", "body": {"sha": MIXED, "truncated": False, "tree": [lone]}}, MIXED),
+                         (None, patch.TREE_UNREAD))
+        # Two entries of one path make a tree's name and are still no tree.
+        twice = self.made(("x", "100644", "blob", NAMED, 1), ("x", "100644", "blob", MIXED, 2))
+        self.assertEqual(push.listed(*twice), (None, patch.TREE_UNREAD))
+        # An entry left out below the top, its directory's name kept, is a listing of no tree.
+        self.assertEqual(changed(lambda b: b["tree"].remove(next(e for e in b["tree"] if e["path"] == "bin/run.sh"))),
+                         (None, patch.TREE_UNREAD))
+        # Git's own order, named by git itself (git write-tree): a directory sorts as if a / followed its name, so a.c
+        # before a/; given here in another order.
+        ordered = [("ab", "100644", "blob", "b68025345d5301abad4d9ec9166f455243a0d746"),
+                   ("a", "040000", "tree", "ab69b4abf3bb84d4e268bd42d84e4a9a5e242bd3"),
+                   ("a/x", "100644", "blob", "587be6b4c3f93f93c489c0111bba5596147a26cb"),
+                   ("a.c", "100644", "blob", "f2ad6c76f0115a6ba5b00456a849810e7ec0af20"),
+                   ("a-b", "100644", "blob", "61780798228d17af2d34fce4cfbdf35556832472")]
+        gits = {"status": "200", "body": {"sha": "b6d7b79f7c01fba5391e1aa4dc6d688984af9e8a", "truncated": False,
+                                          "tree": [dict(path=path, mode=mode, type=kind, sha=sha, **({"size": 2} if kind == "blob" else {}))
+                                                   for path, mode, kind, sha in ordered]}}
+        self.assertEqual(push.listed(gits, "b6d7b79f7c01fba5391e1aa4dc6d688984af9e8a")[0]["tree"],
+                         {"ab": "100644", "a/x": "100644", "a.c": "100644", "a-b": "100644"})
+        # A submodule is a path of the tree, with no blob to read; a commit of a file's mode is no submodule.
+        made, name = self.made(("vendored", "160000", "commit", NAMED, None), ("d", "040000", "tree", None, None),
+                               ("d/x", "100644", "blob", MIXED, 3))
+        got, why = push.listed(made, name)
+        self.assertEqual((got, why), (marked({"vendored": "160000", "d/x": "100644"}, {"d/x": (MIXED, 3)}, name), None))
+        self.assertEqual(push.to_read(got, ["vendored", "d/x"]), (["d/x"], None))
+        self.assertEqual(push.listed(*self.made(("vendored", "100644", "commit", NAMED, None))), (None, patch.TREE_UNREAD))
+        # A type that disagrees with its mode, though the tree's name still holds: a submodule or an empty directory
+        # told as a blob.
+        for path, mode, kind in (("vendored", "160000", "commit"), ("empty", "040000", "tree")):
+            made, name = self.made((path, mode, kind, NAMED, None))
+            self.assertIsNone(push.listed(made, name)[1], path)
+            made["body"]["tree"][0]["type"] = "blob"
+            self.assertEqual(push.listed(made, name), (None, patch.TREE_UNREAD), path)
+
+    def test_a_push_reads_whole_within_its_bound_and_past_it_is_the_roles_attempt(self):
+        # The bounds are the record's: 1,000 files, 64 MiB in all, and a file whose blob answer the transport takes.
+        self.assertEqual((push.MOST_FILES, push.MOST_BYTES), (1000, 64 * 1024 * 1024))
+        def answered(size):
+            # The characters of a blob's content in its answer: base64, a newline after each 60, each written as two.
+            chars = 4 * -(-size // 3)
+            return chars + 2 * -(-chars // 60)
+        found = exchanges("P-71")[2]["response"]["body"]
+        self.assertEqual(answered(found["size"]), len(json.dumps(found["content"])) - 2)
+        self.assertLessEqual(answered(push.MOST_BLOB) + 65536, github.LARGEST)
+        self.assertGreater(answered(push.MOST_BLOB + 1) + 65536, github.LARGEST)
+        many = {"f%04d" % n: FILE_MODE for n in range(1001)}
+        sizes = {path: (NAMED, 1) for path in many}
+        names = sorted(many)
+        self.assertEqual(push.to_read(marked(many, sizes), names[:1000]), (names[:1000], None))
+        self.assertEqual(push.to_read(marked(many, sizes), names), (None, push.READS_TOO_LARGE))
+        two = {"a": FILE_MODE, "b": "100755"}
+        self.assertEqual(push.to_read(marked(two, {"a": (NAMED, 32 * 2 ** 20), "b": (NAMED, 32 * 2 ** 20)}), ["b", "a"]),
+                         (["b", "a"], None))
+        self.assertEqual(push.to_read(marked(two, {"a": (NAMED, 32 * 2 ** 20), "b": (NAMED, 32 * 2 ** 20 + 1)}), ["a", "b"]),
+                         (None, push.READS_TOO_LARGE))
+        # A file the transport never takes whole is a person's, before any bound of the Role's; one at its edge is read.
+        self.assertEqual(push.to_read(marked(two, {"a": (NAMED, 1), "b": (NAMED, push.MOST_BLOB + 1)}), ["a", "b"]),
+                         (None, patch.TREE_UNREAD))
+        self.assertEqual(push.to_read(marked(two, {"a": (NAMED, 1), "b": (NAMED, push.MOST_BLOB)}), ["a", "b"]), (["a", "b"], None))
+        self.assertEqual(push.to_read(marked(two, {"a": (NAMED, 20 * 2 ** 20), "b": (NAMED, push.MOST_BLOB)}), ["a", "b"]),
+                         (None, push.READS_TOO_LARGE))
+        self.assertEqual(push.to_read(marked(two, {"a": (NAMED, 32 * 2 ** 20), "b": (NAMED, push.MOST_BLOB + 1)}), ["a", "b"]),
+                         (None, patch.TREE_UNREAD))
+        # What the patch names that is no file of the tree is read by no one, and a patch of no sources reads nothing.
+        listing, _ = push.listed(*self.listing())
+        self.assertEqual(push.to_read(listing, ["bin/link", "absent", "bin/run.sh", "README.md"]),
+                         (["bin/run.sh", "README.md"], None))
+        self.assertEqual(push.to_read(listing, None), ([], None))
+        # The bytes, all or nothing: P-71's own blob read lands as its bytes.
+        got = {"bin/run.sh": {"status": "200", "body": found}}
+        self.assertEqual(push.read_whole(listing, ["bin/run.sh"], got.get), ({"bin/run.sh": b"#!/bin/sh\necho run\n"}, None))
+        one, first = self.blob(b"one\n")
+        other, second = self.blob(b"two\n")
+        wrong = self.blob(b"three\n")[0]
+        listing = marked({"a": FILE_MODE, "b": FILE_MODE}, {"a": (first, 4), "b": (second, 4)})
+        self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": one, "b": other}.get), ({"a": b"one\n", "b": b"two\n"}, None))
+        # The first file that gives no bytes ends the read: the port's where it was not read, a person's where GitHub
+        # refused it or gave other bytes.
+        for gone in (None, {"status": "502", "body": None}, {"status": "429", "body": {}}, {"status": "401", "body": {}}, "no answer"):
+            self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": one, "b": gone}.get), (None, push.TREE_UNFETCHED))
+            self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": gone, "b": wrong}.get), (None, push.TREE_UNFETCHED))
+        self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": one}.get), (None, push.TREE_UNFETCHED))
+        self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": one, "b": other}), (None, push.TREE_UNFETCHED))
+        for refused in ({"status": "404", "body": {}}, {"status": "422", "body": {"message": "not a blob"}}, wrong,
+                        {"status": "403", "body": {"message": "Forbidden"}}):
+            for answers in ({"a": one, "b": refused}, {"a": refused, "b": None}):
+                self.assertEqual(push.read_whole(listing, ["a", "b"], answers.get), (None, patch.TREE_UNREAD), answers)
+        # Each file is asked for in order, and none after the first that gives a code.
+        for first_answer in (wrong, None):
+            asked = []
+            push.read_whole(listing, ["a", "b"], lambda path: asked.append(path) or {"a": first_answer, "b": other}[path])
+            self.assertEqual(asked, ["a"])
+        # More bytes than the bound, though the listing said fewer, are the Role's, and nothing is cut short.
+        fewer = marked({"a": FILE_MODE, "b": FILE_MODE}, {"a": (first, 1), "b": (second, 1)})
+        with mock.patch.object(push, "MOST_BYTES", 7):
+            self.assertEqual(push.read_whole(fewer, ["a", "b"], {"a": one, "b": other}.get), (None, push.READS_TOO_LARGE))
+        with mock.patch.object(push, "MOST_BYTES", 8):
+            self.assertEqual(push.read_whole(fewer, ["a", "b"], {"a": one, "b": other}.get)[1], None)
+
+    def test_a_rate_limits_403_is_no_answer_and_a_blobs_other_403_is_a_persons(self):
+        class Answering:
+            """A transport that gives every request one answer."""
+            def __init__(self, status, headers):
+                self.answer = {"status": status, "headers": headers, "body": {"message": "limited"}}
+
+            def send(self, req):
+                return self.answer
+        blob = push.read_blob(PUSHED, NAMED)
+        # A 403 with no request left or a time to wait is a rate limit's, no answer (decision 1138); `send` gives none.
+        for headers in ({"x-ratelimit-remaining": "0"}, {"x-ratelimit-remaining": 0}, {"retry-after": "60"}):
+            self.assertIsNone(sent(Answering(403, headers), blob), headers)
+        # Any other 403, and another status with a time to wait, is an answer.
+        for status, headers in ((403, {}), (403, {"x-ratelimit-remaining": "5"}), (404, {"retry-after": "60"}),
+                                (200, {"retry-after": "60"}), (403, None), (403, ["retry-after"])):
+            self.assertEqual(sent(Answering(status, headers), blob), {"status": str(status), "body": {"message": "limited"}},
+                             (status, headers))
+        # A listing's 403 is the port's; a blob's, read after the listing by the same token, a person's; a blob's rate
+        # limit, no answer, the port's.
+        one, first = self.blob(b"one\n")
+        listing = marked({"a": FILE_MODE}, {"a": (first, 4)})
+        answer, sha = self.listing()
+        refused = sent(Answering(403, {}), blob)
+        self.assertEqual(push.listed(dict(answer, status="403"), sha), (None, push.TREE_UNFETCHED))
+        self.assertEqual(push.read_whole(listing, ["a"], {"a": refused}.get), (None, patch.TREE_UNREAD))
+        limited = sent(Answering(403, {"retry-after": "60"}), blob)
+        self.assertEqual(push.read_whole(listing, ["a"], {"a": limited}.get), (None, push.TREE_UNFETCHED))
+        self.assertEqual((push.WHOSE[patch.TREE_UNREAD], push.WHOSE[push.TREE_UNFETCHED]), (push.PERSON, push.PORT))
+
+    def test_every_code_of_the_patch_guard_and_the_port_names_whose_it_is(self):
+        # Every code, of either module, is in the table, and nothing else: none is read with a default.
+        coded = re.compile(r"(?:push|patch|bundle)_[a-z_]+")
+        codes = {value for module in (patch, guard, push) for value in vars(module).values()
+                 if type(value) is str and coded.fullmatch(value)}
+        self.assertEqual(set(push.WHOSE), codes)
+        # No code is written in place in either module, where the table would not see it.
+        import ast
+        for module in (patch, guard, push):
+            tree = ast.parse(pathlib.Path(module.__file__).read_text())
+            written = {node.value for node in ast.walk(tree) if isinstance(node, ast.Constant) and type(node.value) is str
+                       and coded.fullmatch(node.value)}
+            self.assertLessEqual(written, codes, module.__name__)
+        # Each code's owner, by its letters: a read in no shape is a person's Hold, never the Role's attempt, nor the
+        # environment's fault, which is a read with no answer alone.
+        self.assertEqual(push.WHOSE, {"bundle_unreadable": "role", "patch_does_not_apply": "role", "push_not_a_file": "role",
+                                      "push_path_collision": "role", "push_reads_too_large": "role",
+                                      "push_tree_unreadable": "person", "push_tree_unfetched": "port",
+                                      "push_not_permitted": "person"})
+        self.assertEqual((push.READS_TOO_LARGE, push.TREE_UNFETCHED), ("push_reads_too_large", "push_tree_unfetched"))
+        # A person's code is the Kernel's `person` fault, which holds the item for a person (decision 1224).
+        self.assertEqual(push.PERSON, terms.ENDED_PERSON)
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,7 +15,8 @@ from __future__ import annotations
 
 from kernel import brakes
 from kernel import terms as t
-from kernel.derive import acted_since_writer, in_progress, is_time, run_deferral, runs_on, seconds, since_writer, stale, standing_labels
+from kernel.derive import (acted_since_writer, in_progress, is_time, needs_person, run_deferral, runs_on, seconds, since_writer,
+                           stale, standing_labels)
 from kernel.gate import is_person
 
 # The States of lifecycle/issue.json that a pull request's do not share. `held` and `not_served` are terms.py's.
@@ -102,6 +103,7 @@ NEEDS_YOU_REASONS = frozenset({
     "linked_twice",
     "acceptance_lapsed",
     "attempts_exhausted",
+    "run_needs_person",
     "run_ceiling",
     "environment_ceiling",
     "act_ceiling",
@@ -113,6 +115,7 @@ NEEDS_YOU_REASONS = frozenset({
     "label_unreadable",
     "issues_unreadable",
     "limits_unreadable",
+    "branch_not_pushed",
     "intents_unreadable",
     "intents_share_a_role",
     "intents_share_an_app",
@@ -857,9 +860,12 @@ def branch_told(facts: dict) -> bool:
 
 def readable_head(facts: dict) -> bool:
     """The head of the branch the next opening Run would push to, told: a commit's whole sha, or null while that branch
-    does not exist. Where the port did not tell it, `complete.branch` not exactly true, a null is unread too (issue 1059)."""
+    does not exist. Where the port did not tell it, `complete.branch` not exactly true, a null is unread too (issue 1059).
+    A commit is told only with `branch_pushed`, whether an earlier opening Run of the issue recorded pushing it, exactly
+    true or false; with no branch there is nothing to tell, and a push told of no branch contradicts it."""
     return branch_told(facts) and "branch_head" in facts and (
-        facts["branch_head"] is None or is_commit(facts["branch_head"]))
+        facts["branch_head"] is None and facts.get("branch_pushed") is None
+        or is_commit(facts["branch_head"]) and type(facts.get("branch_pushed")) is bool)
 
 
 def draft_head(draft: dict, number) -> bool:
@@ -1051,6 +1057,9 @@ def _wanted(facts, state, reason, evidence, mine, intents):
     if not readable_head(facts):
         return _decision(facts, state, "branch_unreadable", evidence, t.DEFER)
     if facts["branch_head"] is not None:
+        # A commit no opening Run of the issue recorded pushing is none the Factory wrote: a person looks.
+        if facts["branch_pushed"] is False:
+            return _decision(facts, t.HELD, "branch_not_pushed", [facts["branch_head"]], t.HOLD)
         # An earlier Run's commit stands on the branch: this Run pushes none, and lands on nothing.
         return (who["role"], OPENING, {"branch_head": facts["branch_head"]})
     if not readable_base(facts):
@@ -1097,6 +1106,11 @@ def _implementing(facts, state, reason, evidence, mine, config):
         return _decision(facts, state, "draft_checks_unreadable", evidence, t.DEFER)
     if draft["checks"] != "failing":
         return _decision(facts, state, reason, evidence, t.NOTHING)
+    # The author Role's last Run ended on a code only a person can mend: held for a person before the rounds' brake, as
+    # every Run wanted is before the brakes (issue 838).
+    ended = needs_person(since_writer(mine, facts), config["author_role"])
+    if ended:
+        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)
     unreadable = _decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)
     held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"], unreadable)
     if held:
@@ -1229,6 +1243,11 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     if isinstance(wanted, dict):
         return wanted
     role, intent, carried = wanted
+
+    # The Role's last Run ended on a code only a person can mend: held for a person before the brakes (issue 838).
+    ended = needs_person(since_writer(mine, facts), role)
+    if ended:
+        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)
 
     # The brakes on a Run (decision 0003): the Pause, the attempts and the Run ceiling.
     brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since_writer(mine, facts), limits)

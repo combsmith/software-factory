@@ -556,4 +556,7 @@ MUTANTS = [
     ('a first page that names one before it, beside its next, is trusted', 'adapters/seen.py',
      'not {"prev", "first"} & set(named)', '"first" not in named',
      ('tests.test_reconcile.SeenPort.test_a_read_from_the_end_trusts_no_answer_that_contradicts_itself',)),
+    ("a list cut at its bound is seen as nothing", 'adapters/seen.py',
+     '        return items, whole\n    except', '        return (items if whole else []), whole\n    except',
+     ('tests.test_reconcile.SeenPort.test_a_list_is_read_to_ten_pages_and_past_them_what_was_seen_is_short',)),
 ]
