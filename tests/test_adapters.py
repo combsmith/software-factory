@@ -9161,6 +9161,11 @@ class Push(unittest.TestCase):
         # A tree's name that is no plain name would carry its own equality into the mark: no listing is taken under it.
         for said in (Lying(sha), sha.upper(), sha[:39], None):
             self.assertEqual(push.listed(answer, said), (None, patch.TREE_UNREAD), said)
+        # Git's empty tree is whole too, and marked so.
+        empty = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+        bare = push.listed({"status": "200", "body": {"sha": empty, "truncated": False, "tree": []}}, empty)
+        self.assertEqual(bare, (marked({}, {}, empty), None))
+        self.assertIs(bare[0]["whole"], True)
         tree, blobs = got["tree"], got["blobs"]
         self.assertEqual(tree, {"README.md": "100644", "bin/link": "120000", "bin/run.sh": "100755",
                                 "docs/notes.md": "100644", "gone.txt": "100644"})
