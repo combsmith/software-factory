@@ -1293,6 +1293,7 @@ class Push(unittest.TestCase):
                 ("a removed path that is no text", told(removed=[["tests/t.py"]])),
                 ("a file written above a file written", told(written={"a": (FILE, b""), "a/b": (FILE, b"")})),
                 ("a file written two above a file written", told(written={"a": (FILE, b""), "a/b/c": (FILE, b"")})),
+                ("a file written under a file written, deeper", told(written={"a/b": (FILE, b""), "a/b/c": (FILE, b"")})),
                 ("a file removed above a file removed", told(written={"x": (FILE, b"")}, removed=["a", "a/b"])),
                 ("a file written and removed", told(removed=["docs/a.md"])),
                 ("a file removed twice", told(removed=["tests/t.py", "tests/t.py"])),
@@ -1557,6 +1558,14 @@ class Push(unittest.TestCase):
         once, _ = push.seen(state, "POST", GIT + "blobs", blob, {"status": "201", "body": {"sha": MADE}})
         self.assertTrue(push.permits(state, "GET", GIT + "blobs/" + BLOB_A, None))
         self.assertFalse(push.permits(once, "GET", GIT + "blobs/" + BLOB_A, None))
+        # A push that only removes makes no blob: once its tree is made, nothing is read either.
+        gone = dict(PUSH, changes={"written": {}, "removed": ["tests/t.py"], "read": []}, blobs={})
+        body = {"base_tree": ROOT_TREE, "tree": [{"path": "tests/t.py", "mode": FILE, "type": "blob", "sha": None}]}
+        made, _ = push.seen(self.read(gone), "POST", GIT + "trees", body, {"status": "201", "body": {"sha": NEW_A}})
+        self.assertEqual(made["new"], NEW_A)
+        self.assertFalse(push.permits(made, "GET", GIT + "blobs/" + BLOB_A, None))
+        # A tree made is held only once the listing was read.
+        self.assertFalse(push.permits(dict(push.began(gone)[0], new=NEW_A), "GET", AT_BRANCH, None))
 
     def test_a_blob_is_made_once_of_each_written_content(self):
         state = self.read()
@@ -1576,6 +1585,9 @@ class Push(unittest.TestCase):
         both, _ = push.seen(self.read(same), "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"},
                             {"status": "201", "body": {"sha": MADE}})
         self.assertEqual(both["made"], {"docs/a.md": MADE, "docs/b.md": MADE})
+        # Files of one content are named by one blob in any state.
+        self.assertFalse(push.permits(dict(self.read(same), made={"docs/a.md": MADE}), "POST", GIT + "blobs",
+                                      {"content": "QQo=", "encoding": "base64"}))
         # A state that says it made what it did not lets nothing more leave.
         blob = {"content": "eAo=", "encoding": "base64"}
         half, _ = push.seen(state, "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"},
@@ -1614,6 +1626,18 @@ class Push(unittest.TestCase):
             self.assertFalse(push.permits(made, "POST", GIT + "trees", dict(self.TREE, tree=entries_said)), said)
         for body in (dict(self.TREE, base_tree=PARENT), dict(self.TREE, x=1), Mapping(self.TREE), {"tree": entries}):
             self.assertFalse(push.permits(made, "POST", GIT + "trees", body), body)
+        # Changes the admitted tree cannot hold, as `existing` reads them, make no tree: a file over a directory, under
+        # a link, over a submodule, or a submodule removed.
+        for written, removed in (({"docs": (FILE, b"A\n")}, []), ({"bin/l/y": (FILE, b"A\n")}, []),
+                                 ({"vendor": (FILE, b"A\n")}, []), ({"x": (FILE, b"A\n")}, ["vendor"])):
+            told = dict(PUSH, changes={"written": written, "removed": removed, "read": []},
+                        blobs={path: "QQo=" for path in written})
+            state, _ = push.seen(self.read(told), "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"},
+                                 {"status": "201", "body": {"sha": MADE}})
+            body = {"base_tree": ROOT_TREE, "tree": [{"path": path, "mode": FILE, "type": "blob", "sha": MADE} for path in written]
+                    + [{"path": path, "mode": LISTING["tree"][path], "type": "blob", "sha": None} for path in removed]}
+            self.assertIsNotNone(state, written)
+            self.assertFalse(push.permits(state, "POST", GIT + "trees", body), written)
         # A removed file the listing does not hold was never `applied`'s to remove.
         gone = dict(PUSH, changes=dict(WROTE, removed=["tests/u.py"]))
         self.assertFalse(push.permits(self.made(self.read(gone)), "POST", GIT + "trees",

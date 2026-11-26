@@ -237,12 +237,17 @@ def _state(state) -> bool:
         return False
     if read and (before is None or not set(read) <= _files(before)):
         return False
-    made, new, changes = state["made"], state["new"], state["push"]["changes"]
+    made, new, changes, push_blobs = state["made"], state["new"], state["push"]["changes"], state["push"]["blobs"]
     if not (_mapping(made) and all(_sha(name) for name in made.values())):
         return False
     if made and (before is None or changes is None or not set(made) <= set(changes["written"])):
         return False
-    if new is not None and not (_sha(new) and new != tree and changes is not None and set(made) == set(changes["written"])):
+    # Files of one content share one blob.
+    if made and any(push_blobs[path] == push_blobs[one] and made.get(path) != made[one] for one in made
+                    for path in changes["written"]):
+        return False
+    if new is not None and not (_sha(new) and new != tree and before is not None and changes is not None
+                                and set(made) == set(changes["written"])):
         return False
     return (type(state["branch_read"]) is bool and all(state[key] is None for key in NONE_YET)
             and all(state[key] is False for key in NOT_YET))
@@ -271,7 +276,7 @@ def _step(state, method, path, body):
         return TREE_READ
     sha = rest[len("blobs/"):]
     if (before is not None and rest == "blobs/" + sha and sha in _files(before) and sha not in state["blobs_read"]
-            and not state["made"]):
+            and not state["made"] and state["new"] is None):
         return BLOB_READ
     return None
 
@@ -286,7 +291,9 @@ def _written(state, method, rest, body):
     if rest == "blobs" and _keyed(body, BLOB_BODY) and _said(body["encoding"], BASE64) and type(body["content"]) is str:
         if any(push["blobs"][path] == body["content"] and path not in made for path in changes["written"]):
             return BLOB_MADE
-    if rest == "trees" and state["new"] is None and set(made) == set(changes["written"]) and _tree(body, state):
+    # The tree lands only changes the admitted tree can hold, as `existing` reads them.
+    if (rest == "trees" and state["new"] is None and set(made) == set(changes["written"]) and _tree(body, state)
+            and existing(changes, state["before"]["tree"])[1] is None):
         return TREE_MADE
     return None
 
