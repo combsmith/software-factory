@@ -88,9 +88,9 @@ def _keyed(said, keys: tuple) -> bool:
 def _changes(changes) -> bool:
     """Whether `changes` is in the shape `guards/patch.py`'s `applied` gives, path by path: exactly its three keys;
     files written, each with a file's mode and its bytes; files removed; files read; every path a name `patch.named`
-    reads; no path written or removed twice, or both; no file written above another written, nor removed above another
-    removed; and one at least. A file written where one removed stood above it, or under it, is a file replaced by a
-    directory, or a directory by a file, and `applied` gives both."""
+    reads; no path written or removed twice, or both; no file written above another written, nor one removed or read
+    above another removed or read; and one at least. A file written where one removed stood above it, or under it, is
+    a file replaced by a directory, or a directory by a file, and `applied` gives both."""
     if not _keyed(changes, CHANGES):
         return False
     written, removed, read = changes["written"], changes["removed"], changes["read"]
@@ -101,7 +101,8 @@ def _changes(changes) -> bool:
         return False
     if len(set(paths)) != len(paths) or len(set(read)) != len(read):
         return False
-    if any(above in side for side in (written, set(removed)) for path in side for above in _above(path)):
+    old = set(removed) | set(read)
+    if any(above in side for side in (written, old) for path in side for above in _above(path)):
         return False
     return all(type(to) is tuple and len(to) == len(WRITTEN) and type(to[0]) is str and to[0] in patch.FILE_MODES
                and type(to[1]) is bytes for to in written.values())
@@ -151,11 +152,16 @@ def existing(changes, tree) -> tuple:
     """`(files, None)`: the files of the admitted commit, `tree`, that the push changes or removes, each once, in
     order: what FR-14's rule on a test is asked about. A file the push adds is none of them. `(None, NOT_PERMITTED)`
     for changes in no shape `applied` gives, or that the tree cannot hold, and `(None, patch.TREE_UNREAD)` for a tree
-    that is no exact mapping of text to a mode git holds, each held to its type before any is compared."""
+    that is no exact mapping of text to a mode git holds, each held to its type before any is compared, or that no
+    tree is: a file under a file, or deeper than any name `patch.named` reads."""
     if not _changes(changes):
         return None, NOT_PERMITTED
     if type(tree) is not dict or not all(type(path) is str and type(mode) is str and mode in patch.TREE_MODES
                                          for path, mode in tree.items()):
+        return None, patch.TREE_UNREAD
+    # A bound on depth, asked before a path is split, bounds what `_above` builds; no tree holds a file under a file.
+    if (not all(path.count("/") < len(patch.DEEPEST) for path in tree)
+            or any(above in tree for path in tree for above in _above(path))):
         return None, patch.TREE_UNREAD
     written, removed = changes["written"], set(changes["removed"])
     # Changes the tree cannot hold were never `applied`'s: a file removed or read that the tree holds as no file, a

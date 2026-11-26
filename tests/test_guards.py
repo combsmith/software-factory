@@ -1153,6 +1153,14 @@ class Unequal(str):
     __hash__ = str.__hash__
 
 
+class Raising(str):
+    """Text of another kind that may not be compared: a key is held to its type before any comparison reads it."""
+    def __eq__(self, other):
+        raise AssertionError("a key of another kind was compared")
+
+    __hash__ = str.__hash__
+
+
 class Mapping(dict):
     """A mapping of another kind, with the right keys: what `in`, `set` and `[]` on it do is its own to say."""
 
@@ -1201,6 +1209,7 @@ class Push(unittest.TestCase):
                 ("a parent that is a list of characters", dict(PUSH, parent=list(PARENT))),
                 ("a parent of a character more", dict(PUSH, parent=PARENT + "a")),
                 ("a parent of a letter that is no hex digit", dict(READING, parent="g" * 40)),
+                ("a parent of one letter that is no hex digit", dict(READING, parent="a" * 39 + "g")),
                 ("a work branch of an issue led by 0", dict(PUSH, branch="factory-work/issue-01-1")),
                 ("a work branch opened 01 times", dict(PUSH, branch="factory-work/issue-1-01")),
                 ("a work branch of a digit git's own are not", dict(PUSH, branch="factory-work/issue-\u0663-1")),
@@ -1223,6 +1232,8 @@ class Push(unittest.TestCase):
                 ("a blob of another kind", dict(PUSH, blobs=dict(BLOBS, **{"docs/a.md": Text("QQo=")}))),
                 ("a push of another kind", Mapping(PUSH)), ("blobs of another kind", dict(PUSH, blobs=Mapping(BLOBS))),
                 ("a key of the push of another kind", {Text(key): value for key, value in PUSH.items()}),
+                ("a last key of the push of another kind, never compared",
+                 dict({key: value for key, value in PUSH.items() if key != "blobs"}, **{Raising("blobs"): BLOBS})),
                 ("a blob's path of another kind", dict(PUSH, blobs={Text(path): text for path, text in BLOBS.items()}))):
             self.assertEqual(push.began(told), NOT_PERMITTED, said)
         # The state holds a copy: what the caller changes after the push was checked is never what it holds.
@@ -1245,7 +1256,9 @@ class Push(unittest.TestCase):
         for good in (told(), told(removed=[]), told(written={}), told(read=["docs/a.md", "docs/z.md"]),
                      told(written={"a/b": (FILE, b"")}, removed=["a/c", "ab"]),
                      # A file replaced by a directory, and a directory by a file: `applied` gives both.
-                     told(written={"a/b": (FILE, b"")}, removed=["a"]), told(written={"d": (FILE, b"")}, removed=["d/b"])):
+                     told(written={"a/b": (FILE, b"")}, removed=["a"]), told(written={"d": (FILE, b"")}, removed=["d/b"]),
+                     # A rename reads the file it removes.
+                     told(written={"x": (FILE, b"")}, removed=["tests/t.py"], read=["tests/t.py"])):
             self.assertIsNotNone(push.began(good)[0], good["changes"])
             self.assertIsNone(push.touched(good["changes"])[1])
             held = {path: FILE for path in good["changes"]["removed"] + good["changes"]["read"]}
@@ -1269,6 +1282,8 @@ class Push(unittest.TestCase):
                 ("a file written and removed", told(removed=["docs/a.md"])),
                 ("a file removed twice", told(removed=["tests/t.py", "tests/t.py"])),
                 ("a file read twice", told(read=["docs/a.md", "docs/a.md"])),
+                ("a file read under a file removed", told(written={"x": (FILE, b"")}, removed=["src"], read=["src/old"])),
+                ("a file removed under a file read", told(written={"x": (FILE, b"")}, removed=["src/old"], read=["src"])),
                 ("a link written", told(written={"l": ("120000", b"x")})),
                 ("a submodule written", told(written={"m": ("160000", b"x")})),
                 ("a file of text", told(written={"docs/a.md": (FILE, "A\n")})),
@@ -1318,7 +1333,9 @@ class Push(unittest.TestCase):
         # Changes that the tree they land on cannot hold were never `applied`'s: a file over a directory the tree keeps,
         # at any depth, or under a file it keeps. Where the push removes what stood in the way, they land.
         for wrote, tree_said in (({"tests": (FILE, b"x")}, {"tests/t.py": FILE}), ({"a/b": (FILE, b"")}, {"a": FILE}),
-                                 ({"a": (FILE, b"")}, {"a/b/c": FILE}), ({"a/b/c": (FILE, b"")}, {"a": FILE})):
+                                 ({"a": (FILE, b"")}, {"a/b/c": FILE}), ({"a/b/c": (FILE, b"")}, {"a": FILE}),
+                                 ({"tests/unit": (FILE, b"")}, {"tests/unit/group/t.py": FILE}),
+                                 ({"tests/unit/x/y": (FILE, b"")}, {"tests/unit": FILE})):
             said = {"written": wrote, "removed": [], "read": []}
             self.assertEqual(push.existing(said, tree_said), NOT_PERMITTED, tree_said)
         self.assertEqual(push.existing({"written": {"a/b": (FILE, b"")}, "removed": ["a"], "read": []}, {"a": FILE}),
@@ -1327,7 +1344,11 @@ class Push(unittest.TestCase):
                                        {"d/b": FILE, "e": FILE}), (["d/b"], None))
         # A tree in no shape a port gives is the port's read that this cannot take: a person's, as the patch guard's.
         for tree_said in (list(tree), None, Mapping(tree), dict(tree, **{"tests/t.py": None}), {5: FILE},
-                          {Unequal("tests/t.py"): FILE}, dict(tree, **{"tests/t.py": Text(FILE)}), {"x": "040000"}):
+                          {Unequal("tests/t.py"): FILE}, dict(tree, **{"tests/t.py": Text(FILE)}), {"x": "040000"},
+                          # A file that is a directory to another, which no tree holds, at any depth
+                          dict(tree, **{"docs": FILE}), dict(tree, **{"x/y": FILE, "x/y/z/w": FILE}),
+                          # and a path deeper than any name read, before it is split
+                          dict(tree, **{"/".join("d" * (len(patch.DEEPEST) + 1)): FILE})):
             self.assertEqual(push.existing(changes, tree_said), (None, patch.TREE_UNREAD), tree_said)
         # What `applied` gave is what is asked about, as it gave it.
         got, reason = patch.applied(CHANGE + NEW + GONE + COPIED, TREE, HELD)
