@@ -21,6 +21,8 @@ MUTANTS = [
     ("a fault GitHub limited is read again each pass", "adapters/records.py",
      'CONCLUDED = {"item", "capacity", "github_capacity", "environment", "superseded", "person"}',
      'CONCLUDED = {"item", "capacity", "environment", "superseded", "person"}', RESET),
+    ("a Run not yet completed says an end", "adapters/records.py",
+     'if status == "completed" and _time(row.get("updated_at"))', 'if _time(row.get("updated_at"))', RESET),
     ("an end before the Run's start is kept", "adapters/records.py",
      ' and row["updated_at"] >= started:', ":", RESET),
     ("GitHub's reset beside another fault is kept", "adapters/records.py",
