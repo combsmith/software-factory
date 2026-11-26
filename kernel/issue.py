@@ -1201,14 +1201,32 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     mine = runs_on(runs, facts)
 
     # The acts that stop work, read first. Unmerged closes past their bound place a Hold (I-43); a label that stands
-    # and does not count is removed, though not while a Run is in flight, whose own label may not count until it ends.
+    # and does not count is removed, though not while a Run is in flight, whose own label may not count until it ends,
+    # nor under a Hold the Run wanted places: it waits for the release, as under a person's Hold, so a label nobody
+    # counts never takes an issue out of held (issue 1216). The act ceiling is no such Hold: it binds no act that
+    # stops work.
     closes = unmerged_closes(facts)
     if len(closes) > config["limits"]["max_unmerged_closes"]:
         return dict(_stop(facts, state, "unmerged_closes", closes, context, PLACE_HOLD), attention=t.NEEDS_YOU)
     label = not_counted(facts, runs, config, state, reason)
+    after = _after_labels(facts, runs, context, config, now, d, mine)
     if label is not None and not in_progress(mine):
+        if _run_holds(after):
+            return after
         return _stop(facts, state, "label_not_counted", [label], context, REMOVE_LABEL, label=label)
+    return after
 
+
+def _run_holds(d: dict) -> bool:
+    """Whether `d` holds the issue on the Run it wants: any Hold but the act ceiling's, which binds no act that stops
+    work (issue 1216)."""
+    return d["state"] == t.HELD and d["outcome"] == t.HOLD and d["reason"] != "act_ceiling"
+
+
+def _after_labels(facts: dict, runs: list, context: dict, config: dict, now: str, d: dict, mine: list) -> dict:
+    """What `_decide` decides past the acts that stop work: what steers what is admitted, the Run wanted, its Holds and
+    brakes, and its admission. `d` is what derive read, and `mine` the issue's runs."""
+    state, reason, evidence = d["state"], d["reason"], d["evidence"]
     # What steers what is admitted, read whole.
     if not readable_comments(facts.get("role_comments")):
         return _decision(facts, state, "comments_unreadable", evidence, t.DEFER)
