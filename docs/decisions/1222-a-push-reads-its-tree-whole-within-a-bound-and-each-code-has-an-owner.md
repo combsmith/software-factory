@@ -27,6 +27,7 @@ A patch could name enough files to exhaust a Run, and a partial read lets the gu
 | Boundary | Check |
 |---|---|
 | A listing is taken whole: none cut short, of another tree, missing an entry, or with one not read here | `tests/test_adapters.py::test_a_trees_listing_is_taken_whole_or_not_at_all`, `adapters/push.py`, mutant: "a listing GitHub cut short is taken" |
+| A listing taken is marked whole, at the tree it was read at, for the push guard to ask | `tests/test_adapters.py::test_a_trees_listing_is_taken_whole_or_not_at_all`, `adapters/push.py`, mutant: "a listing is not marked whole" |
 | Past 1,000 files or 64 MiB the read is the Role's attempt; a blob the transport never takes is a person's | `tests/test_adapters.py::test_a_push_reads_whole_within_its_bound_and_past_it_is_the_roles_attempt`, `adapters/push.py`, mutant: "one file more than the bound is read" |
 | Every code of the guard and the port names its owner, and a read in no shape is a person's | `tests/test_adapters.py::test_every_code_of_the_patch_guard_and_the_port_names_whose_it_is`, `adapters/push.py`, mutant: "a read in no shape is the Role's attempt" |
 | No answer, a 5xx, 401 or 429 is the port's; a blob's 403, a refusal or other bytes a person's; reading stops at the first code | `tests/test_adapters.py::test_a_push_reads_whole_within_its_bound_and_past_it_is_the_roles_attempt`, `adapters/push.py`, mutant: "a refused blob is the port's" |

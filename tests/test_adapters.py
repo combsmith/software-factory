@@ -8646,6 +8646,11 @@ class Lying(str):
         return ["o", "a.md"]
 
 
+def marked(tree: dict, blobs: dict, sha: str = "0" * 40) -> dict:
+    """A listing as the push port's `listed` gives it: marked whole, at the tree `sha`."""
+    return {"tree": tree, "blobs": blobs, "sha": sha, "whole": True}
+
+
 class Push(unittest.TestCase):
     """The push port (issue 838): each request of a push by the git data API, built and sent, deciding nothing."""
 
@@ -9169,8 +9174,20 @@ class Push(unittest.TestCase):
             self.assertIn("trees/" + sha, exchanges(name)[at]["request"]["call"])
             self.assertIsNone(push.listed(answer, sha)[1], (name, at))
         answer, sha = self.listing()
-        (tree, blobs), why = push.listed(answer, sha)
+        got, why = push.listed(answer, sha)
         self.assertIsNone(why)
+        # Marked whole, at the tree it was read at, for the guard to ask: no listing of another tree, or of part of one.
+        self.assertEqual((got["sha"], set(got)), (sha, {"tree", "blobs", "sha", "whole"}))
+        self.assertIs(got["whole"], True)
+        # A tree's name that is no plain name would carry its own equality into the mark: no listing is taken under it.
+        for said in (Lying(sha), sha.upper(), sha[:39], None):
+            self.assertEqual(push.listed(answer, said), (None, patch.TREE_UNREAD), said)
+        # Git's empty tree is whole too, and marked so.
+        empty = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+        bare = push.listed({"status": "200", "body": {"sha": empty, "truncated": False, "tree": []}}, empty)
+        self.assertEqual(bare, (marked({}, {}, empty), None))
+        self.assertIs(bare[0]["whole"], True)
+        tree, blobs = got["tree"], got["blobs"]
         self.assertEqual(tree, {"README.md": "100644", "bin/link": "120000", "bin/run.sh": "100755",
                                 "docs/notes.md": "100644", "gone.txt": "100644"})
         self.assertEqual(blobs["bin/run.sh"], ("85ba14df52f8c72688537de6e7555fb402217b1e", 19))
@@ -9238,14 +9255,14 @@ class Push(unittest.TestCase):
         gits = {"status": "200", "body": {"sha": "b6d7b79f7c01fba5391e1aa4dc6d688984af9e8a", "truncated": False,
                                           "tree": [dict(path=path, mode=mode, type=kind, sha=sha, **({"size": 2} if kind == "blob" else {}))
                                                    for path, mode, kind, sha in ordered]}}
-        self.assertEqual(push.listed(gits, "b6d7b79f7c01fba5391e1aa4dc6d688984af9e8a")[0][0],
+        self.assertEqual(push.listed(gits, "b6d7b79f7c01fba5391e1aa4dc6d688984af9e8a")[0]["tree"],
                          {"ab": "100644", "a/x": "100644", "a.c": "100644", "a-b": "100644"})
         # A submodule is a path of the tree, with no blob to read; a commit of a file's mode is no submodule.
         made, name = self.made(("vendored", "160000", "commit", NAMED, None), ("d", "040000", "tree", None, None),
                                ("d/x", "100644", "blob", MIXED, 3))
-        (tree, blobs), why = push.listed(made, name)
-        self.assertEqual((tree, blobs, why), ({"vendored": "160000", "d/x": "100644"}, {"d/x": (MIXED, 3)}, None))
-        self.assertEqual(push.to_read((tree, blobs), ["vendored", "d/x"]), (["d/x"], None))
+        got, why = push.listed(made, name)
+        self.assertEqual((got, why), (marked({"vendored": "160000", "d/x": "100644"}, {"d/x": (MIXED, 3)}, name), None))
+        self.assertEqual(push.to_read(got, ["vendored", "d/x"]), (["d/x"], None))
         self.assertEqual(push.listed(*self.made(("vendored", "100644", "commit", NAMED, None))), (None, patch.TREE_UNREAD))
         # A type that disagrees with its mode, though the tree's name still holds: a submodule or an empty directory
         # told as a blob.
@@ -9269,33 +9286,33 @@ class Push(unittest.TestCase):
         many = {"f%04d" % n: FILE_MODE for n in range(1001)}
         sizes = {path: (NAMED, 1) for path in many}
         names = sorted(many)
-        self.assertEqual(push.to_read((many, sizes), names[:1000]), (names[:1000], None))
-        self.assertEqual(push.to_read((many, sizes), names), (None, push.READS_TOO_LARGE))
+        self.assertEqual(push.to_read(marked(many, sizes), names[:1000]), (names[:1000], None))
+        self.assertEqual(push.to_read(marked(many, sizes), names), (None, push.READS_TOO_LARGE))
         two = {"a": FILE_MODE, "b": "100755"}
-        self.assertEqual(push.to_read((two, {"a": (NAMED, 32 * 2 ** 20), "b": (NAMED, 32 * 2 ** 20)}), ["b", "a"]),
+        self.assertEqual(push.to_read(marked(two, {"a": (NAMED, 32 * 2 ** 20), "b": (NAMED, 32 * 2 ** 20)}), ["b", "a"]),
                          (["b", "a"], None))
-        self.assertEqual(push.to_read((two, {"a": (NAMED, 32 * 2 ** 20), "b": (NAMED, 32 * 2 ** 20 + 1)}), ["a", "b"]),
+        self.assertEqual(push.to_read(marked(two, {"a": (NAMED, 32 * 2 ** 20), "b": (NAMED, 32 * 2 ** 20 + 1)}), ["a", "b"]),
                          (None, push.READS_TOO_LARGE))
         # A file the transport never takes whole is a person's, before any bound of the Role's; one at its edge is read.
-        self.assertEqual(push.to_read((two, {"a": (NAMED, 1), "b": (NAMED, push.MOST_BLOB + 1)}), ["a", "b"]),
+        self.assertEqual(push.to_read(marked(two, {"a": (NAMED, 1), "b": (NAMED, push.MOST_BLOB + 1)}), ["a", "b"]),
                          (None, patch.TREE_UNREAD))
-        self.assertEqual(push.to_read((two, {"a": (NAMED, 1), "b": (NAMED, push.MOST_BLOB)}), ["a", "b"]), (["a", "b"], None))
-        self.assertEqual(push.to_read((two, {"a": (NAMED, 20 * 2 ** 20), "b": (NAMED, push.MOST_BLOB)}), ["a", "b"]),
+        self.assertEqual(push.to_read(marked(two, {"a": (NAMED, 1), "b": (NAMED, push.MOST_BLOB)}), ["a", "b"]), (["a", "b"], None))
+        self.assertEqual(push.to_read(marked(two, {"a": (NAMED, 20 * 2 ** 20), "b": (NAMED, push.MOST_BLOB)}), ["a", "b"]),
                          (None, push.READS_TOO_LARGE))
-        self.assertEqual(push.to_read((two, {"a": (NAMED, 32 * 2 ** 20), "b": (NAMED, push.MOST_BLOB + 1)}), ["a", "b"]),
+        self.assertEqual(push.to_read(marked(two, {"a": (NAMED, 32 * 2 ** 20), "b": (NAMED, push.MOST_BLOB + 1)}), ["a", "b"]),
                          (None, patch.TREE_UNREAD))
         # What the patch names that is no file of the tree is read by no one, and a patch of no sources reads nothing.
-        (tree, blobs), _ = push.listed(*self.listing())
-        self.assertEqual(push.to_read((tree, blobs), ["bin/link", "absent", "bin/run.sh", "README.md"]),
+        listing, _ = push.listed(*self.listing())
+        self.assertEqual(push.to_read(listing, ["bin/link", "absent", "bin/run.sh", "README.md"]),
                          (["bin/run.sh", "README.md"], None))
-        self.assertEqual(push.to_read((tree, blobs), None), ([], None))
+        self.assertEqual(push.to_read(listing, None), ([], None))
         # The bytes, all or nothing: P-71's own blob read lands as its bytes.
         got = {"bin/run.sh": {"status": "200", "body": found}}
-        self.assertEqual(push.read_whole((tree, blobs), ["bin/run.sh"], got.get), ({"bin/run.sh": b"#!/bin/sh\necho run\n"}, None))
+        self.assertEqual(push.read_whole(listing, ["bin/run.sh"], got.get), ({"bin/run.sh": b"#!/bin/sh\necho run\n"}, None))
         one, first = self.blob(b"one\n")
         other, second = self.blob(b"two\n")
         wrong = self.blob(b"three\n")[0]
-        listing = ({"a": FILE_MODE, "b": FILE_MODE}, {"a": (first, 4), "b": (second, 4)})
+        listing = marked({"a": FILE_MODE, "b": FILE_MODE}, {"a": (first, 4), "b": (second, 4)})
         self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": one, "b": other}.get), ({"a": b"one\n", "b": b"two\n"}, None))
         # The first file that gives no bytes ends the read: the port's where it was not read, a person's where GitHub
         # refused it or gave other bytes.
@@ -9314,7 +9331,7 @@ class Push(unittest.TestCase):
             push.read_whole(listing, ["a", "b"], lambda path: asked.append(path) or {"a": first_answer, "b": other}[path])
             self.assertEqual(asked, ["a"])
         # More bytes than the bound, though the listing said fewer, are the Role's, and nothing is cut short.
-        fewer = ({"a": FILE_MODE, "b": FILE_MODE}, {"a": (first, 1), "b": (second, 1)})
+        fewer = marked({"a": FILE_MODE, "b": FILE_MODE}, {"a": (first, 1), "b": (second, 1)})
         with mock.patch.object(push, "MOST_BYTES", 7):
             self.assertEqual(push.read_whole(fewer, ["a", "b"], {"a": one, "b": other}.get), (None, push.READS_TOO_LARGE))
         with mock.patch.object(push, "MOST_BYTES", 8):
@@ -9340,7 +9357,7 @@ class Push(unittest.TestCase):
         # A listing's 403 is the port's; a blob's, read after the listing by the same token, a person's; a blob's rate
         # limit, no answer, the port's.
         one, first = self.blob(b"one\n")
-        listing = ({"a": FILE_MODE}, {"a": (first, 4)})
+        listing = marked({"a": FILE_MODE}, {"a": (first, 4)})
         answer, sha = self.listing()
         refused = sent(Answering(403, {}), blob)
         self.assertEqual(push.listed(dict(answer, status="403"), sha), (None, push.TREE_UNFETCHED))
