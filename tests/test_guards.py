@@ -1351,6 +1351,9 @@ class Push(unittest.TestCase):
             self.assertEqual(push.existing(said, tree_said), NOT_PERMITTED, (said, tree_said))
         self.assertEqual(push.existing({"written": {"r": ("100755", b"")}, "removed": ["x"], "read": ["x"]},
                                        {"r": FILE, "x": "100755"}), (["r", "x"], None))
+        # A file written over an executable one is a file written over a file.
+        self.assertEqual(push.existing({"written": {"r": (FILE, b"")}, "removed": [], "read": []}, {"r": "100755"}),
+                         (["r"], None))
         # Changes that the tree they land on cannot hold were never `applied`'s: a file over a directory the tree keeps,
         # at any depth, or under a file it keeps. Where the push removes what stood in the way, they land.
         for wrote, tree_said in (({"tests": (FILE, b"x")}, {"tests/t.py": FILE}), ({"a/b": (FILE, b"")}, {"a": FILE}),
