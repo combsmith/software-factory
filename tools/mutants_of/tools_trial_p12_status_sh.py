@@ -1213,6 +1213,9 @@ MUTANTS = [
     *[(name % script, "tools/" + script, old, new, (TRIALS_KEEP,) + run_1215(script, "test_keep_raw_keeps_the_raw_answers_private_and_says_where"))
       for script in SCRIPTS_1215 for name, old, new in KEEP_1215],
     # Issue 1215: each tells the Maintainer of a token a stop mid-mint may have left live, as P-80 did first.
+    *[("%s never clears its mint mark" % script, "tools/" + script, 'minting=""\n', "\n",
+       ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
+      for script in SCRIPTS_1215],
     *[("%s tells nothing of a stop mid-mint" % script, "tools/" + script, '    elif [ -n "${minting:-}" ]; then', '    elif false; then',
        ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
       for script in SCRIPTS_1215 if script != "trial_p80_branch_reads.sh"],
