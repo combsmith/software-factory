@@ -16,6 +16,10 @@
 # `structured_output`; the model's text is never kept or printed, and the raw answer is deleted. OUT is a directory that
 # does not exist yet, outside this repo, and receives requests.json, answers.json and ran_at.
 set -euo pipefail
+# Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
+# (issue 1215).
+set +a
+unset CDPATH
 set +x
 export LC_ALL=C
 shopt -s nocasematch    # a path is compared without case: the file system may not tell .claude from .CLAUDE
@@ -33,7 +37,7 @@ refuse() {
     exit 2
 }
 [[ "$#" -eq 2 || "$#" -eq 3 ]] || refuse "usage: bash tools/trial_p13_ended.sh OUT CONFIG_DIR [CLI]"
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+root=$(CDPATH= cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 parent=$(cd "$(dirname "$1")" 2>/dev/null && pwd -P) || refuse "the directory that would hold OUT does not exist"
 out="$parent/$(basename "$1")"
 [[ ! -e "$out" && ! -L "$out" ]] || refuse "OUT exists; name a new directory"

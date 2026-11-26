@@ -15738,6 +15738,48 @@ class SignalTraps(unittest.TestCase):
             self.assertIn("| curl -q --max-time 30 ", revoke, script.name)
             self.assertEqual((revoke.count("--max-time"), revoke.count(" -m ")), (1, 0), script.name)
 
+    def test_every_trial_takes_nothing_of_the_maintainers_environment(self):  # issue 1215
+        # A name a script holds a credential in, exported, reaches every child; SSLKEYLOGFILE has curl write the TLS keys
+        # that read a token off the wire; a .curlrc can print the Authorization header. Each script that mints unsets the
+        # first two before its first curl, and every curl reads no .curlrc. A curl is one that starts a command: on its
+        # line, after a pipe or in a substitution, wherever the line breaks.
+        unset = "unset SSLKEYLOGFILE token jwt signature minted minting"
+        minting = 0
+        for script in sorted((ROOT / "tools").glob("trial_*.sh")):
+            lines = script.read_text().splitlines()
+            calls = [n for n, line in enumerate(lines) if not line.lstrip().startswith("#")
+                     and re.search(r"(?:^|\||\$\(|&&|;)\s*curl\s", line)]
+            self.assertTrue(all(re.findall(r"(?:^|\||\$\(|&&|;)\s*curl\s+(\S+)", lines[n]) == ["-q"] for n in calls),
+                            script.name)
+            if any("access_tokens" in line for line in lines):
+                minting += 1
+                self.assertEqual(lines.count(unset), 1, script.name)
+                self.assertLess(lines.index(unset), calls[0], script.name)
+        self.assertEqual(minting, 11)
+
+    def test_every_trial_finds_its_root_as_the_file_system_does(self):  # issue 1215
+        # A plain cd looks a relative path up along CDPATH, and says where it went, and takes .. past a link logically.
+        # Each script's root is found with CDPATH empty, physically.
+        found = 0
+        for script in sorted((ROOT / "tools").glob("trial_*.sh")):
+            roots = [line for line in script.read_text().splitlines() if line.startswith("root=")]
+            if roots:
+                found += 1
+                self.assertEqual(len(roots), 1, script.name)
+                self.assertRegex(roots[0], r'^root=\$\(CDPATH= cd -P -- "\$\(dirname -- "\$(0|\{BASH_SOURCE\[0\]\})"\)/\.\." && pwd -P\)$',
+                                 script.name)
+        self.assertEqual(found, 15)
+
+    def test_every_trial_is_steered_by_nothing_of_the_shells_environment(self):  # issue 1215
+        # SHELLOPTS=allexport would export each credential as it is set, and CDPATH steer every other cd: each trial turns
+        # both off right after its first set. All but P-59's runner, which trials/P-59.json holds to be the file the
+        # canary ran, byte for byte; it runs on a runner of the canary's, in an environment its workflow sets.
+        for script in sorted(set((ROOT / "tools").glob("trial_*.sh")) - {ROOT / "tools" / "trial_p59_read_confinement.sh"}):
+            lines = script.read_text().splitlines()
+            first = next(n for n, line in enumerate(lines) if line.startswith("set -e"))
+            then = [line for line in lines[first + 1:] if line.strip() and not line.lstrip().startswith("#")]
+            self.assertEqual(then[:2], ["set +a", "unset CDPATH"], script.name)
+
 
 class ReaderTrialScript(unittest.TestCase):
     """`tools/trial_reader_reads.sh`, run against a stand-in curl and openssl and never GitHub (issues 222 and 231): each
@@ -15755,6 +15797,7 @@ class ReaderTrialScript(unittest.TestCase):
     CURL = r'''#!/usr/bin/env python3
 import json, os, sys
 here = os.path.dirname(os.path.abspath(__file__))
+ENV_NAMES = ("token", "jwt", "signature", "minted", "minting", "SSLKEYLOGFILE")
 args = sys.argv[1:]
 url = [a for a in args if a.startswith("https://")][-1]
 method = args[args.index("-X") + 1] if "-X" in args else "GET"
@@ -15763,7 +15806,7 @@ said = sys.stdin.read() if "@-" in args else ""
 grant = open(os.path.join(here, "grant")).read().strip() if os.path.exists(os.path.join(here, "grant")) else ""
 with open(os.path.join(here, "log"), "a") as log:
     log.write(json.dumps({"method": method, "url": url, "body": body, "credential": "Bearer " in said,
-                          "grant": grant}) + "\n")
+                          "grant": grant, "env": [n for n in ENV_NAMES if n in os.environ]}) + "\n")
 if url.endswith("/access_tokens"):
     status = open(os.path.join(here, "mint.status")).read().strip()
     if os.path.exists(os.path.join(here, "cut")):
@@ -16015,6 +16058,22 @@ esac
         self.assertEqual((begun, revoking), (b"r", b"r"), "the script reached no read, or no revocation: " + err)
         self.assertIn("stopped with a token live; revoking it returned 204", err)
         self.assertNotIn(self.TOKEN, out + err)
+
+    def test_the_maintainers_environment_steers_nothing(self):  # issue 1215
+        # Run by a path relative to the repo, under a CDPATH that holds a tools/ of its own, with SSLKEYLOGFILE and each
+        # name a credential is held in exported, and the shell started exporting every assignment: the script finds its
+        # own root, and curl is handed none of them.
+        decoy = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (decoy / "tools").mkdir()
+        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
+               "CDPATH": str(decoy), "SSLKEYLOGFILE": str(decoy / "keys"),
+               **{name: self.TOKEN for name in ("token", "jwt", "signature", "minted", "minting")}}
+        ran = subprocess.run(["sh", "-a", str(self.SCRIPT.relative_to(ROOT)), str(self.out), str(self.key), *self.GIVEN],
+                             cwd=str(ROOT), capture_output=True, text=True, env=env, timeout=120)
+        self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
+        calls = self.calls()
+        self.assertTrue(calls)
+        self.assertEqual([c["env"] for c in calls], [[]] * len(calls))
 
     def test_curl_reads_no_configuration_of_the_maintainers(self):
         # A .curlrc that turns on verbose would print the Authorization header; -q comes first on every call.

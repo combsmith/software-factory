@@ -14,12 +14,12 @@ stops at the first False or code.
 - `permits(state, method, path, body)`: whether the next request may leave. The reads, each once and in order: the
   work branch, absent where `head` is None and at `head` where it is not; the admitted commit; the tree it names, every
   level; and the blob of each file that tree holds, once whichever files share it. Then, for a push of changes and
-  only once the branch and the listing were read, the writes: a blob of each written content, once, and one tree upon
-  the admitted tree of exactly the changes, each written file by the blob made of its bytes; that tree read back, the
-  admitted one with exactly the changes in it; one commit of it on `parent` with `message`, read back; the branch made
-  at it where `head` is None, or moved to it where it is not, never by force; and the branch read again, which sets
-  `landed` only at the commit made. A branch write GitHub refuses with a 422 is followed by the branch read again,
-  which says whose the refusal was. Nothing else is read once a write began.
+  only once the branch and the listing were read, the writes: a blob of each written file's bytes, once however
+  `blobs` encodes them, and one tree upon the admitted tree of exactly the changes, each file by its bytes' blob; that
+  tree read back, the admitted one with exactly the changes in it; one commit of it on `parent` with `message`, read
+  back; the branch made at it where `head` is None, or moved to it where it is not, never by force; and the branch read
+  again, which sets `landed` only at the commit made. A branch write GitHub refuses with a 422 is followed by the
+  branch read again, which says whose the refusal was. Nothing else is read once a write began.
 - `seen(state, method, path, body, answer)`: `(state, None)` after the port's answer, or `(None, code)`. The tree's
   answer is the port's listing, `adapters/push.py`'s `listed`, which checked it whole: this holds only that the port
   marked it `whole`, at the tree the admitted commit names (decision 1225). A write's answer is GitHub's 201 and
@@ -178,8 +178,10 @@ def _told(push) -> bool:
     changes, blobs = push["changes"], push["blobs"]
     if changes is None or blobs is None:
         return changes is None and blobs is None
+    # One base64 to one file's bytes: apply's encoding is its own, but one text never stands for two contents.
     return (_changes(changes) and _keyed(blobs, tuple(changes["written"]))
-            and all(type(text) is str for text in blobs.values()))
+            and all(type(text) is str for text in blobs.values())
+            and len(set(blobs.values())) == len({(blobs[path], changes["written"][path][1]) for path in blobs}))
 
 
 def began(push) -> tuple:
@@ -250,15 +252,16 @@ def _state(state) -> bool:
         return False
     if read and (before is None or not set(read) <= _files(before)):
         return False
-    made, new, changes, push_blobs = state["made"], state["new"], state["push"]["changes"], state["push"]["blobs"]
+    made, new, changes = state["made"], state["new"], state["push"]["changes"]
     if not (_mapping(made) and all(_sha(name) for name in made.values())):
         return False
     if made and (before is None or changes is None or not set(made) <= set(changes["written"])):
         return False
-    # One blob to each content, and one content to each blob: a content's files are all made, by one name, or none.
-    names = {push_blobs[path]: made[path] for path in made}
+    # One blob to each file's bytes, and bytes to each blob: the files of those bytes are all made, by one name, or
+    # none. Bytes, not their base64, which `apply` gives and may give in two ways.
+    names = {changes["written"][path][1]: made[path] for path in made}
     if made and (len(set(names.values())) != len(names)
-                 or any(push_blobs[path] in names and made.get(path) != names[push_blobs[path]]
+                 or any(changes["written"][path][1] in names and made.get(path) != names[changes["written"][path][1]]
                         for path in changes["written"])):
         return False
     if new is not None and not (_sha(new) and new not in (tree, state["push"]["parent"]) and new not in made.values()
@@ -313,7 +316,7 @@ def _step(state, method, path, body):
 
 def _written(state, method, rest, body):
     """Which write this is, or None: nothing by a push of no changes, or before the branch and the admitted tree's
-    listing were read; a blob of a written file's base64 that has none yet; then, once each has its blob, one tree;
+    listing were read; a blob of a written file whose bytes have none yet; then, once each has its blob, one tree;
     once it was read back, one commit of it on `parent` with `message`; once that was read back, the branch made at
     it where `head` is None, or moved to it where it is not, never by force."""
     push, made, commit = state["push"], state["made"], state["commit"]
@@ -415,8 +418,11 @@ def seen(state, method, path, body, answer) -> tuple:
             return dict(state, new=name), None
         if step == COMMIT_MADE:
             return dict(state, commit=name), None
-        made = dict(state["made"])
-        made.update({path: name for path in push["changes"]["written"] if push["blobs"][path] == body["content"]})
+        # The blob names every file of the bytes this content was given for, however each was encoded. `_written`
+        # admitted this body only for such a file, so there is one, and `_told` gave this text one file's bytes.
+        written, made = push["changes"]["written"], dict(state["made"])
+        held = next(written[path][1] for path in written if push["blobs"][path] == body["content"])
+        made.update({path: name for path in written if written[path][1] == held})
         return dict(state, made=made), None
     if step == BLOB_READ:
         # A blob refused is a refusal; its bytes, when given, are the port's to judge.
