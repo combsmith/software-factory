@@ -1342,7 +1342,8 @@ class Push(unittest.TestCase):
         branched, why = push.seen(first, "GET", AT_BRANCH, None, ABSENT)
         self.assertEqual(branched, dict(first, branch_read=True))
         self.assertIsNone(why)
-        self.assertEqual([push.permits(branched, "GET", path, None) for path in (AT_BRANCH, GIT + "commits/" + NEW_A)], [False, False])
+        self.assertEqual([push.permits(branched, "GET", path, None) for path in (AT_BRANCH, GIT + "commits/" + NEW_A, AT_COMMIT)],
+                         [False, False, True])
         committed, _ = push.seen(branched, "GET", AT_COMMIT, None, COMMIT)
         self.assertEqual(committed, dict(branched, tree=ROOT_TREE))
         self.assertEqual([push.permits(committed, "GET", path, None) for path in (AT_COMMIT, AT_TREE, blob, AT_TREE[:-12],
@@ -1366,7 +1367,7 @@ class Push(unittest.TestCase):
         self.assertEqual(once, dict(state, blobs_read=(BLOB_A,)))
         # A blob refused, or not answered, is a stop of its own, whoever judges the bytes given.
         for answer, why in ((None, push.UNANSWERED), ({"status": "503", "body": {}}, push.UNANSWERED),
-                            ({"status": "404", "body": {}}, push.ANSWER_REFUSED),
+                            ({"status": "404", "body": {}}, push.ANSWER_REFUSED), ({"status": "206", "body": {}}, push.ANSWER_REFUSED),
                             ({"status": "403", "body": {}}, push.ANSWER_REFUSED)):
             self.assertEqual(push.seen(state, "GET", blob, None, answer), (None, why), answer)
         self.assertEqual([push.permits(once, "GET", GIT + "blobs/" + sha, None) for sha in (BLOB_A, BLOB_T)], [False, True])
@@ -1404,6 +1405,7 @@ class Push(unittest.TestCase):
                               ("a blob of a list", dict(LISTING, blobs={"docs/a.md": [BLOB_A, 2]})),
                               ("a blob of one thing", dict(LISTING, blobs={"docs/a.md": (BLOB_A,)})),
                               ("a blob of no size", dict(LISTING, blobs={"docs/a.md": (BLOB_A, None)})),
+                              ("a blob of a size below 0", dict(LISTING, blobs={"docs/a.md": (BLOB_A, -1)})),
                               ("a mode not git's", dict(LISTING, tree=dict(LISTING["tree"], **{"docs/a.md": "100600"}))),
                               ("a mode of another kind", dict(LISTING, tree=dict(LISTING["tree"], **{"docs/a.md": Text(FILE)}))),
                               ("a path of another kind", dict(LISTING, tree={Raising("docs/a.md"): FILE})),
@@ -1416,7 +1418,7 @@ class Push(unittest.TestCase):
         moved, refused, unanswered = (None, push.BRANCH_MOVED), (None, push.ANSWER_REFUSED), (None, push.UNANSWERED)
         for told, answer, why in (
                 # The branch as the Decision did not admit it: someone else wrote it.
-                (PUSH, ref(NEW_A), moved), (MOVE, ABSENT, moved), (MOVE, ref(NEW_A), moved),
+                (PUSH, ref(NEW_A), moved), (PUSH, ref(PARENT), moved), (MOVE, ABSENT, moved), (MOVE, ref(NEW_A), moved),
                 # An answer the push cannot go on from: another branch's, no commit, or a refusal.
                 (PUSH, ref(NEW_A, BRANCH + "x"), refused), (MOVE, ref(PARENT, "main"), refused), (MOVE, ref(None), refused), (MOVE, ref("x" * 40), refused),
                 (MOVE, {"status": "200", "body": {"ref": "refs/heads/" + BRANCH, "object": PARENT}}, refused),
@@ -1430,11 +1432,12 @@ class Push(unittest.TestCase):
                 # No answer, or one read as none.
                 (PUSH, None, unanswered), (MOVE, {"status": "500", "body": {}}, unanswered),
                 (PUSH, {"status": "401", "body": {}}, unanswered),
-                (MOVE, {"status": "403", "body": {}}, unanswered), (PUSH, {"status": "429", "body": {}}, unanswered),
+                (MOVE, {"status": "403", "body": {}}, unanswered), (PUSH, {"status": "429", "body": {}}, unanswered), (MOVE, {"status": "599", "body": {}}, unanswered),
                 # An answer in no shape `send` gives is the caller's to have checked.
                 (PUSH, {"status": 404, "body": {}}, NOT_PERMITTED), (PUSH, {"status": "404"}, NOT_PERMITTED),
                 (PUSH, Mapping(ABSENT), NOT_PERMITTED), (PUSH, {"status": "5oops", "body": {}}, NOT_PERMITTED),
-                (PUSH, {"status": "600", "body": {}}, NOT_PERMITTED), (PUSH, {"status": "5x0", "body": {}}, NOT_PERMITTED), (PUSH, {"status": "4040", "body": {}}, NOT_PERMITTED),
+                (PUSH, {"status": "600", "body": {}}, NOT_PERMITTED), (PUSH, {"status": "5x0", "body": {}}, NOT_PERMITTED), (PUSH, {"status": "099", "body": {}}, NOT_PERMITTED),
+                (PUSH, {"status": Text("404"), "body": {}}, NOT_PERMITTED), (PUSH, {"status": "4040", "body": {}}, NOT_PERMITTED),
                 # A key of the body of another kind is held before any key is looked up.
                 (MOVE, {"status": "200", "body": {Raising("ref"): "refs/heads/" + BRANCH, "object": {"sha": PARENT}}}, refused),
                 (MOVE, {"status": "200", "body": {"ref": "refs/heads/" + BRANCH, "object": {"type": "commit", Text("sha"): PARENT}}}, refused)):
@@ -1458,9 +1461,9 @@ class Push(unittest.TestCase):
         less = {key: value for key, value in first.items() if key != "landed"}
         for said, bad in (("none", None), ("a list", [first]), ("a key fewer", less),
                           ("a mapping of another kind", Mapping(first)), ("a push told wrongly", dict(state, push=dict(PUSH, message=""))),
-                          ("a tree of no name", dict(first, tree="x")), ("a listing before the tree", dict(first, before=LISTING)),
+                          ("a tree of no name", dict(first, tree="x", branch_read=True)), ("a listing before the tree", dict(first, before=LISTING)),
                           ("a listing of another tree", dict(state, tree=NEW_A)), ("a listing unmarked", dict(state, before=dict(LISTING, whole=False))),
-                          ("the branch read as 1", dict(first, branch_read=1)), ("landed", dict(first, landed=True)),
+                          ("the branch read as 1", dict(first, branch_read=1)), ("landed", dict(first, landed=True)), ("landed as 0", dict(first, landed=0)),
                           ("a blob made", dict(first, made={"docs/a.md": MADE})), ("made as a list", dict(first, made=[])), ("a tree made", dict(first, new=MADE)),
                           ("a tree before the branch", dict(first, tree=ROOT_TREE)),
                           ("moved", dict(first, moved=True)), ("checked", dict(first, checked=True)),

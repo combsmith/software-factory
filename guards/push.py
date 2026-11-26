@@ -187,7 +187,7 @@ def _listing(said, tree) -> bool:
     if not (_mapping(paths) and all(type(mode) is str and mode in patch.TREE_MODES for mode in paths.values())):
         return False
     return _mapping(blobs) and all(type(held) is tuple and len(held) == len(HELD) and _sha(held[0])
-                                   and type(held[1]) is int for held in blobs.values())
+                                   and type(held[1]) is int and held[1] >= 0 for held in blobs.values())
 
 
 def _files(before) -> set:
