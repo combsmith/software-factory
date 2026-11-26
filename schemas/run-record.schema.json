@@ -53,6 +53,7 @@
       "enum": [
         "item",
         "capacity",
+        "github_capacity",
         "environment",
         "superseded",
         "person",
@@ -81,6 +82,14 @@
         "startup_failure",
         "skipped"
       ]
+    },
+    "ended_at": {
+      "description": "When a completed Run ended, as GitHub's updated_at gives it; absent where it gave none that can be read, and read then as started_at (decision 9999)",
+      "$ref": "#/$defs/time"
+    },
+    "github_reset": {
+      "description": "Present where a Run that ended github_capacity said when GitHub's limit resets, as its outcome/1 gives it (decision 9999)",
+      "type": "integer"
     },
     "engine_started": {
       "description": "Present where a failed Run's outcome/1 says it: whether the run job's Engine step started. False where GitHub skipped it because a step before it failed, so the Run spent no model; absent where the outcome said neither, and read then as a Run that may have reached the model (issue 757)",

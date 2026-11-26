@@ -114,10 +114,11 @@ def read(transport, repo: str, github_id: int, seen=None, name: str = NAME, memb
     return held, held is not None
 
 
-def outcome(transport, repo: str, github_id: int, run: str, seen=None, started=None) -> tuple:
+def outcome(transport, repo: str, github_id: int, run: str, seen=None, started=None, reset=None) -> tuple:
     """`(outcome, whole)` of the Run GitHub numbers `github_id` and the Factory names `run`: the fault its outcome
-    names, None for a Run that left none, and whether it was read whole. `seen` is handed the list's answer, and
-    `started` whether the Run's Engine step started, where its outcome says (issue 757)."""
+    names, None for a Run that left none, and whether it was read whole. `seen` is handed the list's answer,
+    `started` whether the Run's Engine step started, where its outcome says (issue 757), and `reset` when GitHub's
+    limit resets, where it says (decision 9999)."""
     held, whole = read(transport, repo, github_id, seen)
     if held is None:
         return None, whole
@@ -130,6 +131,8 @@ def outcome(transport, repo: str, github_id: int, run: str, seen=None, started=N
         return None, False
     if started is not None and "engine_started" in record:
         started.append(record["engine_started"])
+    if reset is not None and "github_reset" in record:
+        reset.append(record["github_reset"])
     return record["outcome"], True
 
 

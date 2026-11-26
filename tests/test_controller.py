@@ -161,8 +161,8 @@ class Record(unittest.TestCase):
         out = passed(reads(pulls=[pr(7), pr(42)], runs=[run(number=42)]))
         record = out["record"]
         self.assertEqual(shared.errors(record, "pass"), [])
-        self.assertEqual(sorted(record["context"]), ["active_runs", "model_deferred_until", "passes_since", "paused",
-                                                     "unidentified_runs"])
+        self.assertEqual(sorted(record["context"]), ["active_runs", "github_deferred", "model_deferred_until",
+                                                     "passes_since", "paused", "unidentified_runs"])
         self.assertEqual(record["runs"], [run(number=42)])
         self.assertEqual([r["read"] for r in record["reads"]], ["runs", "facts"])
         self.assertEqual((record["pass"], record["started_by"], record["release"]), ("p_000001A", "schedule",
@@ -704,6 +704,52 @@ class Context(unittest.TestCase):
         self.assertEqual((ahead["record"]["context"]["model_deferred_until"], ahead["alerts"]), (None, []))
         other = passed(reads(runs=[dict(fault, outcome="item")]))
         self.assertIsNone(other["record"]["context"]["model_deferred_until"])
+
+    def test_a_github_limit_defers_a_pushing_roles_runs_in_its_installation_until_its_reset(self):  # decision 9999
+        rule = CONTROLLER["github_capacity"]
+        def epoch(at: str) -> int:
+            return int((shared.moment(at) - shared.moment("1970-01-01T00:00:00Z")).total_seconds())
+        def limited(reset="none", ended="2026-10-11T12:59:30Z", **over) -> dict:
+            r = dict(run("r_00000G", conclusion="failure", outcome="github_capacity", at="2026-10-11T12:40:00Z"),
+                     ended_at=ended, **over)
+            return r if reset == "none" else dict(r, github_reset=reset)
+        def until(*runs_, now=NOW):
+            return pass_.github_deferred(list(runs_), now, rule)
+        least, most = "2026-10-11T13:00:30Z", "2026-10-11T13:59:30Z"
+        self.assertEqual((rule["least_seconds"], rule["most_seconds"]), (60, 3600))
+        # GitHub's reset, held between the least and the most wait after the Run ended: past the cap it is the cap, in
+        # the past the least wait, and a value that is no whole number, or none, the cap.
+        self.assertEqual(until(limited(epoch("2026-10-11T13:30:00Z"))),
+                         [{"role": "pr-review", "owner": "combsmith", "until": "2026-10-11T13:30:00Z"}])
+        for reset, want in ((epoch("2026-10-11T15:00:00Z"), most), (10 ** 30, most), (epoch(least) + 1, "2026-10-11T13:00:31Z"),
+                            (epoch("2026-10-11T12:00:00Z"), least), (-1, least), ("1760190000", most), (True, most),
+                            (1760190000.5, most), (None, most), ("none", most)):
+            self.assertEqual([w["until"] for w in until(limited(reset))], [want], reset)
+        # The Run's start stands in for an end GitHub gave none of; once the wait is past, or for a Run said to end after
+        # the pass, nothing waits. The latest of a scope's waits holds, each owner and Role apart; no other outcome waits.
+        self.assertEqual([w["until"] for w in until(limited(ended=None))], ["2026-10-11T13:40:00Z"])
+        self.assertEqual(until(limited(), now=most), [])
+        self.assertEqual(until(limited(ended="2026-10-11T13:00:01Z")), [])
+        elsewhere = dict(limited(), item=dict(support.ITEM, repo="combsmith-labs/x"))
+        other = dict(limited(epoch("2026-10-11T13:10:00Z")), role="dev-lead")
+        self.assertEqual(until(limited(epoch("2026-10-11T13:10:00Z")), limited(), elsewhere, other),
+                         [{"role": "dev-lead", "owner": "combsmith", "until": "2026-10-11T13:10:00Z"},
+                          {"role": "pr-review", "owner": "combsmith", "until": most},
+                          {"role": "pr-review", "owner": "combsmith-labs", "until": most}])
+        self.assertEqual(until(dict(limited(), outcome="capacity"), dict(limited(), status="in_progress")), [])
+        # The pass gives the Kernel the waits and never the model's deferral, so a Role that pushes waits alone; it is
+        # no attempt, and raises no alert.
+        cfg = config()
+        cfg["kernel"]["pushers"] = ["pr-review"]
+        for r in (limited(), dict(limited(), ended_at="2026-10-11T12:59:30Z")):
+            out = passed(reads(runs=[r]), cfg=cfg)
+            context = out["record"]["context"]
+            self.assertEqual((context["github_deferred"], context["model_deferred_until"]),
+                             ([{"role": "pr-review", "owner": "combsmith", "until": most}], None))
+            self.assertEqual((decisions(out)[0]["reason"], out["alerts"]), ("github_capacity", []))
+        self.assertEqual(decisions(passed(reads(runs=[limited()])))[0]["outcome"], "admit")
+        short = passed(reads(runs=[limited()], complete=False), cfg=cfg)["record"]["context"]
+        self.assertEqual((short["github_deferred"], short["active_runs"]), (None, None))
 
     def test_runs_that_never_ran_pause_admission_and_are_named_as_themselves(self):  # decision 0116
         # A Run GitHub started no job of writes no outcome, so one cause doing it to every dispatch would run each open
@@ -1877,7 +1923,7 @@ class Entry(unittest.TestCase):
         self.assertEqual([s[0] for s in slept[-3:]], [0.5, 1.5, 2.5])
         self.assertEqual(efforts["began"], {("r_01JA6Z", "2026-10-11T12:05:00Z"): "2026-10-11T12:05:04Z",
                                             ("r_01JA5Y", "2026-10-11T12:05:00Z"): "2026-10-11T12:05:09Z"})
-        self.assertEqual(efforts["engines"], {("r_01JA6Z", "2026-10-11T12:05:00Z"): False})
+        self.assertEqual(efforts["engines"], {("r_01JA6Z", "2026-10-11T12:05:00Z"): {"engine_started": False}})
         # The port asks when a Run began only of the open pull requests' Runs, which are listed first (decision 0196).
         self.assertEqual(efforts["of"], [{"repo": self.HOME, "type": "pull_request", "number": n} for n in (7, 8)])
         since = "2026-10-11T06:00:00Z"
