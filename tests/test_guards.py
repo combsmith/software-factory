@@ -1653,10 +1653,10 @@ class Push(unittest.TestCase):
                         blobs={path: "QQo=" for path in written})
             state = self.read(told)
             self.assertFalse(push.permits(state, "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"}), written)
-            made = dict(state, made={path: MADE for path in written})
+            held = dict(state, made={path: MADE for path in written})
             body = {"base_tree": ROOT_TREE, "tree": [{"path": path, "mode": FILE, "type": "blob", "sha": MADE} for path in written]
                     + [{"path": path, "mode": LISTING["tree"][path], "type": "blob", "sha": None} for path in removed]}
-            self.assertFalse(push.permits(made, "POST", GIT + "trees", body), written)
+            self.assertFalse(push.permits(held, "POST", GIT + "trees", body), written)
         # A removed file the listing does not hold was never `applied`'s to remove.
         gone = self.read(dict(PUSH, changes=dict(WROTE, removed=["tests/u.py"])))
         self.assertFalse(push.permits(gone, "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"}))

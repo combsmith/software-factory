@@ -536,7 +536,7 @@ MUTANTS = [
      ' or', PUSH_WRITE_CODES),
     ('two contents may share one blob name', 'guards/push.py',
      '(len(set(names.values())) != len(names)\n                 or any(',
-     '(any(', PUSH_BLOBS),
+     '(any(', PUSH_TREE),
     ('a tree may remove a file the changes keep', 'guards/push.py',
      'elif not (path in removed and sha is None',
      'elif not (sha is None', PUSH_TREE),
