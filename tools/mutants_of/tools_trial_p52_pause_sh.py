@@ -1,7 +1,7 @@
 """The mutants of `tools/trial_p52_pause.sh`: tools/mutants.py runs them."""
 
 TARGETS = ("tools/trial_p52_pause.sh",)
-from tools.mutants_of.tools_trial_p12_status_sh import KEEP_1215  # noqa: E402
+from tools.mutants_of.tools_trial_p12_status_sh import FIRST_NEW, FIRST_OLD, KEEP_1215  # noqa: E402
 KEEP = "tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_in_a_private_directory_it_deletes"
 MUTANTS = [
     # Issue 481: the first signal stops the run, a later one stops neither the revocation nor the redaction, and the
@@ -49,7 +49,7 @@ MUTANTS = [
     ("P-52's trial reads a head in the body", 'tools/trial_p52_pause.sh',
      'found = $2; else exit }', 'found = $2 }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-52's trial takes the first of several heads", 'tools/trial_p52_pause.sh',
-     '/) found = $2; else exit }', '/ && found == "") found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+     FIRST_OLD, FIRST_NEW, ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     # Issue 502 (Argon): P-4's second read of a head, the first of several in its first, and a head with a carriage return.
     ("P-52's trial reads a head's carriage return as part of it", 'tools/trial_p52_pause.sh',
      '{ sub(/\\r$/, "") } ', '', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
