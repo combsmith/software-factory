@@ -29,9 +29,9 @@ sender would not send, an answer with no status from 100 to 599 or no body, or a
 guard, and held to the name asked, never the answer's own.
 
 `listed`, `to_read` and `read_whole` read the tree a patch lands on, as `guards/patch.py` takes it: its listing, then
-the bytes of each file the patch reads, whole or not at all, within `MOST_FILES` files and `MOST_BYTES` bytes. Each
-gives a code where it gives nothing, and `WHOSE` names whose each code of the guard and of this port is: the Role's,
-counted as its attempt; a person's, a Hold; or the port's, an environment fault, for no answer alone.
+the bytes of each file the patch reads, one by one, whole or not at all, within `MOST_FILES` files and `MOST_BYTES`
+bytes. Each gives a code where it gives nothing, and `WHOSE` names whose each code of the guard and of this port is: the
+Role's, counted as its attempt; a person's, a Hold; or the port's, an environment fault, for no answer alone.
 
 `harness/push.py`, by hand, owes this port: every request sent by `transport`'s sender; its writers in
 `tools/check_writes.py`'s CALLERS; one request given unchanged to `permits` and `send`; `content` asked for the name
@@ -82,6 +82,8 @@ TREE_MODE = "40000"
 LINK = "120000"
 # A status the port reads as no answer: GitHub's own failure, a rate limit, or a token expired or refused.
 UNANSWERED = ("401", "403", "429")
+# A lone surrogate, which JSON may hold and UTF-8 does not write: no name git holds.
+SURROGATES = ("\ud800", "\udfff")
 # The port's codes. A read cut short or of no shape is `guards/patch.py`'s `TREE_UNREAD`.
 READS_TOO_LARGE = "push_reads_too_large"
 TREE_UNFETCHED = "push_tree_unfetched"
@@ -348,7 +350,13 @@ def listed(answer, sha):
     entries = body["tree"]
     if not all(type(entry) is dict and type(entry.get("path")) is str and _sha(entry.get("sha")) for entry in entries):
         return None, patch.TREE_UNREAD
-    # A path listed twice, or a sha that is no tree's, makes no tree of `sha`'s name: the names hold both.
+    # A path is of parts each named, with no NUL, which a tree object writes after a name, and no lone surrogate, which
+    # UTF-8 does not write; and it is listed once: two entries of one path can make a tree's name and still be no tree.
+    paths = [entry["path"] for entry in entries]
+    if len(set(paths)) != len(paths) or any("" in path.split("/") or "\0" in path
+                                             or any(SURROGATES[0] <= c <= SURROGATES[1] for c in path)
+                                             for path in paths):
+        return None, patch.TREE_UNREAD
     folders = {"": []}
     folders.update({entry["path"]: [] for entry in entries
                     if (entry.get("type"), entry.get("mode")) == ("tree", DIRECTORY)})
@@ -390,16 +398,16 @@ def to_read(listing, sources):
     return paths, None
 
 
-def read_whole(listing, paths, answers):
-    """`(contents, None)`, each of `paths` to its bytes, from `answers`, each `send`'s answer to `read_blob` of the sha
-    the listing gives that path; or `(None, code)`, all or nothing. They are read in order, and the first that gives no
-    bytes ends the read: a missing answer, or one the port reads as none, is the port's, `TREE_UNFETCHED`; any other,
-    a refusal, or a blob too large, of no blob or of other bytes, a person's, `TREE_UNREAD`. Bytes past `MOST_BYTES`
-    in all, whatever the listing said, end it as the Role's, `READS_TOO_LARGE`. So a caller that reads each blob in
-    this order and stops at the first code holds no more than `MOST_BYTES` and one answer."""
+def read_whole(listing, paths, read):
+    """`(contents, None)`, each of `paths` to its bytes, or `(None, code)`, all or nothing. `read(path)` gives `send`'s
+    answer to `read_blob` of the sha the listing gives that path; it is asked in order, and asked no more once one
+    gives a code, so no more than `MOST_BYTES` and one answer are ever held. A missing answer, or one the port reads as
+    none, is the port's, `TREE_UNFETCHED`; any other that gives no bytes of that name, a refusal, or a blob too large,
+    of no blob or of other bytes, a person's, `TREE_UNREAD`. Bytes past `MOST_BYTES` in all, whatever the listing
+    said, are the Role's, `READS_TOO_LARGE`."""
     contents, held = {}, 0
     for path in paths:
-        answer = answers.get(path) if type(answers) is dict else None
+        answer = read(path) if callable(read) else None
         data = content(answer, listing[1][path][0])
         if data is None:
             return None, TREE_UNFETCHED if _unanswered(answer) else patch.TREE_UNREAD
