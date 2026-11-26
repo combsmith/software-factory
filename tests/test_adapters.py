@@ -1718,7 +1718,7 @@ class Records(unittest.TestCase):
                           records.engines([{"runs": ["x"]}]), records.engines([])), ({}, {}, {}, {}, {}))
 
     def test_githubs_reset_is_read_with_the_outcome_and_kept_and_a_completed_run_says_when_it_ended(self):  # issue 838
-        done = {"name": NAME, "status": "completed", "conclusion": "failure", "updated_at": "2026-10-11T12:09:00Z"}
+        done = {"name": NAME, "status": "completed", "conclusion": "failure", "updated_at": "2026-10-18T01:39:00Z"}
         rows = listing("P-17", 3, rows=done)
         github_id = rows["response"]["body"]["workflow_runs"][0]["id"]
         key = ("r_01JA6Z", rows["response"]["body"]["workflow_runs"][0]["run_started_at"])
@@ -1726,7 +1726,7 @@ class Records(unittest.TestCase):
         got, _ = self.read(rows, *stored(canary(), github_id, zipped))
         r = got["runs"][0]
         self.assertEqual((r["outcome"], r["github_reset"], r["ended_at"], got["complete"]),
-                         ("github_capacity", 1760187600, "2026-10-11T12:09:00Z", True))
+                         ("github_capacity", 1760187600, "2026-10-18T01:39:00Z", True))
         self.assertEqual(records.engines([{"runs": got["runs"]}]), {key: {"github_reset": 1760187600}})
         self.assertEqual(records.known([{"runs": got["runs"], "context": {"active_runs": 0}}]), {key: "github_capacity"})
         got, _ = self.read(rows, kept={key: "github_capacity"}, engines={key: {"github_reset": 1760187600}})
@@ -1736,10 +1736,25 @@ class Records(unittest.TestCase):
         # A reset in words is no outcome/1; a Run in progress, or a time GitHub gives that cannot be read, ends nowhere.
         zipped = outcome_zip(dict(outcome_of("r_01JA6Z", "github_capacity"), github_reset="1760187600"))
         self.assertEqual(self.read(rows, *stored(canary(), github_id, zipped))[0]["complete"], False)
-        for change in ({"status": "in_progress", "conclusion": None}, {"updated_at": "2026-10-11T12:09"},
-                       {"updated_at": "2026-02-30T12:09:00Z"}):
+        for change in ({"status": "in_progress", "conclusion": None}, {"updated_at": "2026-10-18T01:39"},
+                       {"updated_at": "2026-02-30T12:09:00Z"}, {"updated_at": "2026-10-18T01:29:06Z"}):
             got, _ = self.read(listing("P-17", 3, rows=dict(done, **change)), kept={key: "github_capacity"})
             self.assertNotIn("ended_at", got["runs"][0], change)
+        # A Run that succeeded ends too, and one that ended in the second it started.
+        for change in ({"conclusion": "success"}, {"updated_at": key[1]}):
+            got, _ = self.read(listing("P-17", 3, rows=dict(done, **change)), kept={key: "github_capacity"})
+            self.assertEqual(got["runs"][0]["ended_at"], change.get("updated_at", done["updated_at"]), change)
+        # Both said together are read and kept together; a reset beside any other fault is not kept.
+        both = dict(outcome_of("r_01JA6Z", "github_capacity"), engine_started=False, github_reset=1760187600)
+        got, _ = self.read(rows, *stored(canary(), github_id, outcome_zip(both)))
+        said = {"engine_started": False, "github_reset": 1760187600}
+        self.assertEqual({k: got["runs"][0][k] for k in said}, said)
+        self.assertEqual(records.engines([{"runs": got["runs"]}]), {key: said})
+        again, _ = self.read(rows, kept={key: "github_capacity"}, engines=records.engines([{"runs": got["runs"]}]))
+        self.assertEqual({k: again["runs"][0][k] for k in said}, said)
+        other = dict(outcome_of("r_01JA6Z", "environment"), github_reset=1760187600)
+        got, _ = self.read(rows, *stored(canary(), github_id, outcome_zip(other)))
+        self.assertEqual((got["runs"][0]["outcome"], "github_reset" in got["runs"][0]), ("environment", False))
 
     def began(self, status, *jobs, **kw):
         """`(the one record, whether the list was whole)` of a Run GitHub lists with `status`, its jobs read as given."""
@@ -2202,6 +2217,8 @@ class Artifacts(unittest.TestCase):
             self.assertEqual(artifacts.outcome(github.Replay(stored("o/r", 7, outcome_zip(body))), "o/r", 7, self.RUN,
                                                reset=told), ("github_capacity", True))
             self.assertEqual(told, want, said)
+            # A caller that does not ask is told nothing, and the outcome is read all the same.
+            self.assertEqual(self.read(outcome_zip(body)), ("github_capacity", True), said)
         self.assertEqual(self.read(outcome_zip(dict(outcome_of(self.RUN, "item"), engine_started="no"))), (None, False))
         # A caller that does not ask is told nothing, and the outcome is read all the same.
         self.assertEqual(self.read(outcome_zip(dict(outcome_of(self.RUN, "environment"), engine_started=False))),
