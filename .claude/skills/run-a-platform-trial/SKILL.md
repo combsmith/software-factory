@@ -38,7 +38,8 @@ everything a trial leaves in it: its runs, logs and artifacts.
   where it says a token it left live. Read that first.
   Each other `tools/trial_*.sh` that mints deletes its raw answers on exit. Given `--keep-raw` first,
   it keeps them in its own private scratch directory and prints that path; the Maintainer deletes it
-  once read (issue 1215).
+  once read (issue 1215). That directory is made where TMPDIR says, so ask him to leave TMPDIR at the
+  Mac's own per-user default, which nothing syncs.
   P-13 asks the vendor's CLI, not GitHub: `tools/trial_p13_cli.sh` runs it at the pinned version,
   on a configuration directory of its own logged in to the Maintainer's own subscription (decision
   0033), and leaves
