@@ -351,11 +351,14 @@ def listed(answer, sha):
     """`(listing, None)` from `send`'s answer to `read_tree` of `sha`, or `(None, code)`. The listing is `{"tree",
     "blobs", "sha", "whole"}`: `tree` is each path the tree holds that is no directory, to its mode, as
     `guards/patch.py`'s `applied` takes it; `blobs` is each file's and link's `(sha, size)`; `sha` is the tree it was
-    read at; and `whole` is True, the mark `guards/push.py`'s `seen` asks for, given here alone. Each directory's entries are rebuilt into its tree object and named as git names it, the
-    whole into `sha`: an entry left out, added, listed twice or under no directory listed is a listing of no tree.
-    An answer the port reads as none is the port's, `TREE_UNFETCHED`; one GitHub cut short, `truncated`, of another
-    tree, or in any shape not read here, is a person's, `TREE_UNREAD`: the same commit reads the same way again, and
-    no part of a listing is taken."""
+    read at; and `whole` is True, the mark `guards/push.py`'s `seen` asks for, given here alone. Each directory's
+    entries are rebuilt into its tree object and named as git names it, the whole into `sha`: an entry left out,
+    added, listed twice or under no directory listed is a listing of no tree. An answer the port reads as none is the
+    port's, `TREE_UNFETCHED`; one GitHub cut short, `truncated`, of another tree, or in any shape not read here, is a
+    person's, `TREE_UNREAD`: the same commit reads the same way again, and no part of a listing is taken. So is a
+    `sha` that is no name of 40 hex digits as text itself, which the mark would carry."""
+    if not _sha(sha):
+        return None, patch.TREE_UNREAD
     if _unanswered(answer):
         return None, TREE_UNFETCHED
     body = answer.get("body") if _said(answer.get("status"), "200") else None

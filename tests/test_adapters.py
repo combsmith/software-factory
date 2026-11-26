@@ -9156,7 +9156,11 @@ class Push(unittest.TestCase):
         got, why = push.listed(answer, sha)
         self.assertIsNone(why)
         # Marked whole, at the tree it was read at, for the guard to ask: no listing of another tree, or of part of one.
-        self.assertEqual((got["sha"], got["whole"], set(got)), (sha, True, {"tree", "blobs", "sha", "whole"}))
+        self.assertEqual((got["sha"], set(got)), (sha, {"tree", "blobs", "sha", "whole"}))
+        self.assertIs(got["whole"], True)
+        # A tree's name that is no plain name would carry its own equality into the mark: no listing is taken under it.
+        for said in (Lying(sha), sha.upper(), sha[:39], None):
+            self.assertEqual(push.listed(answer, said), (None, patch.TREE_UNREAD), said)
         tree, blobs = got["tree"], got["blobs"]
         self.assertEqual(tree, {"README.md": "100644", "bin/link": "120000", "bin/run.sh": "100755",
                                 "docs/notes.md": "100644", "gone.txt": "100644"})
