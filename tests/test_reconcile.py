@@ -1134,6 +1134,8 @@ class SeenPort(unittest.TestCase):
         kindless = [{"event": None, "actor": PERSON, "created_at": EARLY}]
         self.assertIs(seen_._tail(Pages({path: [old] + [new] * 12 + [kindless, close]}), path, SINCE)[1], False)
         self.assertIs(seen_._tail(Pages({path: [old] + [new] * 12 + [old, close]}), path, SINCE)[1], True)
+        crossed = [{"event": "cross-referenced", "actor": PERSON, "created_at": EARLY}]    # a hyphenated kind (Muse)
+        self.assertIs(seen_._tail(Pages({path: [old] + [new] * 12 + [crossed, close]}), path, SINCE)[1], True)
         # 2. One page that names a last page by a number that cannot be read is short (Astra).
         self.assertIs(whole(Linked({path: [close]}, {1: '<%(at)s&page=x>; rel="last"'})), False)
         self.assertIs(whole(Linked({path: [close]}, {1: ''})), True)
@@ -1157,6 +1159,7 @@ class SeenPort(unittest.TestCase):
         shape.update({n: '<%%(at)s&page=%d>; rel="prev", <%%(at)s&page=%d>; rel="next", <%%(at)s&page=4>; rel="last", '
                          '<%%(at)s&page=1>; rel="first"' % (n - 1, n + 1) for n in (2, 3)})
         self.assertIs(whole(Linked({path: [old, new, new, close]}, shape)), True)
+        self.assertIs(whole(Linked({path: [old, close]}, {1: shape[1].replace("4", "2"), 2: ''})), False)    # (Muse)
         for n, wrong in ((4, '<%(at)s&page=9>; rel="prev"'), (4, '<%(at)s&page=2>; rel="first"'), (4, ''),
                          (1, shape[1] + ', <%(at)s&page=1>; rel="first"'), (1, shape[1] + ', <%(at)s&page=0>; rel="prev"')):
             self.assertIs(whole(Linked({path: [old, new, new, close]}, {**shape, n: wrong})), False, (n, wrong))
@@ -1178,7 +1181,7 @@ class SeenPort(unittest.TestCase):
         self.assertIs(whole(Linked({path: [close]}, {1: '<%(at)s&page=2>; rel="deprecation"; rel="next"'})), False)
         # So is a relation that names a paging one among others or in capitals, and a header read whole only in part,
         # its paging links first (Astra, Kimi, Claude).
-        for link in ('<%(at)s&page=2>; rel="next last"', '<%(at)s&page=2>; rel="NEXT"'):
+        for link in ('<%(at)s&page=2>; rel="next last"', '<%(at)s&page=2>; rel="NEXT"', '<%(at)s&page=2>; rel="PREV"'):
             self.assertIs(whole(Linked({path: [close]}, {1: link})), False, link)
         self.assertIs(whole(Linked({path: [old, close]}, {1: named.format(2) + ', unreadable'})), False)
         # A relation that pages nothing, as GitHub's deprecation notice, is passed over, whatever its parameters say,
@@ -1220,6 +1223,8 @@ class SeenPort(unittest.TestCase):
         self.assertIs(whole(Pages({path: [old] * 3 + [close + review]}, LEFT_ANSWERS,
                                   again={4: (close + [dict(review[0], user=PERSON)], False)})), False)
         bot_as_person = dict(CONTROLLER, type="User")
+        for other in (dict(close[0], actor=ROLE), dict(close[0], node_id="CE_b")):    # another of its type, a node (Muse)
+            self.assertIs(whole(Pages({path: [old] * 3 + [close]}, LEFT_ANSWERS, again={4: ([other], False)})), False, other)
         self.assertIs(whole(Pages({path: [old] * 3 + [close]}, LEFT_ANSWERS, again={4: ([dict(close[0], actor=bot_as_person)], False)})),
                       False)
         dismissal = [{"event": "review_dismissed", "actor": CONTROLLER, "created_at": AT, "id": 6,
@@ -1241,8 +1246,9 @@ class SeenPort(unittest.TestCase):
         review = [{"event": "reviewed", "user": PERSON, "submitted_at": AT, "id": 3, "node_id": "PRR_r"}]
         lines = [{"event": "line-commented", "node_id": "PRR_r"}]
         self.assertIs(seen_._tail(Pages({path: [old + review, lines]}), path, SINCE)[1], True)
-        early = [dict(close[0], actor=PERSON, created_at=EARLY)]
-        self.assertIs(seen_._tail(Pages({path: [early, new, old, close]}), path, SINCE)[1], False)
+        for one in (1, "01", " 1"):    # its id however written (Muse)
+            early = [dict(close[0], actor=PERSON, created_at=EARLY, id=one)]
+            self.assertIs(seen_._tail(Pages({path: [early, new, old, close]}), path, SINCE)[1], False, one)
         self.assertEqual(seen_._tail(Pages({path: [old + close, close]}), path, SINCE), (old + close, True))
         # Moments out of order anywhere in what was read leave the skipped pages unplaced (Astra, Muse); a first page
         # left out holds every item that could be a write placed, but a commit, which has no moment (Astra, Muse).

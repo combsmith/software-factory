@@ -234,7 +234,7 @@ def _tail(transport, path: str, since: str, ends=()) -> tuple:
             # Muse, issue 1206).
             node = _object(one).get("node_id")
             by_node = (key[0], "node", node) if isinstance(node, str) else None
-            names = ([(key[0], str(key[1]))] if key[1] is not None else []) + ([by_node] if by_node else [])
+            names = ([(key[0], _id(key[1]))] if key[1] is not None else []) + ([by_node] if by_node else [])
             for told in names:
                 if marks.setdefault(told, _mark(one)) != _mark(one):
                     return [], False
@@ -295,6 +295,15 @@ def _positive(value) -> bool:
 
 def _key(value):
     return value if isinstance(value, str) and KEY.fullmatch(value) else None
+
+
+def _id(value) -> str:
+    """An id as the number it names however it is written, "01" or " 1" as 1, so that one event read under two
+    spellings of its id is one (Muse, issue 1206)."""
+    try:
+        return str(int(value))
+    except ValueError:
+        return str(value)
 
 
 def _object(value) -> dict:
