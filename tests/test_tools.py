@@ -11702,6 +11702,7 @@ printf 'example.org.cdn.example.\\n192.0.2.7\\n'
         for text in ("read=123", '"read_exits": [123, 123]', "codes 123\n", "[123]"):
             self.assertRegex(text, self.FORGED, text)
         for text in ("/tmp/tmpwtge_xan/tmpf123qsjl-out", "/tmp/tmp123abcd", "/tmp/tmpabcd123-out", "/tmp/tmp_123_x",
+                     "/tmp/tmpabcd_123-out", "/tmp/tmp123_abcd",
                      "1234", "0123", "elapsed 41231 ms"):
             self.assertNotRegex(text, self.FORGED, text)
 
@@ -11757,7 +11758,13 @@ printf 'example.org.cdn.example.\\n192.0.2.7\\n'
         written = self.written(self.out) + ran.stdout + ran.stderr
         for word in self.markers(folder) + list(self.PROSE.values()) + ["NEVER-SEEN", "the_model_wrote"]:
             self.assertNotIn(word, written)
-        self.assertNotRegex(written, self.FORGED)
+        # The forged code is looked for in each output alone, so that another's first letter never hides it, and past
+        # the temporary directory, whose name could hold it (Astra, Kimi).
+        root = tempfile.gettempdir()
+        for text in [p.read_text() for p in self.out.iterdir()] + [ran.stdout, ran.stderr]:
+            for where in (os.path.realpath(root), root):
+                text = text.replace(where, "")
+            self.assertNotRegex(text, self.FORGED)
         for part in self.checked(self.out)["configurations"]:
             self.assertEqual((part["env"]["seen"], part["ancestors"]["seen"]),
                              ({"parent": True, "listed": True}, {"parent": True, "listed": True}))
