@@ -2159,11 +2159,18 @@ class RemoveLabel(unittest.TestCase):
         top = LIMITS["max_acts_per_item"]
         analysed = [comment(ANALYST, 3)]
         waiting = ACCEPTED + [labelled(READY, OTHER_APP, 4)]
-        gone = waiting + [unlabelled(READY, OTHER_APP, 6)]
+        # The Controller removes it, once it may.
+        gone = waiting + [unlabelled(READY, CONTROLLER, 6)]
         for acts, reason in ((top, "act_ceiling"), (top + 1, "act_ceiling"), (None, "acts_unreadable")):
-            d = decide(facts(label_events=waiting, role_comments=analysed, acts_since_writer=acts))
-            self.assertEqual((d["state"], what(d), d["evidence"]), ("triage", ("defer", reason, None), [READY]), acts)
-            self.assertNotIn("admit", d, acts)
+            given = facts(label_events=waiting, role_comments=analysed, acts_since_writer=acts)
+            kept = copy.deepcopy(given)
+            for _ in range(2):
+                d = decide(given)
+                self.assertEqual((d["state"], what(d), d["evidence"]), ("triage", ("defer", reason, None), [READY]),
+                                 acts)
+                self.assertNotIn("admit", d, acts)
+            # The removal read while it waits is never written into the facts given.
+            self.assertEqual(given, kept, acts)
             d = decide(facts(label_events=gone, role_comments=analysed, acts_since_writer=acts))
             self.assertEqual((d["state"], what(d)), ("triage", ("admit", "triage", JUDGE)), acts)
         # One act below the ceiling the label is removed; a waiting label the Run wanted does not add stops nothing.
