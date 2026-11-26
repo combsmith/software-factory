@@ -10,12 +10,12 @@ Status: accepted. 2026-11-26, the Solution Architect; issue 838. Extends decisio
 |---|---|---|
 | `push_not_permitted` | A push told wrongly, changes in no shape `applied` gives, or a request not permitted next | A person's: the Factory described its own push wrongly |
 | `push_branch_moved` | The work branch is not where the Decision admitted it, or a ref write is refused as moved | The fault `superseded`: the next pass derives afresh, with no attempt spent |
-| `push_answer_refused` | A refusal, an answer naming another branch or commit, or a read-back not what was made | A person's |
-| `push_unanswered` | No answer, a 5xx, 401 or 429, or a 403 on the first read, the branch's | The port's, an environment fault |
+| `push_answer_refused` | A write's 4xx, or a read-back that is not what was made | A person's |
+| `push_unanswered` | No answer to a write, or a 5xx | The port's, an environment fault |
 
 Each input and key is held to its exact type, as in the patch guard. The state keeps a copy of what it was told. A file may become a directory, or a directory a file, as `applied` allows.
 
-The push port's `WHOSE` names each code's owner as a part sets it; `superseded` is one owner. Push part 2's `seen` takes the port's accepted listing, refuses one not marked whole, and holds only the order, the commit and the branch.
+The push port's `WHOSE` names each code as a part sets it: this pull request adds `push_not_permitted`. Push part 2's `seen` takes the port's accepted listing, refuses one not marked whole, and holds only the order, the commit and the branch.
 
 Limits: until `WHOSE` holds a code, no test reads its owner. The cost ceiling alone bounds a branch that keeps moving.
 
@@ -32,4 +32,4 @@ A stop with no code leaves the Harness to guess whose it is, and a wrong guess s
 | A key is held to its type before any key is compared, and the state keeps a copy | `tests/test_guards.py::test_a_push_is_told_whole_or_begins_nothing`, `guards/push.py`, mutant: "keys are compared before their type is held" |
 | Each read leaves once and in order | `tests/test_guards.py::test_a_push_reads_its_branch_commit_tree_and_files_once_each_in_order`, `guards/push.py`, mutant: "the commit is read again" |
 | A listing not marked whole, or read at another tree, gives `push_not_permitted` | `tests/test_guards.py::test_a_listing_the_port_did_not_mark_whole_or_read_at_another_tree_is_refused`, `guards/push.py`, mutant: "a listing of any tree is taken" |
-| The branch gone or moved gives `push_branch_moved`; no answer, `push_unanswered`; a refusal, `push_answer_refused` | `tests/test_guards.py::test_each_read_says_whose_a_stop_is`, `guards/push.py`, mutant: "a branch gone is a refusal" |
+| A read's branch moved gives `push_branch_moved`; no answer, a 5xx, 401, 429 or the branch's 403, `push_unanswered`; any other refusal, `push_answer_refused` | `tests/test_guards.py::test_each_read_says_whose_a_stop_is`, `guards/push.py`, mutant: "a branch gone is a refusal" |
