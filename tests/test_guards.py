@@ -1431,7 +1431,8 @@ class Push(unittest.TestCase):
         # A blob refused, or not answered, is a stop of its own, whoever judges the bytes given.
         for answer, why in ((None, push.UNANSWERED), ({"status": "503", "body": {}}, push.UNANSWERED),
                             ({"status": "404", "body": {}}, push.ANSWER_REFUSED), ({"status": "206", "body": {}}, push.ANSWER_REFUSED),
-                            ({"status": "403", "body": {}}, push.ANSWER_REFUSED)):
+                            ({"status": "403", "body": {}}, push.ANSWER_REFUSED), ({"status": "401", "body": {}}, push.UNANSWERED),
+                            ({"status": "429", "body": {}}, push.RATE_LIMITED)):
             self.assertEqual(push.seen(state, "GET", blob, None, answer), (None, why), answer)
         self.assertEqual([push.permits(once, "GET", GIT + "blobs/" + sha, None) for sha in (BLOB_A, BLOB_T)], [False, True])
         self.assertEqual(push.seen(once, "GET", blob, None, None), NOT_PERMITTED)

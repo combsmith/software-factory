@@ -4,7 +4,7 @@ Status: accepted. 2026-11-26, the Solution Architect; issue 838. Narrows decisio
 
 ## Decision
 
-`guards/push.py` gives `push_rate_limited` for a 429 on any read or write of a push. `adapters/push.py` gives it for a 429 on the listing or a blob. `WHOSE` names it the port's: no attempt of the item's, and no Hold. No owner names it capacity, so nothing maps it to the model's fault.
+`guards/push.py` gives `push_rate_limited` for a 429 on any read or write of a push but the tree's. `adapters/push.py` gives it for a 429 on the listing or a blob, and the caller stops on that code. `WHOSE` names it the port's: no attempt of the item's, and no Hold. No owner names it capacity, so nothing maps it to the model's fault.
 
 `send` reports a rate limit's 403, as decision 1138 tells one, as status "429". That status is the port's; GitHub sent a 403.
 

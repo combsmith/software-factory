@@ -9332,7 +9332,7 @@ class Push(unittest.TestCase):
             for answers in ({"a": one, "b": refused}, {"a": refused, "b": None}):
                 self.assertEqual(push.read_whole(listing, ["a", "b"], answers.get), (None, patch.TREE_UNREAD), answers)
         # Each file is asked for in order, and none after the first that gives a code.
-        for first_answer in (wrong, None):
+        for first_answer in (wrong, None, {"status": "429", "body": {}}):
             asked = []
             push.read_whole(listing, ["a", "b"], lambda path: asked.append(path) or {"a": first_answer, "b": other}[path])
             self.assertEqual(asked, ["a"])
@@ -9354,11 +9354,14 @@ class Push(unittest.TestCase):
         blob = push.read_blob(PUSHED, NAMED)
         # A 403 with no request left or a time to wait is a rate limit's (decision 1138): `send` gives it as GitHub's
         # other answer of a limit, a 429, so that the guard and the port tell it from a refusal.
+        made = push.make_blob(PUSHED, "QQo=")
         for headers in ({"x-ratelimit-remaining": "0"}, {"x-ratelimit-remaining": 0}, {"retry-after": "60"}):
-            self.assertEqual(sent(Answering(403, headers), blob), {"status": "429", "body": {"message": "limited"}}, headers)
+            for req in (blob, made):
+                self.assertEqual(sent(Answering(403, headers), req), {"status": "429", "body": {"message": "limited"}}, headers)
         # Any other 403, and another status with a time to wait, is an answer.
         for status, headers in ((403, {}), (403, {"x-ratelimit-remaining": "5"}), (404, {"retry-after": "60"}),
-                                (200, {"retry-after": "60"}), (403, None), (403, ["retry-after"])):
+                                (200, {"retry-after": "60"}), (403, None), (403, ["retry-after"]),
+                                (201, {"x-ratelimit-remaining": "0"})):
             self.assertEqual(sent(Answering(status, headers), blob), {"status": str(status), "body": {"message": "limited"}},
                              (status, headers))
         # A listing's 403 is the port's; a blob's, read after the listing by the same token, a person's; a blob's rate
