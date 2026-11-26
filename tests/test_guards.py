@@ -638,13 +638,13 @@ class Patch(unittest.TestCase):
         # A removal that leaves bytes is no removal: the tree holds more than the patch takes.
         self.assertEqual(landed(gone, held=dict(HELD, **{"tests/t.py": b"x\ny\n"})), (None, patch.NOT_APPLIED))
         # An empty file is removed with no hunk, as git writes it; one whose bytes were not handed over is not, and that
-        # is the Factory's.
+        # is a person's.
         self.assertEqual(landed(gone[:gone.index(b"--- ")], held={}), (None, patch.TREE_UNREAD))
         self.assertEqual(landed(gone[:gone.index(b"--- ")], held=dict(HELD, **{"tests/t.py": b""}))[0]["removed"], ["tests/t.py"])
         # A file removed that the tree does not hold is not the tree's, with no hunk as with one.
         self.assertEqual(landed(CHANGE + b"diff --git a/missing b/missing\ndeleted file mode 100644\nindex e69de29..0000000\n"),
                          (None, patch.NOT_APPLIED))
-        # Bytes read for a name the tree does not hold are no read of the tree: the Factory's.
+        # Bytes read for a name the tree does not hold are no read of the tree: a person's.
         self.assertEqual(landed(section("docs/none.md", b"@@ -1 +1 @@\n-a\n+b\n"), held={"docs/none.md": b"a\n"}),
                          (None, patch.TREE_UNREAD))
         # A file the tree holds whose bytes were not handed over, or are no bytes, is not guessed at: with hunks or
@@ -759,6 +759,13 @@ class Patch(unittest.TestCase):
         for name, other in ((b"a;", "a\u037e"), (b"x`", "x\u1fef"), (b"l;/x", "l\u037e"), (b"a;;", "a\u037e\u037e"),
                             (b"x``", "x\u1fef\u1fef")):
             self.assertEqual(landed(EMPTY % (name, name), tree={other: FILE}, held={}), (None, patch.PATH_TWIN), other)
+        # A character macOS passes over is dropped from either name: U+200C in the tree's, in a file's or a directory's.
+        for other in ("a\u200c.py", "A.py\ufe0f", "\u00ada.py", "a.py\U000e0001", "a.\U000e0fffpy"):
+            self.assertEqual(landed(EMPTY % (b"a.py", b"a.py"), tree={other: FILE}, held={}), (None, patch.PATH_TWIN), other)
+        self.assertEqual(landed(EMPTY % (b"d/y", b"d/y"), tree={"d\u200d/x": FILE}, held={}), (None, patch.PATH_TWIN))
+        # One alone is no twin: a tree that holds such a name takes a push beside it.
+        self.assertEqual(landed(EMPTY % (b"a.py", b"a.py"), tree={"\u2764\ufe0f.md": FILE, "a\u200a.py": FILE}, held={})[0]["written"],
+                         {"a.py": (FILE, b"")})
         # Each file written is asked, the first and the last alike.
         for data in (EMPTY % (b"Docs/n", b"Docs/n") + EMPTY % (b"ok", b"ok"), EMPTY % (b"ok", b"ok") + EMPTY % (b"Docs/n", b"Docs/n")):
             self.assertEqual(landed(data), (None, patch.PATH_TWIN), data)
@@ -781,8 +788,8 @@ class Patch(unittest.TestCase):
         self.assertNotIn(patch.PATH_TWIN, (patch.UNREADABLE, patch.NOT_APPLIED, patch.NOT_A_FILE))
 
 
-    def test_what_a_port_did_not_read_is_the_factorys_under_its_own_code(self):
-        # A tree or contents in no shape a port gives is the Factory's, whatever the patch is: a path is text.
+    def test_what_a_port_did_not_read_holds_for_a_person_under_its_own_code(self):
+        # A tree or contents in no shape a port gives is a person's, whatever the patch is: a path is text.
         for tree, held in ((None, HELD), (TREE, None), ([], HELD), (TREE, []), ({**TREE, b"f": FILE}, HELD),
                            ({**TREE, None: FILE}, HELD), ({1: FILE}, HELD), ({**TREE, "unread": None}, HELD),
                            ({**TREE, "lone": "040000"}, HELD), ({**TREE, "n": 100644}, HELD), ({**TREE, "n": b"100644"}, HELD),
@@ -856,7 +863,7 @@ class Patch(unittest.TestCase):
         for tree, held in (({**TREE, "other": "100600"}, HELD), ({**TREE, "z/child": FILE, "z": FILE}, HELD),
                            ({**TREE, "/x": FILE}, HELD), (TREE, {**HELD, "other": b""})):
             self.assertEqual(patch.applied(CHANGE, tree, held), (None, patch.TREE_UNREAD), (tree, held))
-        # Missing bytes are the Factory's before any fault of the Role's, in whatever section either stands: beside
+        # Missing bytes are a person's before any fault of the Role's, in whatever section either stands: beside
         # an old mode that is not the tree's, and after a section whose index mode is not.
         wrong = CHANGE.replace(b"2222222 100644", b"2222222 100755")
         self.assertEqual(landed(b"diff --git a/docs/a.md b/docs/a.md\nold mode 100755\nnew mode 100644\n", held={}),
@@ -875,9 +882,9 @@ class Patch(unittest.TestCase):
         for data in (CHANGE, moved, COPIED, MODE):
             for held in ({}, {"docs/a.md": OLD.decode()}, {"docs/a.md": None}):
                 self.assertEqual(landed(data, held=held), (None, patch.TREE_UNREAD), (data, held))
-        # Missing bytes are the Factory's whatever else the section says: beside a mode that is not the tree's too.
+        # Missing bytes are a person's whatever else the section says: beside a mode that is not the tree's too.
         self.assertEqual(landed(CHANGE.replace(b"2222222 100644", b"2222222 100755"), held={}), (None, patch.TREE_UNREAD))
-        # The Factory's code is its own, by its letters, and none of the Role's three.
+        # A person's code is its own, by its letters, and none of the Role's.
         self.assertEqual(patch.TREE_UNREAD, "push_tree_unreadable")
         self.assertNotIn(patch.TREE_UNREAD, (patch.UNREADABLE, patch.NOT_APPLIED, patch.NOT_A_FILE, patch.PATH_TWIN))
         for data in (GONE, GONE[:GONE.index(b"--- ")]):      # a file removed, by its hunk or with none
@@ -891,15 +898,30 @@ class Patch(unittest.TestCase):
 
     def test_a_name_is_folded_as_macos_folds_it_wherever_that_is_ascii(self):
         # Every character, against the real fold: where either fold is ASCII, the two are the same. A name's fold is
-        # its characters' folds, so this holds for every name of NAME_CHARS and every name it is compared with.
+        # its characters' folds, so this holds for every name of NAME_CHARS and every name it is compared with. Both
+        # sides drop the characters IGNORABLE holds; that table is held apart, below.
+        def dropped(name):
+            return "".join(c for c in name if not any(first <= c <= last for first, last in patch.IGNORABLE))
+
         for point in range(0x110000):
             if 0xD800 <= point <= 0xDFFF:
                 continue
             said = chr(point)
-            real = unicodedata.normalize("NFD", unicodedata.normalize("NFD", said).casefold())
+            real = dropped(unicodedata.normalize("NFD", unicodedata.normalize("NFD", said).casefold()))
             if real.isascii() or patch._folded(said).isascii():
                 self.assertEqual(patch._folded(said), real, hex(point))
         self.assertEqual(patch._folded("Docs/A\u037e\u1fefK\u212a"), "docs/a;`kk")
+        # IGNORABLE is Unicode 13.0's Default_Ignorable_Code_Point, as ranges in order, apart and not touching.
+        bounds = [ord(c) for pair in patch.IGNORABLE for c in pair]
+        self.assertEqual(bounds, sorted(bounds))
+        self.assertTrue(all(bounds[k + 1] - bounds[k] > 1 for k in range(1, len(bounds) - 1, 2)), bounds)
+        self.assertEqual(len(patch.IGNORABLE), 17)
+        self.assertEqual(sum(ord(last) - ord(first) + 1 for first, last in patch.IGNORABLE), 4173)
+        for point in (0xAD, 0x34F, 0x61C, 0x115F, 0x1160, 0x17B5, 0x180E, 0x200C, 0x202E, 0x2065, 0x3164, 0xFE0F, 0xFEFF,
+                      0xFFA0, 0xFFF8, 0x1BCA3, 0x1D173, 0xE0001, 0xE0FFF):
+            self.assertEqual(patch._folded("a" + chr(point) + "b"), "ab", hex(point))
+        for point in (0xAC, 0xAE, 0x180F, 0x200A, 0x2010, 0x2070, 0xFE10, 0xFFF9, 0x1D17B, 0xE1000):
+            self.assertEqual(len(patch._folded("a" + chr(point) + "b")), 3, hex(point))
 
     def test_a_patch_as_git_writes_it_lands_what_git_would(self):
         # Against git itself, on fixed seeds, under no configuration, attributes or ignore rules but git's own. Files

@@ -15,7 +15,7 @@ PATCH_ONCE = ('tests.test_guards.Patch.test_a_file_is_written_once_and_only_wher
 PATCH_NO_FILE = ('tests.test_guards.Patch.test_what_is_no_file_is_never_written',)
 PATCH_CASE = ('tests.test_guards.Patch.test_no_file_lands_beside_another_that_differs_by_case_alone',)
 PATCH_FOLD = ('tests.test_guards.Patch.test_a_name_is_folded_as_macos_folds_it_wherever_that_is_ascii',)
-PATCH_PORT = ('tests.test_guards.Patch.test_what_a_port_did_not_read_is_the_factorys_under_its_own_code',)
+PATCH_PORT = ('tests.test_guards.Patch.test_what_a_port_did_not_read_holds_for_a_person_under_its_own_code',)
 PATCH_GIT = ('tests.test_guards.Patch.test_a_patch_as_git_writes_it_lands_what_git_would',)
 
 TARGETS = ("guards/patch.py",)
@@ -718,7 +718,7 @@ MUTANTS = [
     ('what lands of a file removed or read comes with a reason', 'guards/patch.py',
      'list(taken)}, None\n',
      'list(taken)}, (NOT_APPLIED if removed or taken else None)\n', PATCH_KINDS),
-    # guards/patch.py holds what a port handed it to a shape, under the Factory's own code.
+    # guards/patch.py holds what a port handed it to a shape, under a person's own code.
     ('a file whose bytes were not handed over is changed all the same', 'guards/patch.py',
      '    if any(tree.get(s["old"]) in FILE_MODES and s["old"] not in contents for s in sections if s["kind"] != "new"):\n        return None, TREE_UNREAD\n',
      '', PATCH_PORT),
@@ -836,7 +836,7 @@ MUTANTS = [
     ("a tree's path as deep as a name is refused", 'guards/patch.py',
      'path.count("/") < len(DEEPEST) for',
      'path.count("/") < len(DEEPEST) - 1 for', PATCH_PORT),
-    ("the Factory's code is one of the Role's", 'guards/patch.py',
+    ("a person's code is one of the Role's", 'guards/patch.py',
      '"push_tree_unreadable"',
      '"bundle_unreadable"', PATCH_PORT),
     # guards/patch.py writes no file beside another the push leaves that differs from it by case alone.
@@ -991,6 +991,26 @@ MUTANTS = [
     ("a tree's part that git reads as its own directory elsewhere is refused", 'guards/patch.py',
      'part.casefold() != GIT_OWN',
      'not _gits(part)', PATCH_PORT),
+    # guards/patch.py removes what a removal or a rename leaves, and asks every path the push leaves for a twin.
+    ('a removed file is not among what the push removes', 'guards/patch.py',
+     'if kind in ("deleted", "rename"):',
+     'if kind == "rename":', PATCH_KINDS),
+    ('a file written is asked of the other files written alone, never of the tree', 'guards/patch.py',
+     'for path in list(left) + list(written):',
+     'for path in list(written):', PATCH_CASE),
+    ('a path the push leaves is folded by its directories alone, never by its own name', 'guards/patch.py',
+     '        for name in _above(path) + [path]:\n',
+     '        for name in _above(path):\n', PATCH_CASE),
+    ("a file written is asked for a twin by its directories alone, never by its own name", 'guards/patch.py',
+     'in twins for name in _above(path) + [path])',
+     'in twins for name in _above(path))', PATCH_CASE),
+    # guards/patch.py passes over the characters macOS passes over in a name, on both sides.
+    ('a character macOS passes over is kept in a name', 'guards/patch.py',
+     'return "".join(c for c in folded if not any(first <= c <= last for first, last in IGNORABLE))',
+     'return folded', PATCH_CASE),
+    ('only the first character of each ignorable range is passed over', 'guards/patch.py',
+     'if not any(first <= c <= last for first, last in IGNORABLE))',
+     'if not any(first == c for first, last in IGNORABLE))', PATCH_FOLD),
     # guards/patch.py lands what git itself lands.
     ('every file lands as a plain one, whatever its mode', 'guards/patch.py',
      '= (mode, after)',

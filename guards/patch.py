@@ -14,8 +14,8 @@ It reads a narrower patch than `harness/bundle.py` does, on purpose, and what it
   names both files and every other line that names one must agree with it; and of no more parts than `DEEPEST` bounds;
 - a file is a file: a link, a submodule, a path under a file, and a mode other than a file's two are refused; where a
   file stands is asked of the tree the push leaves, so a file removed or moved away leaves its place;
-- no file is written where it, or a directory above it, differs by case or canonical form alone from another path
-  the push leaves, as macOS reads names (`_folded`);
+- no file is written where it, or a directory above it, differs by case, canonical form or a character macOS passes
+  over alone from another path the push leaves, as macOS reads names (`_folded`);
 - no file is written twice or copied twice, and none is written where the tree holds one the patch does not say it
   changes;
 - a section's extended lines stand in the order git writes them, and a change of mode is a file's between its two
@@ -94,7 +94,7 @@ UNREADABLE = "bundle_unreadable"        # no patch this reads: the Role's, as de
 NOT_APPLIED = "patch_does_not_apply"    # a patch, but not of the admitted commit's files
 NOT_A_FILE = "push_not_a_file"          # it writes what is no file, or through one
 PATH_TWIN = "push_path_collision"      # it writes a path another it leaves differs from by case or form alone
-TREE_UNREAD = "push_tree_unreadable"    # the port's reads are in no shape this reads: the Factory's, never the Role's
+TREE_UNREAD = "push_tree_unreadable"    # the port's reads are in no shape this reads: a person's Hold
 
 
 def _number(said):
@@ -447,6 +447,12 @@ def content(old: bytes, hunks: list):
 # The two characters whose canonical decomposition is one of `NAME_CHARS`, though case folding leaves them as they are.
 # No other character's decomposition, folded in case and decomposed again, is ASCII where its case folding is not.
 CANONICAL = (("\u037e", ";"), ("\u1fef", "`"))
+# The characters macOS's file systems pass over in a name, as Unicode 13.0 lists them: its Default_Ignorable_Code_Point
+# ranges, first and last, in order. Apple's own table is not this one, and is untested: HFS+ drops fewer.
+IGNORABLE = (("\u00ad", "\u00ad"), ("\u034f", "\u034f"), ("\u061c", "\u061c"), ("\u115f", "\u1160"), ("\u17b4", "\u17b5"),
+             ("\u180b", "\u180e"), ("\u200b", "\u200f"), ("\u202a", "\u202e"), ("\u2060", "\u206f"), ("\u3164", "\u3164"),
+             ("\ufe00", "\ufe0f"), ("\ufeff", "\ufeff"), ("\uffa0", "\uffa0"), ("\ufff0", "\ufff8"),
+             ("\U0001bca0", "\U0001bca3"), ("\U0001d173", "\U0001d17a"), ("\U000e0000", "\U000e0fff"))
 
 
 def _folded(name: str) -> str:
@@ -454,11 +460,12 @@ def _folded(name: str) -> str:
     case, and decomposed again. guards/ imports nothing, so no table of decompositions is at hand. But every name a
     patch writes, and each directory above it, is of `NAME_CHARS`, which are ASCII, and two names are one only where
     both fold to it. So it is enough to fold each name exactly where its fold is ASCII: case folding, and the two
-    characters `CANONICAL` holds, do that. A test reads every character against the real fold."""
+    characters `CANONICAL` holds, do that. A test reads every character against the real fold. A character `IGNORABLE`
+    holds is then dropped, as macOS passes over it: `a\u200c.py` is `a.py` there."""
     folded = name.casefold()
     for form, plain in CANONICAL:
         folded = plain.join(folded.split(form))
-    return folded
+    return "".join(c for c in folded if not any(first <= c <= last for first, last in IGNORABLE))
 
 
 def _above(path: str) -> list:
@@ -505,14 +512,15 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
     """`(changes, None)`, or `(None, reason)` where nothing may land. `changes` is `{"written": {path: (mode, bytes)},
     "removed": [path], "read": [path]}`: what the push writes, what it removes, and what a rename or a copy read, each
     path once; `harness/apply.py`'s `push_refusal` is asked about what was read as it is about what is written.
-    A tree or contents in no shape a port gives, and a file the tree holds whose bytes it did not hand over, are the
-    Factory's fault, under its own code; every other reason is the Role's."""
+    A tree or contents in no shape a port gives, and a file the tree holds whose bytes it did not hand over, hold the
+    item for a person, under its own code: never the Role's attempt, nor the environment's fault, since the admitted
+    commit is read the same way again. Every other reason is the Role's."""
     if not _handed(tree, contents):
         return None, TREE_UNREAD
     sections = read(patch)
     if sections is None:
         return None, UNREADABLE
-    # A file the patch reads, of the tree, whose bytes were not handed over is the Factory's, whatever else is wrong
+    # A file the patch reads, of the tree, whose bytes were not handed over is a person's, whatever else is wrong
     # with the patch, and in whatever order its sections stand.
     if any(tree.get(s["old"]) in FILE_MODES and s["old"] not in contents for s in sections if s["kind"] != "new"):
         return None, TREE_UNREAD
