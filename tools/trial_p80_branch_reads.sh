@@ -4,9 +4,7 @@
 # counts the pull requests the Factory opened for an issue, and the branch's ref, which reads its head (decisions 0068
 # and 0242).
 #
-#   tools/trial_p80_branch_reads.sh [--keep-raw] OUT CONTROLLER_KEY REPO OPEN CLOSED MERGED BARE NEVER
-#
-# --keep-raw keeps the raw answers in the run's own scratch directory, and says where; delete it once read.
+#   tools/trial_p80_branch_reads.sh OUT CONTROLLER_KEY REPO OPEN CLOSED MERGED BARE NEVER
 #
 # The Maintainer runs it at his own terminal, from anywhere; no session runs it, since it mints a credential.
 # OUT is a directory that does not exist yet, outside this repo. CONTROLLER_KEY is the path of the Controller App's
@@ -42,12 +40,8 @@ set +a
 unset CDPATH
 set +x
 
-# --keep-raw, first, keeps the raw answers for a person to read; the clean-up says where (issue 1215).
-keep=""
-if [ "${1:-}" = --keep-raw ]; then
-    keep=1
-    shift
-fi
+keep=""  # --keep-raw, first, keeps the raw answers for a person to read (issue 1215)
+[ "${1:-}" != --keep-raw ] || { keep=1; shift; }
 if [ "$#" -ne 8 ]; then
     echo "usage: tools/trial_p80_branch_reads.sh [--keep-raw] OUT CONTROLLER_KEY REPO OPEN CLOSED MERGED BARE NEVER" >&2
     exit 2
@@ -108,19 +102,17 @@ open=$4 closed=$5 merged=$6 bare=$7 never=$8
 API=https://api.github.com
 VERSION="X-GitHub-Api-Version: 2022-11-28"
 ACCEPT="Accept: application/vnd.github+json"
-# The raw answers are kept in a directory of this run's own, which mktemp makes new and for this user alone, outside
-# the repo as OUT is: a TMPDIR inside it, or a link into it, is refused. The exit trap deletes it however the run
-# ends, unless --keep-raw asks to keep it; only the redacted copies reach OUT (issue 1215).
+# The raw answers are kept outside the repo, as OUT is: a TMPDIR inside it, or a link into it, is refused.
 # The template names TMPDIR itself: macOS's mktemp -d alone does not always read it.
 # Its own line: inside the cd, a failed mktemp would be read as the directory this stands in, which the clean-up removes.
 made=$(mktemp -d "${TMPDIR:-/tmp}/trial-p80.XXXXXX")
 scratch=$(cd "$made" && pwd -P)
 case "$scratch/" in "$root"/*)
-    rm -rf "$scratch"
+    rmdir "$made"
     echo "trial_p80_branch_reads: the scratch directory $scratch is inside the repo; set TMPDIR outside it" >&2
     exit 2 ;;
 esac
-# A raw answer is deleted once it is redacted, unless --keep-raw asks to keep them all.
+# The exit trap deletes it however the run ends, and drop each raw answer once redacted; --keep-raw keeps both.
 drop() { [ -n "$keep" ] || rm -f -- "$@"; }
 # No credential's name is taken from the environment, where one exported would reach every child and a mint answer
 # would be revoked by the exit trap though this run never minted it; and curl is told of no file to write its TLS
@@ -166,11 +158,8 @@ finish() {
         echo "trial_p80_branch_reads: stopped while a token was being minted; GitHub may have minted one, live for up to" \
             "an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation." >&2
     fi
-    if [ -n "$keep" ]; then
-        echo "trial_p80_branch_reads: the raw answers are kept in $scratch, as --keep-raw asked; delete it once read" >&2
-    else
-        rm -rf "$scratch"
-    fi
+    [ -n "$keep" ] || rm -rf "$scratch"
+    [ -z "$keep" ] || printf '%s: the raw answers are kept in %s, as --keep-raw asked; delete it once read\n' trial_p80_branch_reads "$scratch" >&2
 }
 trap finish EXIT
 trap "trap '' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM QUIT PIPE
@@ -234,7 +223,7 @@ read_one() {   # NARROWED PATH STATE BRANCH
     status=$(awk 'BEGIN { head = 1 } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
     if [ "$read_ok" = 0 ] || [ -z "$status" ]; then
         drop "$scratch/raw-$n"
-        echo "trial_p80_branch_reads: GET /$2 with a token narrowed to $1: curl failed; nothing of it is kept" >&2
+        echo "trial_p80_branch_reads: GET /$2 with a token narrowed to $1: curl failed; nothing of it reaches OUT" >&2
         exit 1
     fi
     (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"

@@ -1,6 +1,7 @@
 """The mutants of `tools/trial_p52_pause.sh`: tools/mutants.py runs them."""
 
 TARGETS = ("tools/trial_p52_pause.sh",)
+from tools.mutants_of.tools_trial_p12_status_sh import KEEP_1215  # noqa: E402
 KEEP = "tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_in_a_private_directory_it_deletes"
 MUTANTS = [
     # Issue 481: the first signal stops the run, a later one stops neither the revocation nor the redaction, and the
@@ -106,11 +107,7 @@ MUTANTS = [
     ("P-52 exports what its environment says to", "tools/trial_p52_pause.sh", "set +a\nunset CDPATH\n", "unset CDPATH\n", ("tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment",)),
     ("P-52 looks along CDPATH", "tools/trial_p52_pause.sh", "set +a\nunset CDPATH\n", "set +a\n", ("tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment",)),
     # Issue 1215, the SA's ruling of 2026-11-26, as tools/mutants_of/tools_trial_p12_status_sh.py's KEEP_1215 has it.
-    ("P-52 keeps its raw answers without --keep-raw", "tools/trial_p52_pause.sh", '    if [ -n "$keep" ]; then\n        echo', '    if true; then\n        echo', (KEEP,)),
-    ("P-52 deletes its raw answers though --keep-raw asked", "tools/trial_p52_pause.sh", "    keep=1\n    shift\n", "    shift\n", (KEEP,)),
-    ("P-52 deletes each raw answer though --keep-raw asked", "tools/trial_p52_pause.sh", 'drop() { [ -n "$keep" ] || rm -f -- "$@"; }', 'drop() { rm -f -- "$@"; }', (KEEP,)),
-    ("P-52 does not say where it kept its raw answers", "tools/trial_p52_pause.sh", "as --keep-raw asked; delete it once read\" >&2\n", "as --keep-raw asked; delete it once read\" >/dev/null\n", (KEEP,)),
-    ("P-52 makes its raw answers' directory for others to read", "tools/trial_p52_pause.sh", 'scratch=$(cd "$made" && pwd -P)\n', 'chmod 755 "$made"\nscratch=$(cd "$made" && pwd -P)\n', (KEEP,)),
+    *[(name % "P-52", "tools/trial_p52_pause.sh", old, new, (KEEP,)) for name, old, new in KEEP_1215],
     ("P-52 tells nothing of a stop mid-mint", "tools/trial_p52_pause.sh", '    elif [ -n "${minting:-}" ]; then', '    elif false; then',
      ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
     ("P-52 marks no mint", "tools/trial_p52_pause.sh", "minting=1\n", "", ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),

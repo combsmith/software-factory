@@ -2,9 +2,7 @@
 # Trial P-4 (combsmith/software-factory#187, design section 6): can an installation token be minted with a subset of
 # the App's permissions and repos, and is it held to them?
 #
-#   tools/trial_p4_narrow.sh [--keep-raw] OUT KEY OWNER/REPO OTHER_OWNER/REPO
-#
-# --keep-raw keeps the raw answers in the run's own scratch directory, and says where; delete it once read.
+#   tools/trial_p4_narrow.sh OUT KEY OWNER/REPO OTHER_OWNER/REPO
 #
 # The Maintainer runs it at his own terminal, from anywhere; no session runs it, since it mints a credential. OUT is a
 # directory that does not exist yet, outside this repo. KEY is the path of the trial-author App's private key file,
@@ -35,12 +33,8 @@ unset CDPATH
 set +x
 unset CURL_HOME
 
-# --keep-raw, first, keeps the raw answers for a person to read; the clean-up says where (issue 1215).
-keep=""
-if [ "${1:-}" = --keep-raw ]; then
-    keep=1
-    shift
-fi
+keep=""  # --keep-raw, first, keeps the raw answers for a person to read (issue 1215)
+[ "${1:-}" != --keep-raw ] || { keep=1; shift; }
 if [ "$#" -ne 4 ]; then
     echo "usage: tools/trial_p4_narrow.sh [--keep-raw] OUT KEY OWNER/REPO OTHER_OWNER/REPO" >&2
     exit 2
@@ -104,19 +98,15 @@ API=https://api.github.com
 VERSION="X-GitHub-Api-Version: 2022-11-28"
 ACCEPT="Accept: application/vnd.github+json"
 JSON="Content-Type: application/json"
-# The raw answers are kept in a directory of this run's own, which mktemp makes new and for this user alone, outside
-# the repo as OUT is: a TMPDIR inside it, or a link into it, is refused. The exit trap deletes it however the run
-# ends, unless --keep-raw asks to keep it; only the redacted copies reach OUT (issue 1215).
-# The template names TMPDIR itself: macOS's mktemp -d alone does not always read it.
-# Its own line: inside the cd, a failed mktemp would be read as the directory this stands in, which the clean-up removes.
+# The raw answers are kept outside the repo, in a directory as tools/trial_p54_issue_lookup.sh makes it.
 made=$(mktemp -d "${TMPDIR:-/tmp}/trial-p4.XXXXXX")
 scratch=$(cd "$made" && pwd -P)
 case "$scratch/" in "$root"/*)
-    rm -rf "$scratch"
+    rmdir "$made"
     echo "trial_p4_narrow: the scratch directory $scratch is inside the repo; set TMPDIR outside it" >&2
     exit 2 ;;
 esac
-# A raw answer is deleted once it is redacted, unless --keep-raw asks to keep them all.
+# The exit trap deletes it however the run ends, and drop each raw answer once redacted; --keep-raw keeps both.
 drop() { [ -n "$keep" ] || rm -f -- "$@"; }
 # No credential's name is taken from the environment, where one exported would reach every child, and curl is
 # told of no file to write its TLS keys to (issue 1215).
@@ -161,11 +151,8 @@ finish() {
         echo "trial_p4_narrow: stopped while a token was being minted; GitHub may have minted one, live for up to" \
             "an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation." >&2
     fi
-    if [ -n "$keep" ]; then
-        echo "trial_p4_narrow: the raw answers are kept in $scratch, as --keep-raw asked; delete it once read" >&2
-    else
-        rm -rf "$scratch"
-    fi
+    [ -n "$keep" ] || rm -rf "$scratch"
+    [ -z "$keep" ] || printf '%s: the raw answers are kept in %s, as --keep-raw asked; delete it once read\n' trial_p4_narrow "$scratch" >&2
 }
 trap finish EXIT
 trap "trap '' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM QUIT PIPE
@@ -206,7 +193,7 @@ with_token() {   # METHOD PATH [BODY_FILE]
     rm -f "$scratch/crlf-$n"
     if [ "$read_ok" = 0 ]; then
         drop "$scratch/raw-$n"
-        echo "trial_p4_narrow: read $n ($1 /$2) failed in curl; nothing of it is kept." >&2
+        echo "trial_p4_narrow: read $n ($1 /$2) failed in curl; nothing of it reaches OUT." >&2
         exit 1
     fi
     (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"

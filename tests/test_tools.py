@@ -15744,8 +15744,9 @@ class SignalTraps(unittest.TestCase):
 
     def test_every_token_script_keeps_its_raw_answers_in_a_private_directory_it_deletes(self):  # issue 1215
         # The SA's ruling of 2026-11-26: the raw answers stand in a directory the run makes with mktemp, this user's alone,
-        # where TMPDIR says and never inside the repo. The exit trap deletes it however the run ends, unless --keep-raw,
-        # given first, asks to keep it; then the run says where. Each raw answer goes once redacted, but with the flag.
+        # where TMPDIR says and never inside the repo, removing only what mktemp made if it is. The exit trap deletes it
+        # however the run ends, and each raw answer goes once redacted, unless --keep-raw, given first, keeps both; then
+        # the run says where.
         scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
                    if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
         self.assertEqual(len(scripts), 10)
@@ -15754,22 +15755,26 @@ class SignalTraps(unittest.TestCase):
             lines = text.splitlines()
             made = [n for n, line in enumerate(lines) if "mktemp" in line and not line.lstrip().startswith("#")]
             self.assertEqual(len(made), 1, name)
-            self.assertRegex(lines[made[0]], r'^made=\$\(mktemp -d "\$\{TMPDIR:-/tmp\}/trial-[a-z0-9]+\.XXXXXX"\)$', name)
-            self.assertEqual(lines[made[0] + 1:made[0] + 3], ['scratch=$(cd "$made" && pwd -P)', 'case "$scratch/" in "$root"/*)'],
+            at = made[0]
+            self.assertRegex(lines[at], r'^made=\$\(mktemp -d "\$\{TMPDIR:-/tmp\}/trial-[a-z0-9]+\.XXXXXX"\)$', name)
+            self.assertEqual(lines[at + 1:at + 4], ['scratch=$(cd "$made" && pwd -P)', 'case "$scratch/" in "$root"/*)', '    rmdir "$made"'])
+            self.assertTrue(lines[at + 4].startswith('    echo "%s: the scratch directory $scratch is inside the repo' % name), name)
+            self.assertEqual([lines[at + 5], lines[at + 6], lines[at + 8]], ["    exit 2 ;;", "esac", 'drop() { [ -n "$keep" ] || rm -f -- "$@"; }'],
                              name)
-            flag = lines.index('if [ "${1:-}" = --keep-raw ]; then')
-            self.assertEqual(lines[flag - 1:flag + 4], ['keep=""', 'if [ "${1:-}" = --keep-raw ]; then', "    keep=1", "    shift", "fi"],
-                             name)
-            self.assertTrue(lines[flag + 4].startswith('if [ "$#" -'), name)
+            flag = lines.index('[ "${1:-}" != --keep-raw ] || { keep=1; shift; }')
+            self.assertTrue(lines[flag - 1].startswith('keep=""  # ') and lines[flag + 1].startswith('if [ "$#" -'), name)
             self.assertEqual(text.count("--keep-raw ]"), 1, name)
             finish = text[text.index("\nfinish() {\n"):]
-            finish = finish[:finish.index("\n}\n")]
-            self.assertTrue(finish.endswith('    if [ -n "$keep" ]; then\n        echo "%s: the raw answers are kept in $scratch, as '
-                                            '--keep-raw asked; delete it once read" >&2\n    else\n        rm -rf "$scratch"\n    fi'
-                                            % name), name)
+            self.assertTrue(finish[:finish.index("\n}\n")].endswith(
+                '    [ -n "$keep" ] || rm -rf "$scratch"\n    [ -z "$keep" ] || printf \'%%s: the raw answers are kept in %%s, '
+                'as --keep-raw asked; delete it once read\\n\' %s "$scratch" >&2' % name), name)
             self.assertIn("\ntrap finish EXIT\n", text, name)
             self.assertNotIn('rm -f "$scratch/raw', text, name)
-            self.assertEqual(text.count('drop() { [ -n "$keep" ] || rm -f -- "$@"; }\n'), 1, name)
+            redacted = [n for n, line in enumerate(lines) if re.search(r'redact_trial < "\$scratch/raw-', line)]
+            self.assertTrue(redacted, name)
+            for n in redacted:
+                raw = re.search(r'< "(\$scratch/raw-[^"]*)"', lines[n]).group(1)
+                self.assertEqual(lines[n + 1].strip(), 'drop "%s"' % raw, (name, n))
 
     def test_every_token_script_tells_of_a_stop_mid_mint(self):  # issue 1215
         # A stop while the mint is asked leaves no answer to find a token in, and GitHub may have minted one: each sh script
@@ -16037,30 +16042,32 @@ esac
 
     def test_keep_raw_keeps_the_raw_answers_private_and_says_where(self):  # issue 1215
         # Without the flag the run's scratch directory goes, whether the run passes or a refused mint stops it. With
-        # --keep-raw, given first, it stays, this user's alone, holding each raw answer OUT holds clean, and no token;
-        # the run says where.
-        for status, first, code in (("201", (), 0), ("401", (), 1), ("201", ("--keep-raw",), 0)):
+        # --keep-raw, given first, it stays, this user's alone, holding each raw answer that OUT holds redacted, and no
+        # token; the run says where. Only the run's own directory is read: python3 may leave xcrun_db in TMPDIR.
+        for status, first in (("201", ()), ("401", ()), ("201", ("--keep-raw",))):
             tmpdir = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
             self.addCleanup(shutil.rmtree, tmpdir, ignore_errors=True)
             out = tmpdir.parent / ("out-of-" + tmpdir.name)
             (self.stand_in / "mint.status").write_text(status + "\n")
             ran = self.run_script(out=out, tmpdir=tmpdir, first=first)
-            self.assertEqual(ran.returncode != 0, code != 0, ran.stderr + ran.stdout)
-            kept = list(tmpdir.iterdir())
+            self.assertEqual(ran.returncode != 0, status != "201", ran.stderr + ran.stdout)
+            kept = [p for p in tmpdir.iterdir() if p.name.startswith("trial-")]
+            self.assertEqual(len(kept), len(first), (status, ran.stderr))
+            self.assertEqual("--keep-raw" in ran.stderr, bool(first))
             if not first:
-                self.assertEqual(kept, [], (status, ran.stderr))
-                self.assertNotIn("--keep-raw", ran.stderr)
                 continue
-            self.assertEqual(len(kept), 1, kept)
             self.assertEqual(kept[0].stat().st_mode & 0o777, 0o700)
             self.assertIn("the raw answers are kept in %s, as --keep-raw asked; delete it once read" % kept[0], ran.stderr)
-            raw = sorted(p.name for p in kept[0].iterdir() if p.name.startswith("raw-"))
             clean = sorted(p.name for p in out.iterdir() if p.name.startswith("clean-"))
-            self.assertTrue(raw, ran.stderr)
-            self.assertEqual(raw, [name.replace("clean-", "raw-") for name in clean])
+            self.assertTrue(clean, ran.stderr)
+            self.assertEqual(sorted(p.name for p in kept[0].iterdir() if p.name.startswith("raw-")),
+                             [name.replace("clean-", "raw-") for name in clean])
             self.assertEqual([p.name for p in out.iterdir() if p.name.startswith("raw-")], [])
-            for kept_file in kept[0].iterdir():
-                self.assertNotIn(self.TOKEN, kept_file.read_text(errors="replace"), kept_file.name)
+            for name in clean:
+                raw = (kept[0] / name.replace("clean-", "raw-")).read_bytes()
+                again = subprocess.run([sys.executable, "-m", "tools.redact_trial"], cwd=str(ROOT), input=raw, capture_output=True)
+                self.assertEqual(again.stdout, (out / name).read_bytes(), name)
+                self.assertNotIn(self.TOKEN.encode(), raw, name)
 
     def test_a_mint_answered_201_and_cut_short_is_revoked_and_told(self):
         # curl cut the mint's answer short: GitHub minted a token the script cannot parse. It finds the token, revokes
@@ -16285,7 +16292,7 @@ elif "/activity" in url:''', 1)
                 self.assertNotIn("gh" + "s_", "".join(texts.values()) + ran.stdout + ran.stderr)
 
     def test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked(self):
-        for flag, said in (("read.broke", "curl failed; nothing of it is kept"), ("read.cut", "")):
+        for flag, said in (("read.broke", "curl failed; nothing of it reaches OUT"), ("read.cut", "")):
             with self.subTest(flag=flag):
                 self.setUp()
                 (self.stand_in / flag).write_text("")
@@ -16423,7 +16430,7 @@ elif "/collaborators/" in url:""", 1)
         self.assertIn('"message": "Validation Failed"', (self.out / "clean-1").read_text())
 
     def test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked(self):
-        for flag, said in (("read.broke", "curl failed; nothing of it is kept"), ("read.cut", "")):
+        for flag, said in (("read.broke", "curl failed; nothing of it reaches OUT"), ("read.cut", "")):
             with self.subTest(flag=flag):
                 self.setUp()
                 (self.stand_in / flag).write_text("")
@@ -16646,7 +16653,7 @@ elif "/issues/" in url:""", 1)
         (self.stand_in / "control.broke").write_text("")
         ran = self.run_script()
         self.assertNotEqual(ran.returncode, 0, ran.stdout)
-        self.assertIn("curl failed; nothing of it is kept", ran.stderr)
+        self.assertIn("curl failed; nothing of it reaches OUT", ran.stderr)
         self.assertEqual([c["method"] for c in self.calls()], ["POST"] + ["GET"] * 10 + ["DELETE", "POST", "GET", "DELETE"])
         self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
         self.assertFalse((self.out / "requests.json").exists())
@@ -16782,7 +16789,7 @@ elif "/issues/" in url:''', 1)
                 self.assertTrue(texts["redacted-1"].strip() and texts["redacted-2"].strip())
 
     def test_a_read_curl_failed_or_the_redaction_refused_is_not_kept_and_its_token_is_revoked(self):
-        for flag, said in (("read.broke", "curl failed; nothing of it is kept"), ("read.cut", "")):
+        for flag, said in (("read.broke", "curl failed; nothing of it reaches OUT"), ("read.cut", "")):
             with self.subTest(flag=flag):
                 self.setUp()
                 (self.stand_in / flag).write_text("")

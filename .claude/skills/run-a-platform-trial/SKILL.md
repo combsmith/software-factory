@@ -36,8 +36,10 @@ everything a trial leaves in it: its runs, logs and artifacts.
   What the trial-author App writes, the Maintainer runs as `tools/trial_as_app.sh`, with the App's
   key: it revokes its token, and leaves only redacted exchanges in a scratch directory, with `finish.log`
   where it says a token it left live. Read that first.
-  A token script deletes its raw answers on exit. Given `--keep-raw` first, it keeps them in its
-  own private scratch directory and prints that path; the Maintainer deletes it once read (issue 1215).
+  Each other `tools/trial_*.sh` that mints deletes its raw answers on exit. Given `--keep-raw` first,
+  it keeps them in its own private scratch directory and prints that path; the Maintainer deletes it
+  once read (issue 1215). That directory is made where TMPDIR says, so ask him to leave TMPDIR at the
+  Mac's own per-user default, which nothing syncs.
   A new script the Maintainer runs with a key copies `tools/trial_p54_issue_lookup.sh`: OUT made new
   under a parent only he can write to, the raw answers in a private scratch directory of its own,
   nothing of his environment taken but PATH, and a clean-up deaf to a second signal that tells him of
