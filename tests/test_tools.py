@@ -6917,6 +6917,9 @@ class Context(unittest.TestCase):
         self.assertEqual(self.budgeted("Status: " + "w " * 39 + "non-`None`-valued"), [])
         self.assertTrue(caught(self.budgeted("Status: " + "w " * 41), "the Status is 41 words"))
         self.assertTrue(caught(self.budgeted("Status: " + "w " * 41 + "\nmore"), "the Status is 42 words"))
+        # A section opened inside an example's fence opens none, so the Status runs on past it (issue 1174).
+        fenced = "Status: accepted.\n\n```\n## sample\n```\n\n" + "w " * 41
+        self.assertTrue(caught(self.budgeted(fenced), "the Status is 42 words"), self.budgeted(fenced))
         self.assertEqual(self.budgeted("Status: " + "w " * 41, before=1), [])
         self.assertTrue(caught(self.budgeted("Status: " + "w " * 41, before=-1), "the Status is 41 words"))
 
@@ -6938,6 +6941,18 @@ class Context(unittest.TestCase):
         # A Status wrapped onto a second line replaces as well, as tools/check_decisions.py reads it.
         wrapped = "Status: accepted.\nReplaces `docs/decisions/0001-x.md`."
         self.assertEqual(self.budgeted(wrapped, decision="w " * 400, why="w " * 50), [])
+        # A Replaces in a paragraph of its own is not the Status that tools/check_decisions.py reads, and replaces
+        # nothing, even after a line of spaces alone (issue 1174).
+        for blank in ("\n\n", "\n \t\n", "\r\r", "\u2028\u2028", "\x0c\x0c", "\r\n\r\n"):
+            split = "Status: accepted.%sReplaces `docs/decisions/0001-x.md`." % blank
+            self.assertTrue(caught(self.budgeted(split, decision="w " * 400, why="w " * 50), "are 450 words, and the most is 300"),
+                            repr(blank))
+        # Only the first paragraph replaces, though a later one says it as the first would; a line of spaces before it
+        # is no paragraph.
+        later = "Status: accepted.\n\nStatus: accepted. Replaces `docs/decisions/0001-x.md`."
+        self.assertTrue(caught(self.budgeted(later, decision="w " * 400, why="w " * 50), "the most is 300"))
+        spaced = " \t\nStatus: accepted. Replaces `docs/decisions/0001-x.md`."
+        self.assertEqual(self.budgeted(spaced, decision="w " * 400, why="w " * 50), [])
         # A section given twice is counted whole, and a letter outside ASCII makes a word.
         twice = self.budgeted(decision="w " * 200 + "\n\n## Decision\n\n" + "w " * 200)
         self.assertTrue(caught(twice, "are 401 words"), twice)
@@ -6947,6 +6962,24 @@ class Context(unittest.TestCase):
         # A table's pipes and a dash alone are no words: 2 + 8 + 289 and the Why's one make 300.
         self.assertEqual(self.budgeted(decision="| a | b |\n|---|---|\n" + "| w — | w |\n" * 4 + "w " * 289), [])
         self.assertEqual(self.budgeted(decision="w " * 301, before=1), [])
+
+    def test_a_new_records_one_heading_of_its_depth_is_its_title(self):
+        # Issue 1174: a heading of one # after the title would end the section above it unread, and its words would be
+        # counted by no budget: from the cutover it is refused, in the Status and in a section alike.
+        for at in ("decision", "why", "status"):
+            noted = {"decision": dict(decision="w " * 10 + "\n\n# Notes\n\n" + "w " * 400),
+                     "why": dict(why="Z.\n\n# Notes\n\n" + "w " * 400),
+                     "status": dict(status="Status: accepted.\n\n# Notes\n\nw")}[at]
+            problems = self.budgeted(**noted)
+            self.assertEqual(problems, ["docs/decisions/%04d-x.md: a heading '# Notes' after the title; a record's one "
+                                        "heading of one # is its title" % check_context.BUDGET_FROM], at)
+            self.assertEqual(self.budgeted(before=1, **noted), [], at)
+        # One in an example's fence is no heading, nor is a deeper one, which the section it is in counts; one after
+        # the fence closes is.
+        self.assertEqual(self.budgeted(decision="```\n# Notes\n```\n\nY."), [])
+        after = self.budgeted(decision="```\n# Example\n```\n\n# Notes\n\n" + "w " * 400)
+        self.assertEqual([problem.split("'")[1] for problem in after], ["# Notes"], after)
+        self.assertTrue(caught(self.budgeted(decision="w " * 10 + "\n\n### Notes\n\n" + "w " * 400), "are 412 words"))
 
     def test_a_new_records_decision_table_is_short(self):
         # Decision 1166: the Decision's tables have at most 8 rows together, and no cell over 40 words.
@@ -11781,6 +11814,18 @@ printf 'example.org.cdn.example.\\n192.0.2.7\\n'
     def written(self, out) -> str:
         return "".join(p.read_text() for p in pathlib.Path(out).iterdir())
 
+    # The read code the stand-in model forges, found as a number of its own: never inside a temporary directory's
+    # name, whose random part is letters, digits and "_" after "tmp", as /tmp/tmpf123qsjl-out was on one run (issue 1226).
+    FORGED = re.compile(r"(?<![0-9A-Za-z_])123(?![0-9A-Za-z_])")
+
+    def test_the_forged_code_is_found_as_a_number_and_never_in_a_temporary_name(self):  # issue 1226
+        for text in ("read=123", '"read_exits": [123, 123]', "codes 123\n", "[123]"):
+            self.assertRegex(text, self.FORGED, text)
+        for text in ("/tmp/tmpwtge_xan/tmpf123qsjl-out", "/tmp/tmp123abcd", "/tmp/tmpabcd123-out", "/tmp/tmp_123_x",
+                     "/tmp/tmpabcd_123-out", "/tmp/tmp123_abcd",
+                     "1234", "0123", "elapsed 41231 ms"):
+            self.assertNotRegex(text, self.FORGED, text)
+
     def checked(self, out) -> dict:
         return json.loads((pathlib.Path(out) / "checked.json").read_text())
 
@@ -11831,8 +11876,15 @@ printf 'example.org.cdn.example.\\n192.0.2.7\\n'
         ran = self.run_script(self.out, self.cfg, folder / "claude")
         self.assertEqual(ran.returncode, 1, ran.stderr)
         written = self.written(self.out) + ran.stdout + ran.stderr
-        for word in self.markers(folder) + list(self.PROSE.values()) + ["NEVER-SEEN", "the_model_wrote", "123"]:
+        for word in self.markers(folder) + list(self.PROSE.values()) + ["NEVER-SEEN", "the_model_wrote"]:
             self.assertNotIn(word, written)
+        # The forged code is looked for in each output alone, so that another's first letter never hides it, and past
+        # the temporary directory, whose name could hold it (Astra, Kimi).
+        root = tempfile.gettempdir()
+        for text in [p.read_text() for p in self.out.iterdir()] + [ran.stdout, ran.stderr]:
+            for where in (os.path.realpath(root), root):
+                text = text.replace(where, "")
+            self.assertNotRegex(text, self.FORGED)
         for part in self.checked(self.out)["configurations"]:
             self.assertEqual((part["env"]["seen"], part["ancestors"]["seen"]),
                              ({"parent": True, "listed": True}, {"parent": True, "listed": True}))
@@ -15657,6 +15709,10 @@ class SignalTraps(unittest.TestCase):
         # One script holds a live token through a clean-up a closed terminal can signal twice, so its line also makes it deaf
         # to the next signal (issue 481).
         own_line = {"trial_as_app.sh": "trap \"trap '' HUP INT TERM QUIT PIPE; trap - EXIT; finish 130\" HUP INT TERM QUIT PIPE"}
+        # Each sh script that mints is deaf from its first signal on, so a second finds the clean-up deaf at once (issue 1215).
+        own_line.update({script: "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM QUIT PIPE" for script in (
+            "trial_reader_reads.sh", "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh", "trial_p58_edits.sh",
+            "trial_p80_branch_reads.sh", "trial_p39_reach.sh", "trial_p4_narrow.sh", "trial_p52_pause.sh", "trial_p8_cost.sh")})
         scripts = sorted((ROOT / "tools").glob("*.sh"))
         self.assertGreaterEqual(len(scripts), 17)
         for script in scripts:
@@ -15666,6 +15722,21 @@ class SignalTraps(unittest.TestCase):
             self.assertRegex(traps[0], r"^trap \S.* EXIT$", script.name)
             self.assertEqual(traps[1], own_line.get(script.name, lines_of[lines[0]]), script.name)
             self.assertEqual(lines[lines.index(traps[0]) + 1], traps[1], script.name)
+
+    def test_every_token_script_is_deaf_in_its_clean_up_and_bounds_its_revocation(self):  # issue 1215
+        # A closed terminal can signal twice. Each sh script that mints stops at the first; its clean-up is deaf to the
+        # next, so the revocation is not cut short, and that revocation is bounded, so a hung one cannot hold it. The
+        # reader's tests run one such stop; this holds every script to the same words.
+        scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
+                   if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
+        self.assertEqual(len(scripts), 10)
+        for script in scripts:
+            text = script.read_text()
+            body = [line for line in text.split("\nfinish() {\n", 1)[1].splitlines() if not line.lstrip().startswith("#")]
+            self.assertEqual(body[:2], ["    trap '' HUP INT TERM QUIT PIPE", "    set +e"], script.name)
+            revoke = text.split("\nrevoke() {\n", 1)[1].split("\n}\n", 1)[0]
+            self.assertIn("| curl -q --max-time 30 ", revoke, script.name)
+            self.assertEqual((revoke.count("--max-time"), revoke.count(" -m ")), (1, 0), script.name)
 
 
 class ReaderTrialScript(unittest.TestCase):
@@ -15708,6 +15779,11 @@ if url.endswith("/access_tokens"):
     # A transfer that failed after the whole answer came, as curl's exit 18 says of a partial one.
     sys.exit(18 if os.path.exists(os.path.join(here, "broke")) else 0)
 if method == "DELETE":
+    if os.path.exists(os.path.join(here, "slow.revoke")):
+        # As a read is held below: say the revocation began, and wait until the test lets it end.
+        told, held = (int(n) for n in open(os.path.join(here, "slow.revoke")).read().split())
+        os.write(told, b"r")
+        os.read(held, 1)
     sys.stdout.write(open(os.path.join(here, "revoke.status")).read().strip())
     sys.exit(0)
 roles = json.load(open(os.path.join(here, "roles")))
@@ -15904,6 +15980,39 @@ esac
         self.assertEqual(begun, b"r", "the script reached no read: " + err)
         self.assertNotEqual(running.returncode, 0)
         self.assertIn("DELETE", [c["method"] for c in self.calls()])
+        self.assertIn("stopped with a token live; revoking it returned 204", err)
+        self.assertNotIn(self.TOKEN, out + err)
+
+    def test_a_second_signal_does_not_cut_the_revocation_short(self):  # issue 1215, cubic on pull request 1212
+        # Stopped mid-read, the script revokes its live token on the way out. A second signal then, as a closed terminal
+        # sends to every process of the run, finds the clean-up deaf to it: the revocation ends and is told. Pipes, not a
+        # clock, order the two; a script that ends closes them, so nothing waits for ever.
+        told_r, told_w = os.pipe()
+        held_r, held_w = os.pipe()
+        again_r, again_w = os.pipe()
+        freed_r, freed_w = os.pipe()
+        (self.stand_in / "slow").write_text("%d %d\n" % (told_w, held_r))
+        (self.stand_in / "slow.revoke").write_text("%d %d\n" % (again_w, freed_r))
+        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C"}
+        running = subprocess.Popen([SIGNAL_SHELL, str(self.SCRIPT), str(self.out), str(self.key), *self.GIVEN],
+                                   cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                                   pass_fds=(told_w, held_r, again_w, freed_r), start_new_session=True)
+        for fd in (told_w, held_r, again_w, freed_r):
+            os.close(fd)
+        try:
+            begun = os.read(told_r, 1)
+            (self.stand_in / "slow").unlink()
+            running.terminate()
+            os.close(held_w)
+            held_w = None
+            revoking = os.read(again_r, 1)
+            # The second to the whole group, as a terminal's hangup comes: the revocation's curl gets it too.
+            os.killpg(running.pid, signal.SIGHUP)
+        finally:
+            for fd in (told_r, again_r, freed_w) + ((held_w,) if held_w is not None else ()):
+                os.close(fd)
+        out, err = running.communicate(timeout=60)
+        self.assertEqual((begun, revoking), (b"r", b"r"), "the script reached no read, or no revocation: " + err)
         self.assertIn("stopped with a token live; revoking it returned 204", err)
         self.assertNotIn(self.TOKEN, out + err)
 

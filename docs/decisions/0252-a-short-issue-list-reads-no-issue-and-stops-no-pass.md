@@ -1,6 +1,6 @@
 # 0252. A short issue list reads no issue and stops no pass
 
-Status: accepted. Extends decision 0234 with its part 4 for "Once issues are served, each touched open issue is re-read every pass with no budget of its own, and a short list stops the whole pass" (issue 849): the short list, as the Factory Builder ruled on 2026-11-19 and the Solution Architect on 2026-11-21. Decision 0234 gains only the Boundary row that says its row is held
+Status: replaced by `docs/decisions/1239-an-issues-reads-are-bounded-and-a-read-cut-short-calls-a-person.md`, which holds the rule in force.
 
 ## Decision
 
