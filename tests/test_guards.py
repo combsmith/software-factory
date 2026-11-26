@@ -1267,7 +1267,7 @@ class Push(unittest.TestCase):
     def test_a_pushs_changes_are_what_applied_gives_path_by_path(self):
         def told(**changed):
             changes = dict(WROTE, **changed)
-            blobs = {path: "QQo=" for path in changes["written"]} if isinstance(changes.get("written"), dict) else {}
+            blobs = {path: path for path in changes["written"]} if isinstance(changes.get("written"), dict) else {}
             return dict(PUSH, changes=changes, blobs=blobs)
         for good in (told(), told(removed=[]), told(written={}), told(read=["docs/a.md", "docs/z.md"]),
                      told(written={"a/b": (FILE, b"")}, removed=["a/c", "ab"]),
@@ -1386,7 +1386,7 @@ class Push(unittest.TestCase):
         self.assertIsNone(reason)
         self.assertEqual(push.touched(got), ((["docs/a.md", "docs/c.md", "docs/n.md", "tests/t.py"], ["docs/a.md"]), None))
         self.assertEqual(push.existing(got, TREE), (["docs/a.md", "tests/t.py"], None))
-        self.assertIsNotNone(push.began(dict(PUSH, changes=got, blobs={path: "" for path in got["written"]}))[0])
+        self.assertIsNotNone(push.began(dict(PUSH, changes=got, blobs={path: path for path in got["written"]}))[0])
 
 
     @staticmethod
@@ -1615,8 +1615,21 @@ class Push(unittest.TestCase):
                             {"status": "201", "body": {"sha": MADE}})
         self.assertEqual(both["made"], {"docs/a.md": MADE, "docs/b.md": MADE})
         self.assertFalse(push.permits(both, "POST", GIT + "blobs", {"content": "QQo=\n", "encoding": "base64"}))
+        self.assertTrue(push.permits(both, "POST", GIT + "trees", {"base_tree": ROOT_TREE, "tree": entries + [
+            {"path": "tests/t.py", "mode": FILE, "type": "blob", "sha": None}]}))
+        self.assertEqual(push.seen(both, "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"},
+                                   {"status": "201", "body": {"sha": MADE}}), (None, push.NOT_PERMITTED))
+        # Each blob names the files of the content it was made of, in whatever order the blobs are made.
+        later, _ = push.seen(state, "POST", GIT + "blobs", {"content": "eAo=", "encoding": "base64"},
+                             {"status": "201", "body": {"sha": NEW_A}})
+        later, _ = push.seen(later, "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"},
+                             {"status": "201", "body": {"sha": MADE}})
+        self.assertEqual(later["made"], {"docs/a.md": MADE, "docs/n.md": NEW_A})
         self.assertFalse(push.permits(dict(self.read(twice), made={"docs/b.md": MADE}), "POST", GIT + "blobs",
                                       {"content": "QQo=", "encoding": "base64"}))
+        # One base64 for two contents is no push `apply` tells.
+        self.assertEqual(push.began(dict(same, changes=dict(WROTE, written={"docs/a.md": (FILE, b"A\n"), "docs/b.md": (FILE, b"B\n")}))),
+                         (None, push.NOT_PERMITTED))
         # Files of one content are named by one blob in any state.
         self.assertFalse(push.permits(dict(self.read(same), made={"docs/a.md": MADE}), "POST", GIT + "blobs",
                                       {"content": "QQo=", "encoding": "base64"}))
