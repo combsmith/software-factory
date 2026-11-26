@@ -9449,18 +9449,32 @@ class Push(unittest.TestCase):
                 "message": first[9]["request"]["body"]["message"], "blobs": {"docs/written.md": blob[0], "bin/tool.sh": blob[1]},
                 "changes": {"written": {"docs/written.md": (FILE_MODE, base64.b64decode(blob[0])),
                                         "bin/tool.sh": ("100755", base64.b64decode(blob[1]))}, "removed": ["gone.txt"], "read": []}}
+        # The reads branch first, as the guard holds them (the trial read the commit first); the trial's blob reads, of a
+        # file and of a link, were the trial's own, not the push's.
         state = replay(guard.began(made)[0], [first[i] for i in (4, 0, 1, 5, 6, 7, 8, 9, 10)])
-        self.assertTrue(replay(state, first[11:12] + first[13:])["landed"])
-        # The same branch write again, refused with a 422, and the branch read again at the commit made: moved.
-        stale = replay(state, first[12:13])
-        self.assertEqual(guard.seen(stale, "GET", first[13]["request"]["call"].split(" ")[1], None,
+        landed = replay(state, first[11:12] + first[13:])
+        self.assertTrue(landed["landed"])
+        # A branch made is not landed until it is read back; a second branch write never leaves once the first was made.
+        call, written = first[12]["request"]["call"].split(" "), replay(state, first[11:12])
+        self.assertFalse(written["landed"])
+        self.assertFalse(guard.permits(written, call[0], call[1], first[12]["request"]["body"]))
+        # The branch write answered instead with the trial's 422, and the branch read again at the commit made: moved.
+        stale, read = replay(state, first[12:13]), first[13]["request"]["call"].split(" ")[1]
+        self.assertTrue(guard.permits(stale, "GET", read, None))
+        self.assertEqual(guard.seen(stale, "GET", read, None,
                                     {"status": "200", "body": first[13]["response"]["body"]}), (None, guard.BRANCH_MOVED))
         at = first[10]["response"]["body"]["sha"]
         content = moved[0]["request"]["body"]["content"]
         again = {"repo": PUSHED, "branch": WORK, "parent": at, "head": at, "message": moved[3]["request"]["body"]["message"],
                  "changes": {"written": {"docs/notes.md": (FILE_MODE, base64.b64decode(content))}, "removed": [], "read": []},
                  "blobs": {"docs/notes.md": content}}
-        self.assertTrue(replay(guard.began(again)[0], [first[13], first[10], first[8]] + moved[0:6] + moved[9:10])["landed"])
+        moving = replay(guard.began(again)[0], [first[13], first[10], first[8]] + moved[0:6])
+        # The trial's two moves that were no fast-forward, and the commit they asked for, leave from no push of this one.
+        for exchange in moved[6:9]:
+            call = exchange["request"]["call"].split(" ")
+            self.assertFalse(guard.permits(moving, call[0], call[1], exchange["request"]["body"]), call)
+        self.assertFalse(moving["landed"])
+        self.assertTrue(replay(moving, moved[9:10])["landed"])
 
     def test_every_code_of_the_patch_guard_and_the_port_names_whose_it_is(self):
         # Every code, of either module, is in the table, and nothing else: none is read with a default.
