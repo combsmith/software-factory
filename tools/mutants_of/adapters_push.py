@@ -101,7 +101,7 @@ MUTANTS = [
     ("a status told as text is an answer's", PUSH_PY, 'type(status) is not int or not 100 <= status <= 599', 'not 100 <= int(status) <= 599', PUSH_REFUSED),
     ("a status below 100 is an answer's", PUSH_PY, 'not 100 <= status <= 599', 'not status <= 599', PUSH_REFUSED),
     ("a status above 599 is an answer's", PUSH_PY, 'not 100 <= status <= 599', 'not 100 <= status', PUSH_REFUSED),
-    ('an answer with no body is one of none', PUSH_PY, ' or "body" not in answer:\n        return None\n    return {"status": str(status), "body": answer["body"]}', ':\n        return None\n    return {"status": str(status), "body": answer.get("body")}', PUSH_REFUSED),
+    ('an answer with no body is one of none', PUSH_PY, ' or "body" not in answer or _rate_limited(answer):\n        return None\n    return {"status": str(status), "body": answer["body"]}', ' or _rate_limited(answer):\n        return None\n    return {"status": str(status), "body": answer.get("body")}', PUSH_REFUSED),
     ('the status is handed back as GitHub gave it', PUSH_PY, '{"status": str(status),', '{"status": status,', PUSH_ANSWERED),
     ('a blob is read for a name of text of another kind', PUSH_PY, '    if not _sha(sha):\n        return None\n    body = answer', '    body = answer', PUSH_BLOB),
     ("a blob's content of text of another kind is read", PUSH_PY, 'if type(text) is not str or', 'if not isinstance(text, str) or', PUSH_BLOB),
