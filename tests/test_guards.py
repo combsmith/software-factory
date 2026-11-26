@@ -1049,7 +1049,7 @@ class Patch(unittest.TestCase):
                     (tree / name).parent.mkdir(parents=True, exist_ok=True)
                     (tree / name).write_bytes(b"\n" if name == "one" else body(rng))
                 (tree / "docs" / "long.md").write_bytes(b"".join(b"a long line, number %d\n" % n for n in range(30)))
-                os.chmod(tree / "run.sh", 0o755)
+                os.chmod(tree / "run.sh", 0o700)   # git keeps the owner's execute bit alone
                 run(tree, "add", "-A")
                 first, before = run(tree, "write-tree").stdout.decode().strip(), snapshot(tree)
                 # A file system that keeps no mode would make every file plain, and the modes below would test nothing.
@@ -1065,12 +1065,12 @@ class Patch(unittest.TestCase):
                         if rng.random() < 0.5:
                             (tree / (name + ".moved")).write_bytes(edit(rng, (tree / (name + ".moved")).read_bytes()))
                     if 0.4 < draw < 0.5 or 0.65 < draw < 0.75:
-                        os.chmod(tree / (name + ".moved" if 0.6 < draw < 0.7 else name), 0o644 if name == "run.sh" else 0o755)
+                        os.chmod(tree / (name + ".moved" if 0.6 < draw < 0.7 else name), 0o600 if name == "run.sh" else 0o700)
                 if rng.random() < 0.6:
                     (tree / "new").mkdir()
                     (tree / "new" / "f.py").write_bytes(body(rng))
                     if rng.random() < 0.5:
-                        os.chmod(tree / "new" / "f.py", 0o755)
+                        os.chmod(tree / "new" / "f.py", 0o700)
                 if rng.random() < 0.6:
                     (tree / "twin.md").write_bytes(before["docs/long.md"][1] + b"one line more\n")
                 run(tree, "add", "-A")
