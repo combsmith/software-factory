@@ -75,12 +75,13 @@ MOST_BYTES = 67108864
 # for the rest of the answer. A file the listing says is larger is never read, by any attempt; GitHub's own limit on a
 # blob, 100 MB, is higher still.
 MOST_BLOB = (LARGEST - 65536) * 45 // 62
-# The modes of a tree's listing that are no file: a directory, and a submodule, which git writes as a commit. A tree
-# object writes a directory's mode with no leading zero.
+# A directory's mode in a tree's listing, and in a tree object, which writes it with no leading zero; and a link's,
+# a blob that is no file. A submodule's, a commit, is `guards/patch.py`'s `SUBMODULE`.
 DIRECTORY = "040000"
 TREE_MODE = "40000"
 LINK = "120000"
-# A status the port reads as no answer: GitHub's own failure, a rate limit, or a token expired or refused.
+# Besides GitHub's own failure, 500 and above, a status the port reads as no answer: a rate limit, or a token expired
+# or refused.
 UNANSWERED = ("401", "403", "429")
 # A lone surrogate, which JSON may hold and UTF-8 does not write: no name git holds.
 SURROGATES = ("\ud800", "\udfff")
