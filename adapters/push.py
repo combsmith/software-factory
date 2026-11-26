@@ -349,13 +349,17 @@ def _tree_name(entries: list) -> str:
 
 
 def listed(answer, sha):
-    """`((tree, blobs), None)` from `send`'s answer to `read_tree` of `sha`, or `(None, code)`. `tree` is each path the
-    tree holds that is no directory, to its mode, as `guards/patch.py`'s `applied` takes it; `blobs` is each file's
-    and link's `(sha, size)`. Each directory's entries are rebuilt into its tree object and named as git names it, the
-    whole into `sha`: an entry left out, added, listed twice or under no directory listed is a listing of no tree.
-    An answer the port reads as none is the port's, `TREE_UNFETCHED`; one GitHub cut short, `truncated`, of another
-    tree, or in any shape not read here, is a person's, `TREE_UNREAD`: the same commit reads the same way again, and
-    no part of a listing is taken."""
+    """`(listing, None)` from `send`'s answer to `read_tree` of `sha`, or `(None, code)`. The listing is `{"tree",
+    "blobs", "sha", "whole"}`: `tree` is each path the tree holds that is no directory, to its mode, as
+    `guards/patch.py`'s `applied` takes it; `blobs` is each file's and link's `(sha, size)`; `sha` is the tree it was
+    read at; and `whole` is True, the mark `guards/push.py`'s `seen` asks for, given here alone. Each directory's
+    entries are rebuilt into its tree object and named as git names it, the whole into `sha`: an entry left out,
+    added, listed twice or under no directory listed is a listing of no tree. An answer the port reads as none is the
+    port's, `TREE_UNFETCHED`; one GitHub cut short, `truncated`, of another tree, or in any shape not read here, is a
+    person's, `TREE_UNREAD`: the same commit reads the same way again, and no part of a listing is taken. So is a
+    `sha` that is no name of 40 hex digits as text itself, which the mark would carry."""
+    if not _sha(sha):
+        return None, patch.TREE_UNREAD
     if _unanswered(answer):
         return None, TREE_UNFETCHED
     body = answer.get("body") if _said(answer.get("status"), "200") else None
@@ -395,7 +399,7 @@ def listed(answer, sha):
         folders[parent].append((mode, name, entry["sha"]))
     if any(_tree_name(held) != named[path] for path, held in folders.items()):
         return None, patch.TREE_UNREAD
-    return (tree, blobs), None
+    return {"tree": tree, "blobs": blobs, "sha": sha, "whole": True}, None
 
 
 def to_read(listing, sources):
@@ -404,7 +408,7 @@ def to_read(listing, sources):
     patch without its bytes. A file larger than the transport takes whole, `MOST_BLOB`, is a person's, `TREE_UNREAD`.
     More files than `MOST_FILES`, or more bytes than `MOST_BYTES` in all by the listing's sizes, is the Role's,
     `READS_TOO_LARGE`: nothing is read. A patch `sources` cannot read reads nothing, and the guard names it."""
-    tree, blobs = listing
+    tree, blobs = listing["tree"], listing["blobs"]
     paths = [path for path in sources or () if tree.get(path) in FILE_MODES]
     if any(blobs[path][1] > MOST_BLOB for path in paths):
         return None, patch.TREE_UNREAD
@@ -423,7 +427,7 @@ def read_whole(listing, paths, read):
     contents, held = {}, 0
     for path in paths:
         answer = read(path) if callable(read) else None
-        data = content(answer, listing[1][path][0])
+        data = content(answer, listing["blobs"][path][0])
         if data is None:
             return None, TREE_UNFETCHED if _unanswered(answer, BLOB_UNANSWERED) else patch.TREE_UNREAD
         held += len(data)
