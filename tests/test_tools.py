@@ -15604,7 +15604,7 @@ class SignalTraps(unittest.TestCase):
     def test_every_token_script_keeps_its_raw_answers_beside_out(self):  # issue 1215
         # TMPDIR is the environment's to choose, and a directory in it another user can write to would let them take the
         # raw answers, or put a link where one is written. Each sh script that mints makes its one scratch directory in
-        # OUT's parent, which its walk holds to be this user's alone, reads no TMPDIR, and hands that directory to its helpers.
+        # OUT's parent, which its walk holds to be this user's or sticky, reads no TMPDIR, and hands that directory to its helpers.
         scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
                    if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
         self.assertEqual(len(scripts), 10)
@@ -15847,7 +15847,7 @@ esac
         self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
 
     def test_the_raw_answers_are_kept_beside_out_whatever_tmpdir_says(self):  # issue 1215
-        # The raw answers are kept in a directory of OUT's parent, which the walk holds to be this user's alone, and
+        # The raw answers are kept in a directory of OUT's parent, which the walk holds to be this user's or sticky, and
         # never where TMPDIR says: here a TMPDIR inside the repo, which the run neither refuses nor writes to. Held
         # mid-read by a pipe, the run shows its one scratch directory beside OUT, private; once done, it is gone.
         # Of its own: this class's clean-up removes what INSIDE names, and a run deals its methods to parts run at once.
