@@ -111,4 +111,6 @@ MUTANTS = [
     ("P-52 tells nothing of a stop mid-mint", "tools/trial_p52_pause.sh", '    elif [ -n "${minting:-}" ]; then', '    elif false; then',
      ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
     ("P-52 marks no mint", "tools/trial_p52_pause.sh", "minting=1\n", "", ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
+    ("P-52 says nothing of a stop mid-mint", "tools/trial_p52_pause.sh", 'echo "trial_p52_pause: stopped while a token was being minted;',
+     ': "trial_p52_pause: stopped while a token was being minted;', ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
 ]

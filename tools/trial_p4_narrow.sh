@@ -141,7 +141,7 @@ finish() {
     elif [ -n "${minting:-}" ]; then
         # Stopped while the mint was asked: its answer never came back here, and GitHub may have minted one (issue 1215).
         echo "trial_p4_narrow: stopped while a token was being minted; GitHub may have minted one, live for up to" \
-            "an hour, and the Maintainer must revoke it by hand." >&2
+            "an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation." >&2
     fi
     rm -rf "$scratch"
 }

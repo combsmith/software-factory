@@ -15632,7 +15632,10 @@ class SignalTraps(unittest.TestCase):
             self.assertEqual(lines[mint - 1], "minting=1", script.name)
             self.assertIn('minting=""', next(line for line in lines[mint:] if line.startswith('jwt=""')), script.name)
             finish = lines.index("finish() {")
-            self.assertIn('elif [ -n "${minting:-}" ]; then', lines[finish:lines.index("}", finish)], script.name)
+            told = lines.index('elif [ -n "${minting:-}" ]; then', finish)
+            said = [line for line in lines[told + 1:lines.index("}", finish)] if not line.startswith("#")][:2]
+            self.assertTrue(said[0].startswith('echo "%s: stopped while a token was being minted;' % script.name[:-3]), script.name)
+            self.assertTrue(said[1].endswith('suspends the App\'s installation." >&2'), script.name)
 
     def test_every_trial_takes_nothing_of_the_maintainers_environment(self):  # issue 1215
         # A name a script holds a credential in, exported, reaches every child; SSLKEYLOGFILE has curl write the TLS keys

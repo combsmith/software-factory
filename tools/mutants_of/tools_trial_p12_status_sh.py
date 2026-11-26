@@ -1184,4 +1184,8 @@ MUTANTS = [
     *[("%s marks no mint" % script, "tools/" + script, "minting=1\n", "",
        ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
       for script in SCRIPTS_1215],
+    *[("%s says nothing of a stop mid-mint" % script, "tools/" + script,
+       'echo "%s: stopped while a token was being minted;' % script[:-3], ': "%s: stopped while a token was being minted;' % script[:-3],
+       ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
+      for script in SCRIPTS_1215],
 ]
