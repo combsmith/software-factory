@@ -2180,6 +2180,14 @@ class Entry(unittest.TestCase):
             spied["who"].append(who)
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
+        records_runs = entry.records.runs
+
+        def answered(*a, **k):
+            # The records port's own answer, kept by identity: each issue read is handed this very list (head match).
+            found = records_runs(*a, **k)
+            spied.setdefault("runs", []).append(found)
+            return found
+
         listed_by_the_port = entry.items.open_issues
 
         def listing(listed, whole=True):
@@ -2195,9 +2203,12 @@ class Entry(unittest.TestCase):
                     return listed_by_the_port(transport, repo, after, apart=apart)
             return open_issues
 
-        def read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head, opener):
+        def read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head, opener,
+                     runs, role):
             spied["read"].append((repo, number, accounts))
             spied.setdefault("openers", []).append(opener)
+            # The records port's list and the Role that opens pull requests, whose Runs' pushes tell a head (head match).
+            spied.setdefault("pushes", []).append((runs, role))
             spied["heads"].append(base_head)
             spied["identities"].append((identities, earlier))
             spied["controller"].append(controller)
@@ -2242,7 +2253,9 @@ class Entry(unittest.TestCase):
                     unittest.mock.patch.object(entry.passes, "written", lambda *a, **k: written), \
                     unittest.mock.patch.object(entry.passes, "records", held), \
                     unittest.mock.patch.object(entry.issues_, "read", read), \
-                    unittest.mock.patch.object(entry, "opener", lambda *a: OPENS):
+                    unittest.mock.patch.object(entry, "opener", lambda *a: OPENS), \
+                    unittest.mock.patch.object(entry.facts_, "opener_role", lambda kernel: "dev-lead"), \
+                    unittest.mock.patch.object(entry.records, "runs", answered):
                 code, printed, files, _ = self.run_entry(hub)
             spied["graphql"] = [r for _, r in hub.sent if r["path"] == "/graphql"]
             spied["repo"] = [r for _, r in hub.sent if r["path"] in ("/repos/%s" % self.HOME, "/repos/%s/git/ref/heads/main" % self.HOME)]
@@ -2260,6 +2273,12 @@ class Entry(unittest.TestCase):
                             and isinstance(who.transport, entry.Counted) for _, _, who in spied["read"]))
         # Each is handed the account of the App that opens the Factory's pull requests, which names its work branch (#1059).
         self.assertEqual(spied["openers"], [OPENS] * 3)
+        # And the one run list the pass read, with the Role that opens pull requests, whose opening Runs' records tell
+        # whether a work branch's head is one the Factory pushed (the head match).
+        handed = spied["pushes"]
+        self.assertEqual(len(handed), 3)
+        self.assertTrue(all(runs is spied["runs"][-1] for runs, _ in handed))
+        self.assertEqual({role for _, role in handed}, {"dev-lead"})
         # Each is read with the pull requests' class accounts, and the pass records before this pass, here none.
         self.assertEqual(spied["identities"], [(entry.facts_.accounts_of(CONTROLLER)[0], [])] * 3)
         # And the Kernel's configuration, which says whether a draft's checks are read (decision 0217, issue 878).
@@ -2525,7 +2544,8 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head, opener):
+        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head, opener,
+                           runs, role):
             if number == 6:
                 raise entry.facts_.Moved("moved")
             # Issue 8 is the Controller's tracking issue, told at its own read: it is no served issue, and its writes
@@ -2944,7 +2964,8 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head, opener):
+        def issue_read(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head, opener,
+                           runs, role):
             return test_issue.facts(item=dict(test_issue.ITEM, repo=repo, number=number), read_at=clock()), "An issue"
 
         def runs(*args, **kw):
@@ -2974,7 +2995,8 @@ class Entry(unittest.TestCase):
         def snapshot(transport, repo, number, identities, who, runs_whole, clock, *, kept, with_head, opener, recorded, opened):
             return support.facts(item=dict(support.ITEM, number=number)), "A title", "a" * 40
 
-        def moved(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head, opener):
+        def moved(transport, repo, number, accounts, clock, *, identities, earlier, kernel, controller, base_head, opener,
+                      runs, role):
             raise entry.facts_.Moved("moved")
 
         def read(transport, item, kept, identities, apps, since, **_):

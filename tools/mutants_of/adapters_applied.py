@@ -4,6 +4,9 @@ from tools.mutants_of.common import WIRE_PASSES, WIRE_RUNS_AGAIN
 
 WIRE_RUNS = ("tests.test_adapters.EffectsRecorded.test_each_run_in_the_window_is_read_once_and_only_a_listed_one",)
 
+# The head match (the Solution Architect, 2026-11-25).
+HEAD_MATCH = ("tests.test_adapters.Branches.test_a_work_branch_head_the_factory_never_pushed_is_not_its_own",)
+
 TARGETS = ("adapters/applied.py",)
 MUTANTS = [
     # Issue 342: a pull request the Factory opens is bound to its issue by the Run that opened it, as well as its branch.
@@ -210,4 +213,58 @@ MUTANTS = [
      '    if not isinstance(content_id, str) or not content_id:\n        return set()\n', '', ('tests.test_adapters.Recorded.test_a_later_review_by_the_same_lens_on_the_current_content_releases_a_thread_that_is_gone',)),
     ("an empty current content supersedes", 'adapters/applied.py',
      'if not isinstance(content_id, str) or not content_id:', 'if not isinstance(content_id, str):', ('tests.test_adapters.Recorded.test_a_later_review_by_the_same_lens_on_the_current_content_releases_a_thread_that_is_gone',)),
+    # The head match (the Solution Architect, 2026-11-25): the commits an issue's opening Runs recorded as pushed.
+    ("a push of another issue's opening Run is read", 'adapters/applied.py',
+     'r["item"]["number"]) == (role, OPENS, "issue", repo, number)]',
+     'r["item"]["number"]) == (role, OPENS, "issue", repo, r["item"]["number"])]', HEAD_MATCH),
+    ("an opening Run in flight is read as having pushed nothing", 'adapters/applied.py',
+     'if record["status"] != "completed" or not isinstance(github, list) or len(github) != 1:',
+     'if not isinstance(github, list) or len(github) != 1:', HEAD_MATCH),
+    ("an expired record of a push leaves the pushes not whole", 'adapters/applied.py',
+     'if kept is artifacts.EXPIRED:   # past its retention: no push it made can be read\n            continue\n',
+     'if kept is artifacts.EXPIRED:   # past its retention: no push it made can be read\n            return set(), False\n', HEAD_MATCH),
+    ("a record of pushes not read whole is read", 'adapters/applied.py',
+     '        if not whole:\n            return set(), False\n        done = ', '        done = ', HEAD_MATCH),
+    ("a Run that opened its pull request ends the reading of pushes", 'adapters/applied.py',
+     '        if any(e["type"] == OPENED and e["state"] in LANDED for e in done):\n            continue\n',
+     '        if any(e["type"] == OPENED and e["state"] in LANDED for e in done):\n            break\n', HEAD_MATCH),
+    ("an expired record ends the reading of pushes", 'adapters/applied.py',
+     'if kept is artifacts.EXPIRED:   # past its retention: no push it made can be read\n            continue\n',
+     'if kept is artifacts.EXPIRED:   # past its retention: no push it made can be read\n            break\n', HEAD_MATCH),
+    ("pushes are read from a run list not read whole", 'adapters/applied.py',
+     'if role is None or not read_whole or runs.get', 'if role is None or runs.get', HEAD_MATCH),
+    ("a Run named by two GitHub runs is read for its pushes", 'adapters/applied.py',
+     'if record["status"] != "completed" or not isinstance(github, list) or len(github) != 1:',
+     'if record["status"] != "completed" or not isinstance(github, list) or len(github) < 1:', HEAD_MATCH),
+    ("any landed Effect is read as a push", 'adapters/applied.py',
+     'if effect["type"] == PUSHED and effect["state"] in LANDED:', 'if effect["state"] in LANDED:', HEAD_MATCH),
+    ("a landed push is not kept", 'adapters/applied.py', '                    shas.add(effect["key"])\n', '                    pass\n',
+     HEAD_MATCH),
+    ("a push of a Run that opened its pull request is read", 'adapters/applied.py',
+     '        if any(e["type"] == OPENED and e["state"] in LANDED for e in done):\n            continue\n', '', HEAD_MATCH),
+    ("a push that did not land is read", 'adapters/applied.py',
+     'if effect["type"] == PUSHED and effect["state"] in LANDED:', 'if effect["type"] == PUSHED:', HEAD_MATCH),
+    ("a push keyed by no whole sha is read", 'adapters/applied.py',
+     'if not (isinstance(effect["key"], str) and SHA.fullmatch(effect["key"])) \\\n                        or not (',
+     'if not (', HEAD_MATCH),
+    ("pushes are read with no Role named", 'adapters/applied.py',
+     'if role is None or not read_whole or', 'if not read_whole or', HEAD_MATCH),
+    ("a record of pushes not answered is none", 'adapters/applied.py',
+     '        except Unanswered:\n            return set(), False\n        if kept is artifacts.EXPIRED:   #',
+     '        except Unanswered:\n            continue\n        if kept is artifacts.EXPIRED:   #', HEAD_MATCH),
+    ("pushes are read past a Run listed before its name", 'adapters/applied.py',
+     'if role is None or not read_whole or runs.get("unidentified") != []:', 'if role is None or not read_whole:', HEAD_MATCH),
+    # The Solution Architect's ruling on record 1207's limit: a push vouches only for the branch it names (record 1208).
+    ("a push to another branch vouches for its head", 'adapters/applied.py',
+     '                if effect["branch"] == branch:\n                    shas.add', '                if True:\n                    shas.add',
+     HEAD_MATCH),
+    ("a landed push that names no work branch is read", 'adapters/applied.py',
+     ' \\\n                        or not (isinstance(effect.get("branch"), str) and BRANCH.fullmatch(effect["branch"])):',
+     ':', HEAD_MATCH),
+    ("a push's branch is matched by its start", 'adapters/applied.py',
+     'BRANCH.fullmatch(effect["branch"])', 'BRANCH.match(effect["branch"])', HEAD_MATCH),
+    ("a push keyed by forty characters of any kind is read", 'adapters/applied.py',
+     'SHA = re.compile(r"[0-9a-f]{40}")', 'SHA = re.compile(r".{40}")', HEAD_MATCH),
+    ("a record's pushes stop being read at the first that matches", 'adapters/applied.py',
+     '                    shas.add(effect["key"])\n', '                    shas.add(effect["key"])\n                    break\n', HEAD_MATCH),
 ]

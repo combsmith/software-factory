@@ -52,6 +52,7 @@ import time
 
 from adapters import artifacts
 from adapters.github import Unanswered
+from kernel import terms
 
 # A Run's start, as the records port reads it.
 TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
@@ -214,6 +215,10 @@ def held(found: list, whole: bool, recorded_: tuple, content_id=None) -> tuple:
 
 OPENS = "open-pull-request"       # the Intent whose Run opens a pull request for an issue
 OPENED = "open_pull_request"      # the Effect that records the pull request it opened
+PUSHED = "push_commits"           # the Effect that records the commit it pushed, keyed by that commit's sha
+BRANCH = re.compile(terms.WORK_BRANCH)    # the work branch a push names, which it landed on
+LANDED = ("applied", "already_applied")   # an Effect's states that say its write is on GitHub
+SHA = re.compile(r"[0-9a-f]{40}")
 
 
 def effects(transport, repo: str, runs, since: str, known, most: int = READS, sleep=time.sleep) -> dict:
@@ -328,3 +333,48 @@ def opened(transport, repo: str, runs, role) -> dict:
             out["named"].setdefault(int(key), []).append((record["run"], item["number"]))
     return out
 
+
+
+def landed(transport, repo: str, runs, role, number: int, branch: str) -> tuple:
+    """`(shas, whole)`: the commits the opening Runs of issue `number` of `repo` recorded as pushed to `branch`, each the
+    key of a landed `push_commits` Effect in a Run's `applied/1`, the pushed commit's whole sha, beside the work branch
+    it names (design section 3.6, the head match; decision 1208): a push to another branch vouches for none of this one.
+    A Run counts as `opened` counts one: the records port names it of `role`, its Intent `open-pull-request`, its item
+    this issue; but not one that recorded opening its pull request, whose push is on that pull request's branch. Whole
+    only where the run list was read whole and lists no Run before its name, none of these Runs is still in flight, each
+    is named by one GitHub run, and each record was read whole and keys every push it reads by a whole sha and names a
+    work branch; anything else is not whole, never none. A record past its retention records no push, read whole: a
+    commit it pushed is told as none the Factory pushed, and the Kernel holds the issue for a person. With no Role
+    named, nothing is read, and nothing is whole. `apply`, asking again, leaves its own Run out of `runs` (I-38)."""
+    read_whole = isinstance(runs, dict) and runs.get("complete") is True and isinstance(runs.get("github_ids"), dict) \
+        and isinstance(runs.get("runs"), list)
+    if role is None or not read_whole or runs.get("unidentified") != []:
+        return set(), False
+    shas = set()
+    mine = [r for r in runs["runs"] if (r["role"], r.get("intent"), r["item"]["type"], r["item"]["repo"],
+                                        r["item"]["number"]) == (role, OPENS, "issue", repo, number)]
+    for record in mine:
+        # One still running may have pushed a commit it has not yet recorded.
+        github, succeeded = runs["github_ids"].get(record["run"]), record.get("conclusion") == "success"
+        if record["status"] != "completed" or not isinstance(github, list) or len(github) != 1:
+            return set(), False
+        try:
+            kept, whole = artifacts.applied(transport, repo, github[0], record["run"], required=succeeded)
+        except Unanswered:
+            return set(), False
+        if kept is artifacts.EXPIRED:   # past its retention: no push it made can be read
+            continue
+        if not whole:
+            return set(), False
+        done = (kept or {}).get("effects", ())
+        # A Run that opened its pull request pushed to that pull request's branch, which is never the next one.
+        if any(e["type"] == OPENED and e["state"] in LANDED for e in done):
+            continue
+        for effect in done:
+            if effect["type"] == PUSHED and effect["state"] in LANDED:
+                if not (isinstance(effect["key"], str) and SHA.fullmatch(effect["key"])) \
+                        or not (isinstance(effect.get("branch"), str) and BRANCH.fullmatch(effect["branch"])):
+                    return set(), False
+                if effect["branch"] == branch:
+                    shas.add(effect["key"])
+    return shas, True
