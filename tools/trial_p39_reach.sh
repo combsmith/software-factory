@@ -94,7 +94,7 @@ scratch=$(mktemp -d)
 token=""
 
 revoke() {
-    printf 'Authorization: Bearer %s\n' "$token" | curl -sS -o /dev/null -w '%{http_code}' -X DELETE -H @- \
+    printf 'Authorization: Bearer %s\n' "$token" | curl -q --max-time 30 -sS -o /dev/null -w '%{http_code}' -X DELETE -H @- \
         -H "$ACCEPT" -H "$VERSION" "$API/installation/token"
 }
 
@@ -113,6 +113,10 @@ unrevoked() {
 }
 
 finish() {
+    # Deaf from here on: a second signal, as a closed terminal sends, must not cut the revocation short, nor a reader
+    # of its output gone, nor a write that fails stop what is left (issue 1215).
+    trap '' HUP INT TERM QUIT PIPE
+    set +e
     if [ -z "$token" ] && [ -n "${minted:-}" ]; then
         token=$(token_in "$minted")
         minted=""
@@ -126,7 +130,7 @@ finish() {
     rm -rf "$scratch"
 }
 trap finish EXIT
-trap 'exit 1' HUP INT TERM
+trap "trap '' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM
 
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 
