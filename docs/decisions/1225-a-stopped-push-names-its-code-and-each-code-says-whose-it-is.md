@@ -1,4 +1,4 @@
-# 9999. A stopped push names its code, and each code says whose it is
+# 1225. A stopped push names its code, and each code says whose it is
 
 Status: accepted. 2026-11-26, the Solution Architect; issue 838. Extends decision 1221 and the push port's `WHOSE` (pull request 1222).
 
