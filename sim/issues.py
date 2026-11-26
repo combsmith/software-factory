@@ -669,8 +669,8 @@ class IssueWorld:
             self.removal_in_flight = next(r["run"] for r in self.runs if r["status"] == "in_progress")
             self.note("%s removed %s while a Run was in flight" % (who["name"], name))
             return HUMAN
-        if self.branch_head in self.planted and roll < 0.1:
-            # A person deletes the planted branch: the next opening starts a branch of its own (decision 1207).
+        if self.branch_head in self.planted and self.true_state == "held" and roll < 0.1:
+            # A person called to the Hold deletes the planted branch: the next opening starts its own (decision 1207).
             self.branch_head = None
             self.note("%s deleted the planted branch" % who["name"])
             return HUMAN

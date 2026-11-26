@@ -1205,10 +1205,22 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     closes = unmerged_closes(facts)
     if len(closes) > config["limits"]["max_unmerged_closes"]:
         return dict(_stop(facts, state, "unmerged_closes", closes, context, PLACE_HOLD), attention=t.NEEDS_YOU)
+    # A Hold the Run wanted places is read before the label's removal, which then waits for the release, as under a
+    # person's Hold: a label nobody counts never takes an issue out of held (issue 1216). The act ceiling is no such
+    # Hold: it binds no act that stops work.
     label = not_counted(facts, runs, config, state, reason)
+    after = _after_labels(facts, runs, context, config, now, d, mine)
     if label is not None and not in_progress(mine):
+        if after["state"] == t.HELD and after["outcome"] == t.HOLD and after["reason"] != "act_ceiling":
+            return after
         return _stop(facts, state, "label_not_counted", [label], context, REMOVE_LABEL, label=label)
+    return after
 
+
+def _after_labels(facts: dict, runs: list, context: dict, config: dict, now: str, d: dict, mine: list) -> dict:
+    """What `_decide` decides past the acts that stop work: what steers what is admitted, the Run wanted, its Holds and
+    brakes, and its admission. `d` is what derive read, and `mine` the issue's runs."""
+    state, reason, evidence = d["state"], d["reason"], d["evidence"]
     # What steers what is admitted, read whole.
     if not readable_comments(facts.get("role_comments")):
         return _decision(facts, state, "comments_unreadable", evidence, t.DEFER)
