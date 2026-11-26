@@ -77,6 +77,8 @@ def _usage(told: dict, model, tokens: tuple, asks: int, seconds) -> dict:
     # Only the pinned model's answer is priced: another's is not the model's, and its prices are not the pinned one's.
     # A cost is counted in millionths of a dollar and rounded up to a whole one, never down to nought: a float's noise
     # above a whole millionth costs one more, which errs toward the ceiling. One above what advice/1 holds is not known.
+    # Every input token is priced at `input`, cached or not: so `input` is the dearest rate any input token is billed
+    # at, a cache write's where it is dearer, and a cached read is counted above its price, never below.
     if asked is not None and answered is not None and model == told["model"]:
         price = told["usd_per_million"]
         millionths = asked * price["input"] + answered * price["output"]
