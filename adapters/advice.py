@@ -78,12 +78,13 @@ def _usage(told: dict, model, tokens: tuple, asks: int, seconds) -> dict:
     # A cost is counted in millionths of a dollar and rounded up to a whole one, never down to nought: a float's noise
     # above a whole millionth costs one more, which errs toward the ceiling. One above what advice/1 holds is not known.
     # Every input token is priced at `input`, cached or not: so `input` is the dearest rate any input token is billed
-    # at, a cache write's where it is dearer, and a cached read is counted above its price, never below.
+    # at, a cache write's where it is dearer, and a cached read is counted above its price, never below. The sum is
+    # exact, in whole numbers from each price's own ratio, since a float's sum may round a billed fraction away.
     if asked is not None and answered is not None and model == told["model"]:
         price = told["usd_per_million"]
-        millionths = asked * price["input"] + answered * price["output"]
-        cost = -(-millionths // 1) / MILLION
-        cost = cost if cost <= DEAREST else None
+        (inp, inq), (outp, outq) = price["input"].as_integer_ratio(), price["output"].as_integer_ratio()
+        whole = -(-(asked * inp * outq + answered * outp * inq) // (inq * outq))
+        cost = whole / MILLION if whole <= DEAREST * MILLION else None
     return {"api": told["api"], "deployment": told["deployment"], "model": told["model"],
             "answering_model": model if type(model) is str and MODEL.fullmatch(model) else None,
             "effort": told["effort"], "asks": asks, "input_tokens": asked, "output_tokens": answered,
@@ -203,10 +204,18 @@ def _finished(body: dict) -> bool:
         and type(choices[0].get("finish_reason")) is str and choices[0]["finish_reason"] in ENDINGS
 
 
+def _empty(part) -> bool:
+    """Whether an object of an answer is shown to hold no words: every field but its kind and its role is null, an
+    empty text or an empty list. A field this file does not know, a reasoning's text among them, is words if it holds
+    anything, and so is a text that is no text."""
+    return isinstance(part, dict) and all(value in (None, "", []) for key, value in part.items()
+                                          if key not in ("type", "role"))
+
+
 def _silent(body: dict, api: str) -> bool:
     """Whether a read that ended was ended by a content filter and is shown to hold no words: the one read that may
-    have answered no tokens. An empty text is no words; an output this file cannot read, or any but a message, is not
-    shown to be empty."""
+    have answered no tokens. An output this file cannot read, any item but a message or any part but a text or a
+    refusal is not shown to be empty."""
     if api == "responses":
         details, output = body.get("incomplete_details"), body.get("output")
         filtered = body.get("status") == "incomplete" and isinstance(details, dict) \
@@ -214,13 +223,11 @@ def _silent(body: dict, api: str) -> bool:
         items = output if isinstance(output, list) else [None]
         return filtered and all(isinstance(item, dict) and item.get("type") == "message"
                                 and isinstance(item.get("content"), list) for item in items) \
-            and all(isinstance(part, dict) and not (part.get("text") or part.get("refusal"))
+            and all(_empty(part) and part.get("type") in ("output_text", "refusal")
                     for item in items for part in item["content"])
     choice = body["choices"][0]
     message = choice.get("message")
-    return choice.get("finish_reason") == "content_filter" and isinstance(message, dict) \
-        and not (message.get("content") or message.get("refusal") or message.get("tool_calls")
-                 or message.get("function_call"))
+    return choice.get("finish_reason") == "content_filter" and _empty(message)
 
 
 def _whole(digits: str) -> int:
