@@ -26,6 +26,7 @@
       "enum": [
         "item",
         "capacity",
+        "github_capacity",
         "environment",
         "superseded",
         "person",
@@ -38,6 +39,10 @@
         "null"
       ],
       "pattern": "^[a-z_]+$"
+    },
+    "github_reset": {
+      "description": "Where GitHub limited the Run's token: when GitHub said the limit resets, in seconds since 1970 as its x-ratelimit-reset header gives it, or the time it asked the Run to wait until. A number, never text, and the Controller holds it between its least and most waits (issue 838)",
+      "type": "integer"
     },
     "engine_started": {
       "description": "Whether the run job's Engine step started, by the outcome the job hands on for it: false where GitHub skipped it because a step before it failed, and the Run spent no model; true where it ran. Absent where the job said neither, and read then as a Run that may have reached the model (issue 757)",

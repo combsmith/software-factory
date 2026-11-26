@@ -1678,27 +1678,27 @@ class Records(unittest.TestCase):
             got, _ = self.read(rows, *stored(canary(), github_id, zipped))
             self.assertEqual((got["runs"][0]["outcome"], got["runs"][0]["engine_started"], got["complete"]),
                              ("environment", said, True), said)
-            self.assertEqual(records.engines([{"runs": got["runs"]}]), {key: said})
+            self.assertEqual(records.engines([{"runs": got["runs"]}]), {key: {"engine_started": said}})
         got, _ = self.read(rows, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "environment"))))
         self.assertNotIn("engine_started", got["runs"][0])
         self.assertEqual(records.engines([{"runs": got["runs"]}]), {})
         # An outcome kept from the records before is not read again, and what they said of the Engine is kept with it.
         kept = {key: "environment"}
-        for engines, want in (({key: False}, False), ({key: True}, True)):
+        for engines, want in (({key: {"engine_started": False}}, False), ({key: {"engine_started": True}}, True)):
             got, _ = self.read(rows, kept=kept, engines=engines)
             self.assertEqual((got["runs"][0]["outcome"], got["runs"][0]["engine_started"]), ("environment", want))
         got, _ = self.read(rows, kept=kept, engines={})
         self.assertNotIn("engine_started", got["runs"][0])
         # What was said of another Run, or of another attempt of this one, says nothing of this one.
         for other in (("r_01JA70", key[1]), (key[0], "2026-10-11T12:06:00Z")):
-            got, _ = self.read(rows, kept=kept, engines={other: False})
+            got, _ = self.read(rows, kept=kept, engines={other: {"engine_started": False}})
             self.assertNotIn("engine_started", got["runs"][0], other)
         got, _ = self.read(rows, kept=kept)
         self.assertNotIn("engine_started", got["runs"][0])
         # A Run that succeeded, or is not done, has no outcome read, and nothing of the Engine.
         for change in ({"name": NAME, "status": "completed", "conclusion": "success"},
                        {"name": NAME, "status": "in_progress", "conclusion": None}):
-            got, _ = self.read(listing("P-17", 3, rows=change), engines={key: False})
+            got, _ = self.read(listing("P-17", 3, rows=change), engines={key: {"engine_started": False}})
             self.assertNotIn("engine_started", got["runs"][0], change)
         # What the last record before said, and no earlier record's word: a true or a false alone, and nothing for a Run
         # it lists twice.
@@ -1706,7 +1706,7 @@ class Records(unittest.TestCase):
                "outcome": "environment"}
         other = dict(run, run="r_01JA70")
         later = {"runs": [dict(run, engine_started=True)]}
-        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, later]), {key: True})
+        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, later]), {key: {"engine_started": True}})
         self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, {"runs": [other]}]), {})
         self.assertEqual(records.engines([later, {"runs": [run]}]), {})
         for said in (None, "false", 0, 1):
@@ -1716,6 +1716,30 @@ class Records(unittest.TestCase):
             self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False, **change)]}]), {}, change)
         self.assertEqual((records.engines(None), records.engines({"runs": [run]}), records.engines([{"runs": None}]),
                           records.engines([{"runs": ["x"]}]), records.engines([])), ({}, {}, {}, {}, {}))
+
+    def test_githubs_reset_is_read_with_the_outcome_and_kept_and_a_completed_run_says_when_it_ended(self):  # issue 838
+        done = {"name": NAME, "status": "completed", "conclusion": "failure", "updated_at": "2026-10-11T12:09:00Z"}
+        rows = listing("P-17", 3, rows=done)
+        github_id = rows["response"]["body"]["workflow_runs"][0]["id"]
+        key = ("r_01JA6Z", rows["response"]["body"]["workflow_runs"][0]["run_started_at"])
+        zipped = outcome_zip(dict(outcome_of("r_01JA6Z", "github_capacity", "push_rate_limited"), github_reset=1760187600))
+        got, _ = self.read(rows, *stored(canary(), github_id, zipped))
+        r = got["runs"][0]
+        self.assertEqual((r["outcome"], r["github_reset"], r["ended_at"], got["complete"]),
+                         ("github_capacity", 1760187600, "2026-10-11T12:09:00Z", True))
+        self.assertEqual(records.engines([{"runs": got["runs"]}]), {key: {"github_reset": 1760187600}})
+        self.assertEqual(records.known([{"runs": got["runs"], "context": {"active_runs": 0}}]), {key: "github_capacity"})
+        got, _ = self.read(rows, kept={key: "github_capacity"}, engines={key: {"github_reset": 1760187600}})
+        self.assertEqual((got["runs"][0]["outcome"], got["runs"][0]["github_reset"]), ("github_capacity", 1760187600))
+        for said in ("1760187600", True, 1.5, None):
+            self.assertEqual(records.engines([{"runs": [dict(got["runs"][0], github_reset=said)]}]), {}, said)
+        # A reset in words is no outcome/1; a Run in progress, or a time GitHub gives that cannot be read, ends nowhere.
+        zipped = outcome_zip(dict(outcome_of("r_01JA6Z", "github_capacity"), github_reset="1760187600"))
+        self.assertEqual(self.read(rows, *stored(canary(), github_id, zipped))[0]["complete"], False)
+        for change in ({"status": "in_progress", "conclusion": None}, {"updated_at": "2026-10-11T12:09"},
+                       {"updated_at": "2026-02-30T12:09:00Z"}):
+            got, _ = self.read(listing("P-17", 3, rows=dict(done, **change)), kept={key: "github_capacity"})
+            self.assertNotIn("ended_at", got["runs"][0], change)
 
     def began(self, status, *jobs, **kw):
         """`(the one record, whether the list was whole)` of a Run GitHub lists with `status`, its jobs read as given."""
@@ -2171,6 +2195,13 @@ class Artifacts(unittest.TestCase):
         self.assertEqual(artifacts.outcome(github.Replay(stored("o/r", 7, outcome_zip(outcome_of(self.RUN, "item")))),
                                            "o/r", 7, self.RUN, started=told), ("item", True))
         self.assertEqual(told, [])
+        # When GitHub's limit resets is handed to `reset`, where it says, as a whole number (issue 838).
+        for said, want in ((1760187600, [1760187600]), (None, [])):
+            told = []
+            body = dict(outcome_of(self.RUN, "github_capacity"), **({} if said is None else {"github_reset": said}))
+            self.assertEqual(artifacts.outcome(github.Replay(stored("o/r", 7, outcome_zip(body))), "o/r", 7, self.RUN,
+                                               reset=told), ("github_capacity", True))
+            self.assertEqual(told, want, said)
         self.assertEqual(self.read(outcome_zip(dict(outcome_of(self.RUN, "item"), engine_started="no"))), (None, False))
         # A caller that does not ask is told nothing, and the outcome is read all the same.
         self.assertEqual(self.read(outcome_zip(dict(outcome_of(self.RUN, "environment"), engine_started=False))),
