@@ -80,7 +80,8 @@ REASONS = frozenset({
     "run_unidentified", "run_unreadable", "runs_unnamed", "thread_unreadable", "too_large",
 })
 ISSUE_REASONS = frozenset({
-    "acceptance_due", "acceptance_lapsed", "author_unreadable", "base_unreadable", "branch_unreadable",
+    "acceptance_due", "acceptance_lapsed", "author_unreadable", "base_unreadable", "branch_not_pushed",
+    "branch_unreadable",
     "closed_by_outsider_merge", "comments_unreadable", "content_unreadable", "draft_checks_unreadable",
     "intent_undeclared", "intents_share_a_role", "intents_share_an_app", "intents_unreadable", "issues_unreadable",
     "judged", "label_not_counted", "left_out", "life_unreadable", "limits_unreadable", "linked_draft", "linked_ready",
