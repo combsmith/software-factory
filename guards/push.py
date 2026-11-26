@@ -117,7 +117,7 @@ def _above(path: str) -> list:
 def _keyed(said, keys: tuple) -> bool:
     """Whether `said` is a mapping of exactly `keys`, each key exact text: a key's type is held before any key is
     compared, since a comparison is the key's own to say."""
-    return type(said) is dict and all(type(key) is str for key in said) and set(said) == set(keys)
+    return _mapping(said) and set(said) == set(keys)
 
 
 def _changes(changes) -> bool:
@@ -183,13 +183,20 @@ def _listing(said, tree) -> bool:
     if not _keyed(said, LISTING) or said["whole"] is not True or not _said(said["sha"], tree):
         return False
     paths, blobs = said["tree"], said["blobs"]
-    return (type(paths) is dict and type(blobs) is dict and all(type(path) is str for path in blobs)
-            and all(type(held) is tuple and len(held) == len(HELD) and _sha(held[0]) for held in blobs.values()))
+    if not (_mapping(paths) and all(type(mode) is str and mode in patch.TREE_MODES for mode in paths.values())):
+        return False
+    return _mapping(blobs) and all(type(held) is tuple and len(held) == len(HELD) and _sha(held[0])
+                                   and type(held[1]) is int for held in blobs.values())
 
 
 def _files(before) -> set:
     """The blobs of the files a listing holds: what a push may read of it."""
     return {held[0] for name, held in before["blobs"].items() if before["tree"].get(name) in patch.FILE_MODES}
+
+
+def _mapping(said) -> bool:
+    """Whether `said` is an exact mapping whose keys are exact text, held before any key is looked up."""
+    return type(said) is dict and all(type(key) is str for key in said)
 
 
 def _said(said, text) -> bool:
@@ -273,13 +280,13 @@ def seen(state, method, path, body, answer) -> tuple:
     if step == BRANCH_READ:
         # Absent where the Decision admitted no head, and at that head where it admitted one; any other branch is
         # someone else's write.
-        at = got["object"].get("sha") if type(got) is dict and _said(got.get("ref"), HEADS + push["branch"]) \
-            and type(got.get("object")) is dict else None
+        at = got["object"].get("sha") if _mapping(got) and _said(got.get("ref"), HEADS + push["branch"]) \
+            and _mapping(got.get("object")) else None
         if (status, push["head"]) == (ABSENT, None) or (status == OK and _sha(at) and at == push["head"]):
             return dict(state, branch_read=True), None
         return None, BRANCH_MOVED if status == ABSENT or (status == OK and _sha(at)) else ANSWER_REFUSED
-    tree = got.get("tree") if status == OK and type(got) is dict and _said(got.get("sha"), push["parent"]) else None
-    name = tree.get("sha") if type(tree) is dict else None
+    tree = got.get("tree") if status == OK and _mapping(got) and _said(got.get("sha"), push["parent"]) else None
+    name = tree.get("sha") if _mapping(tree) else None
     if not _sha(name):
         return None, ANSWER_REFUSED
     return dict(state, tree=name), None

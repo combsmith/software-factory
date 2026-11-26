@@ -1395,6 +1395,10 @@ class Push(unittest.TestCase):
                               ("a blob of no name", dict(LISTING, blobs={"docs/a.md": (None, 2)})),
                               ("a blob of a list", dict(LISTING, blobs={"docs/a.md": [BLOB_A, 2]})),
                               ("a blob of one thing", dict(LISTING, blobs={"docs/a.md": (BLOB_A,)})),
+                              ("a blob of no size", dict(LISTING, blobs={"docs/a.md": (BLOB_A, None)})),
+                              ("a mode not git's", dict(LISTING, tree=dict(LISTING["tree"], **{"docs/a.md": None}))),
+                              ("a mode of another kind", dict(LISTING, tree=dict(LISTING["tree"], **{"docs/a.md": Text(FILE)}))),
+                              ("a path of another kind", dict(LISTING, tree={Raising("docs/a.md"): FILE})),
                               ("a blob's path of another kind", dict(LISTING, blobs={5: (BLOB_A, 2)}))):
             self.assertEqual(push.seen(committed, "GET", AT_TREE, None, listing), NOT_PERMITTED, said)
 
@@ -1419,7 +1423,10 @@ class Push(unittest.TestCase):
                 (MOVE, {"status": "403", "body": {}}, unanswered), (PUSH, {"status": "429", "body": {}}, unanswered),
                 # An answer in no shape `send` gives is the caller's to have checked.
                 (PUSH, {"status": 404, "body": {}}, NOT_PERMITTED), (PUSH, {"status": "404"}, NOT_PERMITTED),
-                (PUSH, Mapping(ABSENT), NOT_PERMITTED)):
+                (PUSH, Mapping(ABSENT), NOT_PERMITTED),
+                # A key of the body of another kind is held before any key is looked up.
+                (MOVE, {"status": "200", "body": {Raising("ref"): "refs/heads/" + BRANCH, "object": {"sha": PARENT}}}, refused),
+                (MOVE, {"status": "200", "body": {"ref": "refs/heads/" + BRANCH, "object": {Raising("sha"): PARENT}}}, refused)):
             self.assertEqual(push.seen(push.began(told)[0], "GET", AT_BRANCH, None, answer), why, (told["head"], answer))
         first, _ = push.seen(push.began(PUSH)[0], "GET", AT_BRANCH, None, ABSENT)
         for answer, why in (({"status": "404", "body": {}}, refused), ({"status": "403", "body": {}}, refused),
@@ -1429,6 +1436,8 @@ class Push(unittest.TestCase):
                             ({"status": "200", "body": {"sha": PARENT}}, refused), ({"status": "200", "body": None}, refused),
                             ({"status": "200", "body": {"sha": Text(PARENT), "tree": {"sha": ROOT_TREE}}}, refused),
                             ({"status": "201", "body": COMMIT["body"]}, refused),
+                            ({"status": "200", "body": {Raising("sha"): PARENT, "tree": {"sha": ROOT_TREE}}}, refused),
+                            ({"status": "200", "body": {"sha": PARENT, "tree": {Raising("sha"): ROOT_TREE}}}, refused),
                             (None, unanswered), ({"status": "503", "body": COMMIT["body"]}, unanswered)):
             self.assertEqual(push.seen(first, "GET", AT_COMMIT, None, answer), why, answer)
 
