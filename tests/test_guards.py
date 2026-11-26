@@ -1613,6 +1613,14 @@ class Push(unittest.TestCase):
                             {"status": "201", "body": {"sha": MADE}})
         self.assertEqual(both["made"], {"docs/a.md": MADE, "docs/b.md": MADE})
         self.assertFalse(push.permits(both, "POST", GIT + "blobs", {"content": "QQo=\n", "encoding": "base64"}))
+        self.assertEqual(push.seen(both, "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"},
+                                   {"status": "201", "body": {"sha": MADE}}), (None, push.NOT_PERMITTED))
+        # Each blob names the files of the content it was made of, in whatever order the blobs are made.
+        later, _ = push.seen(state, "POST", GIT + "blobs", {"content": "eAo=", "encoding": "base64"},
+                             {"status": "201", "body": {"sha": NEW_A}})
+        later, _ = push.seen(later, "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"},
+                             {"status": "201", "body": {"sha": MADE}})
+        self.assertEqual(later["made"], {"docs/a.md": MADE, "docs/n.md": NEW_A})
         self.assertFalse(push.permits(dict(self.read(twice), made={"docs/b.md": MADE}), "POST", GIT + "blobs",
                                       {"content": "QQo=", "encoding": "base64"}))
         # One base64 for two contents is no push `apply` tells.

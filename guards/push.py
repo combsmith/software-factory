@@ -373,9 +373,9 @@ def seen(state, method, path, body, answer) -> tuple:
         if step == TREE_MADE:
             return dict(state, new=name), None
         # The blob names every file of the bytes this content was given for, however each was encoded. `_written`
-        # admitted this body only for such a file, so there is one.
+        # admitted this body only for such a file, so there is one, and `_told` gave this text one file's bytes.
         written, made = push["changes"]["written"], dict(state["made"])
-        held = next(written[path][1] for path in written if path not in made and push["blobs"][path] == body["content"])
+        held = next(written[path][1] for path in written if push["blobs"][path] == body["content"])
         made.update({path: name for path in written if written[path][1] == held})
         return dict(state, made=made), None
     if step == BLOB_READ:
