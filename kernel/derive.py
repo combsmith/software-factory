@@ -695,20 +695,22 @@ def github_waiting(context: dict, item: dict, role, pushers, now: str):
     """Whether a Run of `role` on `item` waits for GitHub's limit to reset (issue 838): the Controller lists each
     Role and owner whose Run GitHub limited, until when, and the Run waits while its own is listed and `now` is before
     that. Each Role writes through its own App, and an App's installation is the owner's, so the two name what GitHub
-    counts against. A Role that does not push never waits, whatever the list says; for one that does, a list, an entry
-    or a list of the Roles that push that cannot be read is None, and defers it."""
+    counts against; an owner is told apart in any case, as GitHub tells it. A list of the Roles that push that cannot be
+    read is None, and defers every Run. Then a Role that does not push never waits, whatever the list says; for one
+    that does, a list, an entry, the item's owner or `now` that cannot be read is None, and defers it."""
     if not (isinstance(pushers, list) and all(isinstance(name, str) for name in pushers)):
         return None
     if role not in pushers:
         return False
-    waits = context.get("github_deferred")
-    if not (isinstance(waits, list) and isinstance(item.get("repo"), str) and is_time(now)):
+    waits, repo = context.get("github_deferred"), item.get("repo")
+    if not (isinstance(waits, list) and isinstance(repo, str) and repo.partition("/")[0] != "" and "/" in repo
+            and is_time(now)):
         return None
-    if not all(isinstance(w, dict) and isinstance(w.get("role"), str) and isinstance(w.get("owner"), str)
-               and is_time(w.get("until")) for w in waits):
+    if not all(isinstance(w, dict) and isinstance(w.get("role"), str) and w["role"] != ""
+               and isinstance(w.get("owner"), str) and w["owner"] != "" and is_time(w.get("until")) for w in waits):
         return None
-    owner = item["repo"].partition("/")[0]
-    return any(w["role"] == role and w["owner"] == owner and w["until"] > now for w in waits)
+    owner = repo.partition("/")[0].casefold()
+    return any(w["role"] == role and w["owner"].casefold() == owner and w["until"] > now for w in waits)
 
 
 def unnamed_runs(context: dict):
