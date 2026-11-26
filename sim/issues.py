@@ -14,7 +14,8 @@ import random
 
 from kernel import issue
 from kernel import terms as t
-from sim.world import COLLEAGUE, MAINTAINER, PERMISSIONS, STRANGER, WRITE_ACCESS, Broken, World, queue_in_lane, spent_no_model, told
+from sim.world import (COLLEAGUE, MAINTAINER, PERMISSIONS, STRANGER, WRITE_ACCESS, Broken, World, ended_person,
+                       held_for_a_person, queue_in_lane, spent_no_model, told)
 from tools import check_lifecycle
 from tools.jsonschema_lite import validate
 
@@ -73,6 +74,9 @@ LATE_EVERY, LATE = 10, 5     # odd: the outsider's seeds
 # 7. Another App that may push plants a branch at the next work branch's name, at a commit no opening Run pushed: the
 # opening is held for a person, who deletes the branch, and is never opened from it (decision 1207, issue 1216).
 PLANTED_EVERY, PLANTED = 11, 4
+# 8. On one seed in five a Run killed past its limit may end on a code only a person can mend, as most do there. It is
+# drawn from the seed's own generator, so every other seed stays as it was (issue 1223).
+PERSON_EVERY, PERSON = 5, 4
 # The three Runs: who runs each, and how one ends.
 ROLES = {issue.INVESTIGATE: "business-analyst", issue.JUDGE_READINESS: "readiness", issue.OPENING: "dev-lead"}
 MOVE_LABELS = (t.LABEL_HOLD, t.LABEL_HANDS_OFF, t.LABEL_ADMIT, issue.LABEL_TRIAGE, issue.LABEL_READY)
@@ -126,6 +130,8 @@ class IssueWorld:
         self.pause_reading = PAUSES.get(seed % 5)
         self.paused_passes = 0
         self.stopped = []
+        self.person_holds = 0          # passes that held the issue for a person, on a Run that ended on their code
+        self.persons = random.Random("persons %d" % seed) if seed % PERSON_EVERY == PERSON else None
         self.moved = self.chain = self.minute
         self.gap = False
         self.stale = None
@@ -357,6 +363,13 @@ class IssueWorld:
         self.note("pass: %s / %s -> %s %s%s" % (d["state"], d["reason"], d["outcome"],
                                                  d.get("action") or d.get("admit", {}).get("intent", ""),
                                                  " [%s]" % d["attention"]))
+        # A Role whose last Run the pass read ended on a person's code is admitted again only once a person acts, or
+        # its record expires. A pass that read the list late may miss that Run; a Run admitted so supersedes itself as
+        # it starts (issue 1223).
+        self.person_holds += d["reason"] == "run_needs_person"
+        self.check(d["outcome"] != t.ADMIT
+                   or not held_for_a_person(runs, d["admit"]["role"], facts["last_writer_action_at"]),
+                   "a Run admitted for a Role held for a person")
         if self.pausing():
             self.paused(facts, runs, d, ctx)
             return
@@ -498,6 +511,8 @@ class IssueWorld:
             self.caused(FACTORY)
             return
         run["status"] = "in_progress"
+        self.check(not held_for_a_person(self.records(), run["role"], self.last_writer),
+                   "a Run started for a Role held for a person")
         self.model_runs += 1
         self.note("run %s: started %s" % (run["run"], run["intent"]))
         self.caused(FACTORY)
@@ -517,7 +532,7 @@ class IssueWorld:
             # the pause and the ceiling, no attempt (issue 433). Its Run may leave another, or none where apply is killed
             # too: with none, it is an attempt (issue 286). One cancelled with no outcome is no attempt (P-42, issue 388).
             if self.rng.random() < 0.8:
-                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None]))
+                run.update(conclusion="failure", outcome=ended_person(self.persons) or self.pick(["item", "capacity", "environment", None]))
             else:
                 run.update(conclusion="cancelled", outcome=None)
             spent_no_model(run, len(self.runs))
