@@ -36,7 +36,7 @@ if [ "$#" -ne 2 ]; then
     echo "usage: tools/trial_p52_pause.sh OUT CONTROLLER_KEY" >&2
     exit 2
 fi
-root=$(cd "$(dirname "$0")/.." && pwd -P)
+root=$(CDPATH= cd -P -- "$(dirname -- "$0")/.." && pwd -P)
 if [ -e "$1" ] || [ -L "$1" ]; then
     echo "trial_p52_pause: $1 exists; name a new directory" >&2
     exit 2
@@ -85,10 +85,13 @@ VERSION="X-GitHub-Api-Version: 2022-11-28"
 ACCEPT="Accept: application/vnd.github+json"
 NAME=FACTORY_PAUSED
 scratch=$(mktemp -d)
+# No credential's name is taken from the environment, where one exported would reach every child, and curl is
+# told of no file to write its TLS keys to (issue 1215).
+unset SSLKEYLOGFILE token jwt signature minted minting
 token=""
 
 revoke() {
-    printf 'Authorization: Bearer %s\n' "$token" | curl -sS -o /dev/null -w '%{http_code}' -X DELETE -H @- \
+    printf 'Authorization: Bearer %s\n' "$token" | curl -q --max-time 30 -sS -o /dev/null -w '%{http_code}' -X DELETE -H @- \
         -H "$ACCEPT" -H "$VERSION" "$API/installation/token"
 }
 # A token in an answer that may be cut short: the first "token" field's value, found without parsing the whole.
@@ -101,6 +104,8 @@ print(found.group(1) if found else "")' 2>/dev/null || true
 }
 
 finish() {
+    # Deaf from here on: a second signal, as a closed terminal sends, must not cut the revocation short (issue 1215).
+    trap '' HUP INT TERM
     if [ -z "$token" ] && [ -n "${minted:-}" ]; then
         token=$(token_in "$minted")
         minted=""
@@ -151,7 +156,7 @@ signature=$(printf '%s.%s' "$header" "$claims" | openssl dgst -sha256 -sign "$ke
 jwt="$header.$claims.$signature"
 # The answer is held in a variable, never a file, since the token is in it. Nothing narrows the token, so its
 # permissions are what the App was granted.
-minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
+minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
     -H "$VERSION" "$API/app/installations/$installation/access_tokens" || true)
 jwt=""
 minted_status=$(printf '%s\n' "$minted" | tail -n 1)
@@ -206,7 +211,7 @@ for path in "repos/$repo/actions/variables/$NAME" "orgs/$org/actions/variables/$
         "repos/$repo/actions/organization-variables?per_page=100"; do
     n=$((n + 1))
     read_ok=1
-    printf 'Authorization: Bearer %s\n' "$token" | curl -sS -i -H @- -H "$ACCEPT" -H "$VERSION" "$API/$path" \
+    printf 'Authorization: Bearer %s\n' "$token" | curl -q -sS -i -H @- -H "$ACCEPT" -H "$VERSION" "$API/$path" \
         > "$scratch/crlf-$n" || read_ok=0
     tr -d '\r' < "$scratch/crlf-$n" > "$scratch/raw-$n"
     rm -f "$scratch/crlf-$n"

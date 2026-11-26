@@ -15580,6 +15580,49 @@ class SignalTraps(unittest.TestCase):
             self.assertEqual(traps[1], own_line.get(script.name, lines_of[lines[0]]), script.name)
             self.assertEqual(lines[lines.index(traps[0]) + 1], traps[1], script.name)
 
+    def test_every_token_script_is_deaf_in_its_clean_up_and_bounds_its_revocation(self):  # issue 1215
+        # A closed terminal can signal twice. Each sh script that mints stops at the first; its clean-up is deaf to the
+        # next, so the revocation is not cut short, and that revocation is bounded, so a hung one cannot hold it. The
+        # reader's tests run one such stop; this holds every script to the same words.
+        scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
+                   if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
+        self.assertEqual(len(scripts), 10)
+        for script in scripts:
+            text = script.read_text()
+            body = [line for line in text.split("\nfinish() {\n", 1)[1].splitlines() if not line.lstrip().startswith("#")]
+            self.assertEqual(body[0], "    trap '' HUP INT TERM", script.name)
+            revoke = text.split("\nrevoke() {\n", 1)[1].split("\n}\n", 1)[0]
+            self.assertIn("| curl -q --max-time 30 ", revoke, script.name)
+
+    def test_every_trial_takes_nothing_of_the_maintainers_environment(self):  # issue 1215
+        # A name a script holds a credential in, exported, reaches every child; SSLKEYLOGFILE has curl write the TLS keys
+        # that read a token off the wire; a .curlrc can print the Authorization header. Each script that mints unsets the
+        # first two before its first curl, and every curl reads no .curlrc.
+        unset = "unset SSLKEYLOGFILE token jwt signature minted minting"
+        minting = 0
+        for script in sorted((ROOT / "tools").glob("trial_*.sh")):
+            lines = script.read_text().splitlines()
+            calls = [n for n, line in enumerate(lines) if "| curl " in line]
+            self.assertTrue(all(lines[n].split("| curl ", 1)[1].startswith("-q ") for n in calls), script.name)
+            if any("access_tokens" in line for line in lines):
+                minting += 1
+                self.assertEqual(lines.count(unset), 1, script.name)
+                self.assertLess(lines.index(unset), calls[0], script.name)
+        self.assertEqual(minting, 11)
+
+    def test_every_trial_finds_its_root_as_the_file_system_does(self):  # issue 1215
+        # A plain cd looks a relative path up along CDPATH, and says where it went, and takes .. past a link logically.
+        # Each script's root is found with CDPATH empty, physically.
+        found = 0
+        for script in sorted((ROOT / "tools").glob("trial_*.sh")):
+            roots = [line for line in script.read_text().splitlines() if line.startswith("root=")]
+            if roots:
+                found += 1
+                self.assertEqual(len(roots), 1, script.name)
+                self.assertRegex(roots[0], r'^root=\$\(CDPATH= cd -P -- "\$\(dirname -- "\$(0|\{BASH_SOURCE\[0\]\})"\)/\.\." && pwd -P\)$',
+                                 script.name)
+        self.assertEqual(found, 15)
+
 
 class ReaderTrialScript(unittest.TestCase):
     """`tools/trial_reader_reads.sh`, run against a stand-in curl and openssl and never GitHub (issues 222 and 231): each
@@ -15597,6 +15640,7 @@ class ReaderTrialScript(unittest.TestCase):
     CURL = r'''#!/usr/bin/env python3
 import json, os, sys
 here = os.path.dirname(os.path.abspath(__file__))
+ENV_NAMES = ("token", "jwt", "signature", "minted", "minting", "SSLKEYLOGFILE")
 args = sys.argv[1:]
 url = [a for a in args if a.startswith("https://")][-1]
 method = args[args.index("-X") + 1] if "-X" in args else "GET"
@@ -15605,7 +15649,7 @@ said = sys.stdin.read() if "@-" in args else ""
 grant = open(os.path.join(here, "grant")).read().strip() if os.path.exists(os.path.join(here, "grant")) else ""
 with open(os.path.join(here, "log"), "a") as log:
     log.write(json.dumps({"method": method, "url": url, "body": body, "credential": "Bearer " in said,
-                          "grant": grant}) + "\n")
+                          "grant": grant, "env": [n for n in ENV_NAMES if n in os.environ]}) + "\n")
 if url.endswith("/access_tokens"):
     status = open(os.path.join(here, "mint.status")).read().strip()
     if os.path.exists(os.path.join(here, "cut")):
@@ -15621,6 +15665,11 @@ if url.endswith("/access_tokens"):
     # A transfer that failed after the whole answer came, as curl's exit 18 says of a partial one.
     sys.exit(18 if os.path.exists(os.path.join(here, "broke")) else 0)
 if method == "DELETE":
+    if os.path.exists(os.path.join(here, "slow.revoke")):
+        # As a read is held below: say the revocation began, and wait until the test lets it end.
+        told, held = (int(n) for n in open(os.path.join(here, "slow.revoke")).read().split())
+        os.write(told, b"r")
+        os.read(held, 1)
     sys.stdout.write(open(os.path.join(here, "revoke.status")).read().strip())
     sys.exit(0)
 roles = json.load(open(os.path.join(here, "roles")))
@@ -15819,6 +15868,52 @@ esac
         self.assertIn("DELETE", [c["method"] for c in self.calls()])
         self.assertIn("stopped with a token live; revoking it returned 204", err)
         self.assertNotIn(self.TOKEN, out + err)
+
+    def test_a_second_signal_does_not_cut_the_revocation_short(self):  # issue 1215, cubic on pull request 1212
+        # Stopped mid-read, the script revokes its live token on the way out. A second signal then, as a closed terminal
+        # sends, finds the clean-up deaf to it: the revocation ends and is told. Pipes, not a clock, order the two.
+        told_r, told_w = os.pipe()
+        held_r, held_w = os.pipe()
+        again_r, again_w = os.pipe()
+        freed_r, freed_w = os.pipe()
+        (self.stand_in / "slow").write_text("%d %d\n" % (told_w, held_r))
+        (self.stand_in / "slow.revoke").write_text("%d %d\n" % (again_w, freed_r))
+        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C"}
+        running = subprocess.Popen([SIGNAL_SHELL, str(self.SCRIPT), str(self.out), str(self.key), *self.GIVEN],
+                                   cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                                   pass_fds=(told_w, held_r, again_w, freed_r))
+        for fd in (told_w, held_r, again_w, freed_r):
+            os.close(fd)
+        try:
+            begun = os.read(told_r, 1)
+            (self.stand_in / "slow").unlink()
+            running.terminate()
+            os.close(held_w)
+            held_w = None
+            revoking = os.read(again_r, 1)
+            running.terminate()
+        finally:
+            for fd in (told_r, again_r, freed_w) + ((held_w,) if held_w is not None else ()):
+                os.close(fd)
+        out, err = running.communicate(timeout=60)
+        self.assertEqual((begun, revoking), (b"r", b"r"), "the script reached no read, or no revocation: " + err)
+        self.assertIn("stopped with a token live; revoking it returned 204", err)
+        self.assertNotIn(self.TOKEN, out + err)
+
+    def test_the_maintainers_environment_steers_nothing(self):  # issue 1215
+        # Run by a path relative to the repo, under a CDPATH that holds a tools/ of its own, with SSLKEYLOGFILE and each
+        # name a credential is held in exported: the script finds its own root, and curl is handed none of them.
+        decoy = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (decoy / "tools").mkdir()
+        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
+               "CDPATH": str(decoy), "SSLKEYLOGFILE": str(decoy / "keys"),
+               **{name: self.TOKEN for name in ("token", "jwt", "signature", "minted", "minting")}}
+        ran = subprocess.run(["sh", str(self.SCRIPT.relative_to(ROOT)), str(self.out), str(self.key), *self.GIVEN],
+                             cwd=str(ROOT), capture_output=True, text=True, env=env, timeout=120)
+        self.assertEqual(ran.returncode, 0, ran.stderr + ran.stdout)
+        calls = self.calls()
+        self.assertTrue(calls)
+        self.assertEqual([c["env"] for c in calls], [[]] * len(calls))
 
     def test_curl_reads_no_configuration_of_the_maintainers(self):
         # A .curlrc that turns on verbose would print the Authorization header; -q comes first on every call.

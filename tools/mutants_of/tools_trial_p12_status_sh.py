@@ -21,6 +21,22 @@ ACL_RIGHTS = "(add_file|add_subdirectory|delete|write|chown)"
 ACL_TESTS = ("tests.test_tools.OutputMadeAlone.test_every_script_reads_an_acl_word_for_word_as_the_others_do",
              "tests.test_tools.OutputMadeAlone.test_an_acl_that_lets_another_add_or_delete_above_out_is_refused")
 
+# Issue 1215: the tests that hold every trial to the shared words, and each family's run of them, by the class that runs it.
+TRIALS_DEAF = "tests.test_tools.SignalTraps.test_every_token_script_is_deaf_in_its_clean_up_and_bounds_its_revocation"
+TRIALS_ENV = "tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment"
+TRIALS_ROOT = "tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does"
+FAMILY_1215 = {"trial_reader_reads.sh": "ReaderTrialScript", "trial_p54_issue_lookup.sh": "IssueLookupTrial",
+               "trial_p12_status.sh": "StatusTrial", "trial_p56_comments.sh": "CommentsReadTrial",
+               "trial_p80_branch_reads.sh": "BranchReadsTrial", "trial_p58_edits.sh": "EditsReadTrial"}
+SCRIPTS_1215 = tuple(FAMILY_1215) + ("trial_p39_reach.sh", "trial_p4_narrow.sh", "trial_p8_cost.sh")
+ROOTS_1215 = SCRIPTS_1215 + ("trial_p13_cli.sh", "trial_p13_ended.sh", "trial_p26_sandbox.sh", "trial_p61_timeline.sh")
+
+
+def run_1215(script, test):
+    """`test` as the class of `script`'s family runs it, or nothing for a script of no family."""
+    return ("tests.test_tools.%s.%s" % (FAMILY_1215[script], test),) if script in FAMILY_1215 else ()
+
+
 TARGETS = ("tools/context_eval.sh", "tools/trial_p12_status.sh", "tools/trial_p13_cli.sh", "tools/trial_p13_ended.sh", "tools/trial_p26_sandbox.sh", "tools/trial_p39_reach.sh", "tools/trial_p4_narrow.sh", "tools/trial_p50_linux_sandbox.sh", "tools/trial_p51_sandbox_writes.sh", "tools/trial_p54_issue_lookup.sh", "tools/trial_p56_comments.sh", "tools/trial_p58_edits.sh", "tools/trial_p59_read_confinement.sh", "tools/trial_p61_timeline.sh", "tools/trial_p8_cost.sh", "tools/trial_p80_branch_reads.sh", "tools/trial_reader_reads.sh",)
 MUTANTS = [
     # Decision 0048: a person's write access is read from the collaborator permission.
@@ -1137,8 +1153,23 @@ MUTANTS = [
      '    read_one "$1" "repos/$repo/git/ref/heads/$3" "$2" "$3"\n    read_one "$1" "repos/$repo/pulls?$query" "$2" "$3"\n', ('tests.test_tools.BranchReadsTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
     ("P-80 tells nothing of a stop mid-mint", 'tools/trial_p80_branch_reads.sh', '    elif [ -n "${minting:-}" ]; then', '    elif false; then',
      ("tests.test_tools.BranchReadsTrial.test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live",)),
-    ("P-80 takes credentials from the environment", 'tools/trial_p80_branch_reads.sh', 'unset token jwt signature minted minting\n', '',
-     ("tests.test_tools.BranchReadsTrial.test_an_inherited_mint_answer_is_never_revoked",)),
     ("P-80 takes a first attempt alone", 'tools/trial_p80_branch_reads.sh', 'factory-work/issue-[1-9][0-9]*-[1-9][0-9]*", name', 'factory-work/issue-[1-9][0-9]*-1", name',
      ("tests.test_tools.BranchReadsTrial.test_a_later_attempts_branch_is_taken_and_read",)),
+    # Issue 1215: what the trials share. Each sh script that mints is deaf in its clean-up and bounds its revocation;
+    # each script that mints takes no credential's name or key log from the environment; each finds its root with
+    # CDPATH empty, physically. The tests that hold every script to the same words come first, then a family's run.
+    *[("%s's clean-up stops at a second signal" % script, "tools/" + script, "    trap '' HUP INT TERM\n", "",
+       (TRIALS_DEAF,) + run_1215(script, "test_a_second_signal_does_not_cut_the_revocation_short"))
+      for script in SCRIPTS_1215],
+    *[("%s's revocation may hang" % script, "tools/" + script, "curl -q --max-time 30 -sS -o /dev/null", "curl -q -sS -o /dev/null",
+       (TRIALS_DEAF,)) for script in SCRIPTS_1215],
+    *[("%s takes credentials from the environment" % script, "tools/" + script,
+       "unset SSLKEYLOGFILE token jwt signature minted minting\n", "",
+       (TRIALS_ENV,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in SCRIPTS_1215],
+    *[("%s's root follows CDPATH" % script, "tools/" + script, "root=$(CDPATH= cd -P -- ", "root=$(cd -P -- ",
+       (TRIALS_ROOT,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in ROOTS_1215],
+    *[("%s's root is found logically" % script, "tools/" + script, "root=$(CDPATH= cd -P -- ", "root=$(CDPATH= cd -- ",
+       (TRIALS_ROOT,)) for script in ROOTS_1215],
+    ("P-39's mint reads a .curlrc", "tools/trial_p39_reach.sh", "| curl -q -sS -w '\\n%{http_code}' -X POST",
+     "| curl -sS -w '\\n%{http_code}' -X POST", (TRIALS_ENV,)),
 ]

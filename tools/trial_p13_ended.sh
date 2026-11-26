@@ -33,7 +33,7 @@ refuse() {
     exit 2
 }
 [[ "$#" -eq 2 || "$#" -eq 3 ]] || refuse "usage: bash tools/trial_p13_ended.sh OUT CONFIG_DIR [CLI]"
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+root=$(CDPATH= cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 parent=$(cd "$(dirname "$1")" 2>/dev/null && pwd -P) || refuse "the directory that would hold OUT does not exist"
 out="$parent/$(basename "$1")"
 [[ ! -e "$out" && ! -L "$out" ]] || refuse "OUT exists; name a new directory"

@@ -101,7 +101,7 @@ refuse() {
 command -v python3 >/dev/null || refuse "python3 is needed"
 command -v dig >/dev/null || refuse "dig is needed, to look the denied host's address up outside the sandbox"
 
-root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+root=$(CDPATH= cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 [[ -f "$root/tools/redact_trial.py" ]] || refuse "run the copy of this script in a checkout of software-factory"
 
 # OUT: new, and outside the repo, read as the file system resolves it.

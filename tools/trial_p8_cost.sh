@@ -39,7 +39,7 @@ if [ "$#" -lt 3 ]; then
     echo "usage: tools/trial_p8_cost.sh OUT READER_KEY OWNER/REPO [OWNER/REPO ...]" >&2
     exit 2
 fi
-root=$(cd "$(dirname "$0")/.." && pwd -P)
+root=$(CDPATH= cd -P -- "$(dirname -- "$0")/.." && pwd -P)
 if [ -e "$1" ] || [ -L "$1" ]; then
     echo "trial_p8_cost: $1 exists; name a new directory" >&2
     exit 2
@@ -102,10 +102,13 @@ case "$scratch/" in "$root"/*)
     echo "trial_p8_cost: the scratch directory $scratch is inside the repo; set TMPDIR outside it" >&2
     exit 2 ;;
 esac
+# No credential's name is taken from the environment, where one exported would reach every child, and curl is
+# told of no file to write its TLS keys to (issue 1215).
+unset SSLKEYLOGFILE token jwt signature minted minting
 token=""
 
 revoke() {
-    printf 'Authorization: Bearer %s\n' "$token" | curl -q -sS -o /dev/null -w '%{http_code}' -X DELETE -H @- \
+    printf 'Authorization: Bearer %s\n' "$token" | curl -q --max-time 30 -sS -o /dev/null -w '%{http_code}' -X DELETE -H @- \
         -H "$ACCEPT" -H "$VERSION" "$API/installation/token"
 }
 
@@ -124,6 +127,8 @@ unrevoked() {
 }
 
 finish() {
+    # Deaf from here on: a second signal, as a closed terminal sends, must not cut the revocation short (issue 1215).
+    trap '' HUP INT TERM
     if [ -z "$token" ] && [ -n "${minted:-}" ]; then
         token=$(token_in "$minted")
         minted=""

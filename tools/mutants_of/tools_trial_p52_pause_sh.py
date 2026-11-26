@@ -79,4 +79,15 @@ MUTANTS = [
      '    token=$(token_in "$minted")    # a refusal cut short', '    token=""    # a refusal cut short', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
     # Issue 502: token_in reads its answer as bytes, so one cut inside a character still gives up its token.
     ("P-52 loses the token of a 201 cut inside a character", "tools/trial_p52_pause.sh", 'sys.stdin.buffer.read().decode("utf-8", "replace"))', 'sys.stdin.read())', ('tests.test_tools.ReachScript.test_a_mint_answer_cut_inside_a_character_still_gives_up_its_token',)),
+    # Issue 1215: what the trials share, held by the tests that hold every trial to the same words.
+    ("P-52's clean-up stops at a second signal", "tools/trial_p52_pause.sh", "    trap '' HUP INT TERM\n", "",
+     ("tests.test_tools.SignalTraps.test_every_token_script_is_deaf_in_its_clean_up_and_bounds_its_revocation",)),
+    ("P-52's revocation may hang", "tools/trial_p52_pause.sh", "curl -q --max-time 30 -sS -o /dev/null", "curl -q -sS -o /dev/null",
+     ("tests.test_tools.SignalTraps.test_every_token_script_is_deaf_in_its_clean_up_and_bounds_its_revocation",)),
+    ("P-52 takes credentials from the environment", "tools/trial_p52_pause.sh", "unset SSLKEYLOGFILE token jwt signature minted minting\n", "",
+     ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
+    ("P-52's mint reads a .curlrc", "tools/trial_p52_pause.sh", "| curl -q -sS -w '\\n%{http_code}' -X POST", "| curl -sS -w '\\n%{http_code}' -X POST",
+     ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
+    ("P-52's root follows CDPATH", "tools/trial_p52_pause.sh", "root=$(CDPATH= cd -P -- ", "root=$(cd -P -- ", ("tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does",)),
+    ("P-52's root is found logically", "tools/trial_p52_pause.sh", "root=$(CDPATH= cd -P -- ", "root=$(CDPATH= cd -- ", ("tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does",)),
 ]

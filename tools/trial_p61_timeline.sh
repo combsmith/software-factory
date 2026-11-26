@@ -41,7 +41,7 @@ if [ "$#" -ne 4 ]; then
     echo "usage: tools/trial_p61_timeline.sh OUT REPO ISSUE PULL_REQUEST" >&2
     exit 2
 fi
-root=$(cd "$(dirname "$0")/.." && pwd -P)
+root=$(CDPATH= cd -P -- "$(dirname -- "$0")/.." && pwd -P)
 # A repo and each number are one word of the shapes GitHub allows, so none reaches the query as anything else.
 case "$2" in
     */*/*|/*|*/|-*|*[!A-Za-z0-9._/-]*) echo "trial_p61_timeline: $2 is not owner/name" >&2; exit 2 ;;
