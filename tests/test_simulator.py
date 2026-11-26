@@ -686,7 +686,7 @@ class Simulation(unittest.TestCase):
     def test_the_seeds_end_a_run_on_a_persons_code(self):  # issue 1223
         # A Run killed past its limit may end on a code only a person can mend: on these seeds the item is held for a
         # person, and the world checks at every pass and start that no Run of the Role starts until a person acts.
-        for seed in (29, 32):
+        for seed in (4, 9):
             w = World(seed)
             for _ in range(250):
                 w.step()

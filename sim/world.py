@@ -159,6 +159,10 @@ NEVER_RUN = "9000000001"
 # On one seed in nine the push that left the head is now and then missing from the branch's activity for a pass, and
 # the last pusher reads null (a_push_is_missing_from_the_activity).
 MISSING_PUSH_EVERY, MISSING_PUSH = 9, 5
+# On one seed in five a Run killed past its limit may end on a code only a person can mend, as most do there. It is drawn
+# from the seed's own generator, so every other seed stays as it was (issue 1223).
+PERSON_EVERY, PERSON = 5, 4
+PERSON_SHARE = 0.6
 # GitHub's id of a run, as P-17 listed one, for the first Run on an item; each Run after it is one more.
 FIRST_RUN_ID = 39086879694
 # On every seed a reviewer App edits the description seconds after the pull request opens, before any approval, so it
@@ -197,6 +201,12 @@ def held_for_a_person(runs: list, role: str, last_writer) -> bool:
            and (last_writer is None or r["started_at"] > last_writer)]
     latest = max((r["started_at"] for r in ran), default=None)
     return any(r.get("outcome") == t.ENDED_PERSON for r in ran if r["started_at"] == latest)
+
+
+def ended_person(persons) -> str:
+    """`person` for a killed Run on a seed whose Runs may end on a person's code, in either world, drawn from that
+    seed's own generator `persons` (issue 1223); None on every other seed and draw, which then draw as they did."""
+    return t.ENDED_PERSON if persons is not None and persons.random() < PERSON_SHARE else None
 
 
 def spent_no_model(run: dict, count: int) -> None:
@@ -289,6 +299,7 @@ class World:
         self.activity = random.Random("activity %d" % seed) if seed % MISSING_PUSH_EVERY == MISSING_PUSH else None
         self.missing_passes = 0    # passes that read the last pusher null
         self.person_holds = 0      # passes that held the item for a person, on a Run that ended on their code
+        self.persons = random.Random("persons %d" % seed) if seed % PERSON_EVERY == PERSON else None
         # GitHub: an_app_edits_a_description
         # When the description was last edited: the reviewer App's summary, seconds after the pull request opened, which
         # was before the world's first minute.
@@ -1131,7 +1142,7 @@ class World:
             # the pause and the ceiling, no attempt (issue 433). Its Run may leave another, or none where apply is killed
             # too: with none, it is an attempt (issue 286). One cancelled with no outcome is no attempt (P-42, issue 388).
             if self.rng.random() < 0.8:
-                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None, t.ENDED_PERSON]))
+                run.update(conclusion="failure", outcome=ended_person(self.persons) or self.pick(["item", "capacity", "environment", None]))
             else:
                 run.update(conclusion="cancelled", outcome=None)
             spent_no_model(run, len(self.runs))

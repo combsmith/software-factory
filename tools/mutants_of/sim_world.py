@@ -18,8 +18,8 @@ MUTANTS = [
      '    latest = min((r["started_at"] for r in ran), default=None)\n',
      ("tests.test_simulator.Simulation.test_the_world_breaks_on_a_run_started_for_a_role_held_for_a_person",)),
     ("the world never ends a Run on a person's code", 'sim/world.py',
-     '                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None, t.ENDED_PERSON]))\n',
-     '                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None]))\n',
+     '        self.persons = random.Random("persons %d" % seed) if seed % PERSON_EVERY == PERSON else None\n',
+     '        self.persons = None\n',
      ("tests.test_simulator.Simulation.test_the_seeds_end_a_run_on_a_persons_code",)),
     # Issue 526: the facts port reads the description's edits, and an absent edit time is unread, never none (0140).
     ("the fake's look is the Maintainer's alone", 'sim/world.py',

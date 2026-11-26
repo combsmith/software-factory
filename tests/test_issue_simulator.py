@@ -253,7 +253,7 @@ class IssueSimulation(unittest.TestCase):
     def test_the_seeds_end_a_run_on_a_persons_code(self):  # issue 1223
         # The twin of the pull request's world: on these seeds the issue is held for a person, and no Run of the Role
         # starts until a person acts or its record expires.
-        for seed in (182, 202):
+        for seed in (4, 14):
             self.assertGreater(run(seed).person_holds, 0, seed)
 
     def test_the_seeds_plant_a_branch_the_factory_never_pushed(self):  # issue 1216, decision 1207

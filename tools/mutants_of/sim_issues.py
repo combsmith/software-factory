@@ -7,8 +7,8 @@ TARGETS = ("sim/issues.py",)
 MUTANTS = [
     # Issue 1223: an issue's Run killed past its limit may end on a person's code, and the issue is held for a person.
     ("the issue world never ends a Run on a person's code", 'sim/issues.py',
-     '                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None, t.ENDED_PERSON]))\n',
-     '                run.update(conclusion="failure", outcome=self.pick(["item", "capacity", "environment", None]))\n',
+     '        self.persons = random.Random("persons %d" % seed) if seed % PERSON_EVERY == PERSON else None\n',
+     '        self.persons = None\n',
      ("tests.test_issue_simulator.IssueSimulation.test_the_seeds_end_a_run_on_a_persons_code",)),
     # Issue 1216: a head is told pushed only where a listed opening Run recorded pushing it.
     ("a planted branch is told as pushed", 'sim/issues.py',
