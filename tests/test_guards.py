@@ -1200,7 +1200,7 @@ class Push(unittest.TestCase):
             self.assertIsNone(push.began(told)[1])
         self.assertEqual(push.began(PUSH), ({
             "push": PUSH, "tree": None, "before": None, "branch_read": False, "blobs_read": (), "made": {}, "new": None, "checked": False,
-            "commit": None, "commit_back": False, "moved": False, "landed": False}, None))
+            "commit": None, "commit_back": False, "moved": False, "landed": False, "stale": False}, None))
         # A push told wrongly is the Factory's own fault in describing it, never the Role's: a person's (issue 838).
         self.assertEqual(push.NOT_PERMITTED, "push_not_permitted")
         less = {k: v for k, v in PUSH.items() if k != "message"}
@@ -1533,6 +1533,7 @@ class Push(unittest.TestCase):
                           ("a blob made", dict(first, made={"docs/a.md": MADE})), ("made as a list", dict(first, made=[])), ("a tree made", dict(first, new=MADE)),
                           ("a tree before the branch", dict(first, tree=ROOT_TREE)),
                           ("moved", dict(first, moved=True)), ("checked", dict(first, checked=True)),
+                          ("a branch write refused before any was asked", dict(first, stale=True)), ("stale as 1", dict(first, stale=1)),
                           ("a commit read back", dict(first, commit_back=True)), ("a commit made", dict(first, commit=MADE)),
                           ("a blob read before the listing", dict(first, blobs_read=(BLOB_A,))),
                           ("a blob read twice", dict(state, blobs_read=(BLOB_A, BLOB_A))),
@@ -1795,9 +1796,8 @@ class Push(unittest.TestCase):
                     (3, dict(self.BACK, body=dict(self.BACK["body"], sha=NEW_A)), refused),
                     (3, gone, refused), (3, {"status": "403", "body": {}}, refused), (3, None, unanswered),
                     (3, {"status": "401", "body": {}}, unanswered), (3, {"status": "429", "body": {}}, limited),
-                    # A branch write refused as no fast-forward, or as standing, was overtaken; any other refusal,
-                    # a protection's 403 among them, is a person's.
-                    (4, {"status": "422", "body": {}}, moved), (4, {"status": "403", "body": {}}, refused),
+                    # A branch write refused other than by a 422, which the branch read again judges, is a person's.
+                    (4, {"status": "403", "body": {}}, refused),
                     (4, {"status": "404", "body": {}}, refused), (4, dict(ref(NEW_A), status=landing[4][3]["status"]), refused),
                     (4, dict(ref(COMMITTED), status="202"), refused),
                     (4, {"status": "401", "body": {}}, unanswered), (4, {"status": "429", "body": {}}, limited),
@@ -1808,6 +1808,20 @@ class Push(unittest.TestCase):
                     (5, ref(COMMITTED, BRANCH + "x"), refused), (5, None, unanswered), (5, {"status": "401", "body": {}}, unanswered),
                     (5, {"status": "500", "body": {}}, unanswered), (5, {"status": "429", "body": {}}, limited)):
                 self.assertEqual(push.seen(self.upto(told, step), *landing[step][:3], answer), why, (told["head"], step, answer))
+        # A branch write refused with a 422 is judged by the branch read again: moved since the Decision, the Run was
+        # overtaken; still where it admitted it, the refusal was GitHub's, a person's; no answer, the port's.
+        limits = {"status": "429", "body": {}}
+        for told, unmoved, gone in ((PUSH, ABSENT, ref(NEW_A)), (MOVE, ref(PARENT), ABSENT)):
+            write = self.landing(told)[4][:3]
+            stale, why = push.seen(self.upto(told, 4), *write, {"status": "422", "body": {}})
+            self.assertEqual((stale["stale"], stale["moved"], why), (True, False, None))
+            self.assertFalse(push.permits(stale, *write))
+            self.assertFalse(push.permits(dict(stale, stale=1), "GET", AT_BRANCH, None))
+            self.assertFalse(push.permits(stale, *self.landing(MOVE if told is PUSH else PUSH)[4][:3]))
+            for answer, said in ((unmoved, refused), (gone, moved), (ref(COMMITTED), moved), (None, unanswered),
+                                 ({"status": "500", "body": {}}, unanswered), ({"status": "401", "body": {}}, unanswered),
+                                 (limits, limited), ({"status": "403", "body": {}}, refused)):
+                self.assertEqual(push.seen(stale, "GET", AT_BRANCH, None, answer), said, (told["head"], answer))
         # A branch made answers 201 and one moved 200: the other status is no answer of that write.
         self.assertEqual(push.seen(self.upto(PUSH, 4), *self.landing()[4][:3], ref(COMMITTED)), refused)
         self.assertEqual(push.seen(self.upto(MOVE, 4), *self.landing(MOVE)[4][:3], dict(ref(COMMITTED), status="201")), refused)
