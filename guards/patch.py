@@ -483,6 +483,12 @@ def _placed(path: str, tree: dict, folders: dict) -> bool:
     return not any(part in tree for part in _above(path)) and path not in folders
 
 
+def held(tree) -> bool:
+    """Whether `tree` is a tree in a shape a port gives, as `_handed` reads one: what the push guard asks of the
+    admitted tree."""
+    return _handed(tree, {})
+
+
 def _handed(tree, contents) -> bool:
     """Whether `tree` and `contents` are in a shape a port gives. A tree is a mapping of paths, as text, to the modes
     git writes of what is no directory. No path of it has more parts than `DEEPEST` has characters, as no name this
