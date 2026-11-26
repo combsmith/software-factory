@@ -1726,7 +1726,7 @@ class Push(unittest.TestCase):
             assert why is None, (path, why)
         return state
 
-    def test_a_push_lands_one_commit_of_its_tree_read_back_and_reads_its_branch_at_it(self):
+    def test_a_push_lands_its_commit_and_branch_read_back(self):
         for told in (PUSH, MOVE):
             state, landing = self.upto(told, 0), self.landing(told)
             for at, (method, path, body, answer) in enumerate(landing):
@@ -1757,12 +1757,15 @@ class Push(unittest.TestCase):
                 (moving, "PATCH", GIT + "refs/heads/" + BRANCH, {"sha": COMMITTED, "force": 0}),
                 (moving, "PATCH", GIT + "refs/heads/" + BRANCH, {"sha": COMMITTED}),
                 (moving, "PATCH", GIT + "refs/heads/main", {"sha": COMMITTED, "force": False}),
-                (moving, "POST", GIT + "refs/heads/" + BRANCH, {"sha": COMMITTED, "force": False})):
+                (moving, "POST", GIT + "refs/heads/" + BRANCH, {"sha": COMMITTED, "force": False}),
+                (moving, "POST", GIT + "refs", {"ref": "refs/heads/" + BRANCH, "sha": COMMITTED}),
+                (made, "PATCH", GIT + "refs/heads/" + BRANCH, {"sha": COMMITTED, "force": False})):
             self.assertFalse(push.permits(state, method, path, body), (method, path, body))
         # Nothing past the tree is written by a state that says it read back what it did not.
         for bad in (dict(made, checked=False), dict(made, commit_back=False), dict(made, new=None),
                     dict(made, commit=None), dict(made, commit="x"), dict(made, landed=True), dict(made, checked=1)):
             self.assertFalse(push.permits(bad, *self.landing()[4][:3]))
+        self.assertFalse(push.permits(dict(self.upto(PUSH, 5), commit="x"), "GET", AT_BRANCH, None))
 
     def test_each_read_back_and_branch_write_says_whose_a_stop_is(self):
         refused, moved, unanswered = (None, push.ANSWER_REFUSED), (None, push.BRANCH_MOVED), (None, push.UNANSWERED)
