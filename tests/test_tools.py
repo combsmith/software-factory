@@ -15604,7 +15604,7 @@ class SignalTraps(unittest.TestCase):
     def test_every_token_script_keeps_its_raw_answers_beside_out(self):  # issue 1215
         # TMPDIR is the environment's to choose, and a directory in it another user can write to would let them take the
         # raw answers, or put a link where one is written. Each sh script that mints makes its one scratch directory in
-        # OUT's parent, which its walk holds to be this user's alone, and reads no TMPDIR.
+        # OUT's parent, which its walk holds to be this user's alone, reads no TMPDIR, and hands that directory to its helpers.
         scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
                    if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
         self.assertEqual(len(scripts), 10)
@@ -15615,7 +15615,10 @@ class SignalTraps(unittest.TestCase):
             self.assertRegex(made[0], r'^scratch=\$\(mktemp -d "\$parent/\.trial-[a-z0-9]+\.XXXXXX"\)$', script.name)
             self.assertLess(max(n for n, line in enumerate(lines) if line == '    above=$(dirname -- "$above")'),
                             lines.index(made[0]), script.name)
-            self.assertFalse(any("TMPDIR" in line for line in lines if not line.lstrip().startswith("#")), script.name)
+            # TMPDIR is never read; it is set, to that directory, for each helper the run starts.
+            self.assertEqual([line for line in lines if "TMPDIR" in line and not line.lstrip().startswith("#")],
+                             ['export TMPDIR="$scratch"'], script.name)
+            self.assertEqual(lines[lines.index(made[0]) + 1], 'export TMPDIR="$scratch"', script.name)
 
     def test_every_trial_takes_nothing_of_the_maintainers_environment(self):  # issue 1215
         # A name a script holds a credential in, exported, reaches every child; SSLKEYLOGFILE has curl write the TLS keys

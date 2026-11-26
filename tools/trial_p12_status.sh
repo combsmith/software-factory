@@ -103,8 +103,9 @@ API=https://api.github.com
 VERSION="X-GitHub-Api-Version: 2022-11-28"
 ACCEPT="Accept: application/vnd.github+json"
 # The raw answers are kept beside OUT, in a directory made in its parent, which the walk above holds to be this
-# user's alone; TMPDIR, which the environment chooses, is not read (issue 1215).
+# user's alone. TMPDIR, which the environment chooses, is not read, and each helper is handed this one (issue 1215).
 scratch=$(mktemp -d "$parent/.trial-p12.XXXXXX")
+export TMPDIR="$scratch"
 # No credential's name is taken from the environment, where one exported would reach every child, and curl is
 # told of no file to write its TLS keys to (issue 1215).
 unset SSLKEYLOGFILE token jwt signature minted minting
