@@ -7,23 +7,24 @@ state, which `began` gives first. Asking whether the next request may leave, and
 the next parts'. The state holds from this part on each field those parts read and set, so that what the caller
 carries is of one shape throughout.
 
-- `began(push)`: `(state, None)`, the first state, or `(None, NOT_PERMITTED)` for a push told wrongly. `push` is `{"repo", "branch", "parent", "head",
-  "message", "changes", "blobs"}`: `head` is the branch's head the Decision admitted, None where it admitted none and
-  `parent` otherwise; `message` is the commit's, `apply`'s and never a model's text; `blobs` is the base64 of each
-  written file's bytes, by its path. A push of no `changes` and no `blobs` reads, and writes nothing: the port reads
-  under one what `applied` needs.
+- `began(push)`: `(state, None)`, the first state, or `(None, NOT_PERMITTED)` for a push told wrongly. `push` is
+  `{"repo", "branch", "parent", "head", "message", "changes", "blobs"}`: `head` is the branch's head the Decision
+  admitted, None where it admitted none and `parent` otherwise; `message` is the commit's, `apply`'s and never a
+  model's text; `blobs` is the base64 of each written file's bytes, by its path. A push of no `changes` and no
+  `blobs` reads, and writes nothing: the port reads under one what `applied` needs.
 
 What this rests on: the state is the caller's and never the port's, and the port is handed copies of what `push`
 holds, never `push`. That `blobs` is the base64 of the bytes `changes` holds is `apply`'s to say, which may import
 what encodes it.
 
-`touched(changes)` and `existing(changes, tree)` give `(paths, None)`, naming the paths `harness/apply.py` is asked about: a push that touches
-a protected path is refused there, and so is one that changes or removes a test the admitted commit holds. One matcher
-reads the base's patterns (`tools/hooks/protected.py`); this names the paths, so what is asked about is what lands.
+`touched(changes)` and `existing(changes, tree)` give `(paths, None)`, naming the paths `harness/apply.py` is asked
+about: a push that touches a protected path is refused there, and so is one that changes or removes a test the
+admitted commit holds. One matcher reads the base's patterns (`tools/hooks/protected.py`); this names the paths, so
+what is asked about is what lands.
 
 Every stop gives a code, never None alone, and each code is set here, so that one table can name whose each is
-(issue 838). This part's is `NOT_PERMITTED`. Each input is held to its exact type, as the patch guard
-holds its own: a subclass says what `in`, `set` and `[]` on it do.
+(issue 838). This part's is `NOT_PERMITTED`. Each input is held to its exact type, as the patch guard holds its own:
+a subclass says what `in`, `set` and `[]` on it do. The state holds a copy of what it was told.
 
 `apply` and a port give every argument; this reads nothing itself.
 """
@@ -78,11 +79,19 @@ def _above(path: str) -> list:
     return ["/".join(names[:n]) for n in range(1, len(names))]
 
 
+def _keyed(said, keys: tuple) -> bool:
+    """Whether `said` is a mapping of exactly `keys`, each key exact text: a key's type is held before any key is
+    compared, since a comparison is the key's own to say."""
+    return type(said) is dict and all(type(key) is str for key in said) and set(said) == set(keys)
+
+
 def _changes(changes) -> bool:
     """Whether `changes` is in the shape `guards/patch.py`'s `applied` gives, path by path: exactly its three keys;
     files written, each with a file's mode and its bytes; files removed; files read; every path a name `patch.named`
-    reads; no path written or removed twice, or both, and none of them above another; and one at least."""
-    if type(changes) is not dict or set(changes) != set(CHANGES):
+    reads; no path written or removed twice, or both; no file written above another written, nor removed above another
+    removed; and one at least. A file written where one removed stood above it, or under it, is a file replaced by a
+    directory, or a directory by a file, and `applied` gives both."""
+    if not _keyed(changes, CHANGES):
         return False
     written, removed, read = changes["written"], changes["removed"], changes["read"]
     if type(written) is not dict or type(removed) is not list or type(read) is not list:
@@ -92,16 +101,16 @@ def _changes(changes) -> bool:
         return False
     if len(set(paths)) != len(paths) or len(set(read)) != len(read):
         return False
-    if any(above in written or above in removed for path in paths for above in _above(path)):
+    if any(above in side for side in (written, removed) for path in side for above in _above(path)):
         return False
-    return all(type(to) is tuple and len(to) == len(WRITTEN) and to[0] in patch.FILE_MODES
+    return all(type(to) is tuple and len(to) == len(WRITTEN) and type(to[0]) is str and to[0] in patch.FILE_MODES
                and type(to[1]) is bytes for to in written.values())
 
 
 def _told(push) -> bool:
     """Whether `push` says one push whole: a repo, a work branch, the commit it stands on, the head admitted, which is
     none or that commit, a message, and changes with the base64 of each written file, or neither."""
-    if type(push) is not dict or set(push) != set(PUSH):
+    if not _keyed(push, PUSH):
         return False
     if not (_repo(push["repo"]) and _work(push["branch"]) and _sha(push["parent"])
             and (push["head"] is None or (_sha(push["head"]) and push["head"] == push["parent"]))
@@ -110,7 +119,7 @@ def _told(push) -> bool:
     changes, blobs = push["changes"], push["blobs"]
     if changes is None or blobs is None:
         return changes is None and blobs is None
-    return (_changes(changes) and type(blobs) is dict and set(blobs) == set(changes["written"])
+    return (_changes(changes) and _keyed(blobs, tuple(changes["written"]))
             and all(type(text) is str for text in blobs.values()))
 
 
@@ -119,8 +128,15 @@ def began(push) -> tuple:
     in part or wrongly."""
     if not _told(push):
         return None, NOT_PERMITTED
-    return {"push": push, "tree": None, "before": None, "branch_read": False, "made": {}, "new": None,
-            "checked": False, "commit": None, "commit_back": False, "moved": False, "landed": False}, None
+    # A copy, so that what the caller changes after this was checked is never what the state holds.
+    changes, blobs = push["changes"], push["blobs"]
+    if changes is not None:
+        changes = {"written": dict(changes["written"]), "removed": list(changes["removed"]),
+                   "read": list(changes["read"])}
+        blobs = dict(blobs)
+    return {"push": dict(push, changes=changes, blobs=blobs), "tree": None, "before": None, "branch_read": False,
+            "made": {}, "new": None, "checked": False, "commit": None, "commit_back": False, "moved": False,
+            "landed": False}, None
 
 
 def touched(changes) -> tuple:
@@ -134,9 +150,11 @@ def touched(changes) -> tuple:
 def existing(changes, tree) -> tuple:
     """`(files, None)`: the files of the admitted commit, `tree`, that the push changes or removes, each once, in
     order: what FR-14's rule on a test is asked about. A file the push adds is none of them. `(None, NOT_PERMITTED)`
-    for changes in no shape `applied` gives, and `(None, patch.TREE_UNREAD)` for a tree that is no exact mapping."""
+    for changes in no shape `applied` gives, and `(None, patch.TREE_UNREAD)` for a tree that is no exact mapping of
+    text to a mode git holds, each held to its type before any is compared."""
     if not _changes(changes):
         return None, NOT_PERMITTED
-    if type(tree) is not dict:
+    if type(tree) is not dict or not all(type(path) is str and type(mode) is str and mode in patch.TREE_MODES
+                                         for path, mode in tree.items()):
         return None, patch.TREE_UNREAD
     return sorted(path for path in list(changes["written"]) + changes["removed"] if path in tree), None

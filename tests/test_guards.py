@@ -1141,6 +1141,18 @@ READING = dict(PUSH, changes=None, blobs=None)
 NOT_PERMITTED = (None, "push_not_permitted")
 
 
+class Text(str):
+    """Text of another kind, with the right characters: what `+` and `==` on it do is its own to say."""
+
+
+class Unequal(str):
+    """Text of another kind that equals nothing, so `in` finds no path under it."""
+    def __eq__(self, other):
+        return False
+
+    __hash__ = str.__hash__
+
+
 class Mapping(dict):
     """A mapping of another kind, with the right keys: what `in`, `set` and `[]` on it do is its own to say."""
 
@@ -1168,9 +1180,6 @@ class Push(unittest.TestCase):
         # A push told wrongly is the Factory's own fault in describing it, never the Role's: a person's (issue 838).
         self.assertEqual(push.NOT_PERMITTED, "push_not_permitted")
         less = {k: v for k, v in PUSH.items() if k != "message"}
-
-        class Text(str):
-            """Text of another kind, with the right characters: what `+` and `==` on it do is its own to say."""
         for said, told in (
                 ("no push", None), ("a list", [PUSH]), ("a key more", dict(PUSH, tree=ROOT_TREE)), ("a key fewer", less),
                 ("a repo of one part", dict(PUSH, repo="software-factory")), ("no repo", dict(PUSH, repo=None)),
@@ -1209,8 +1218,21 @@ class Push(unittest.TestCase):
                 ("a parent of another kind", dict(PUSH, parent=Text(PARENT))), ("a head of another kind", dict(MOVE, head=Text(PARENT))),
                 ("a message of another kind", dict(PUSH, message=Text(PUSH["message"]))),
                 ("a blob of another kind", dict(PUSH, blobs=dict(BLOBS, **{"docs/a.md": Text("QQo=")}))),
-                ("a push of another kind", Mapping(PUSH)), ("blobs of another kind", dict(PUSH, blobs=Mapping(BLOBS)))):
+                ("a push of another kind", Mapping(PUSH)), ("blobs of another kind", dict(PUSH, blobs=Mapping(BLOBS))),
+                ("a key of the push of another kind", {Text(key): value for key, value in PUSH.items()}),
+                ("a blob's path of another kind", dict(PUSH, blobs={Text(path): text for path, text in BLOBS.items()}))):
             self.assertEqual(push.began(told), NOT_PERMITTED, said)
+        # The state holds a copy: what the caller changes after the push was checked is never what it holds.
+        told = {key: value for key, value in PUSH.items()}
+        told["changes"] = {"written": dict(WROTE["written"]), "removed": list(WROTE["removed"]), "read": []}
+        told["blobs"] = dict(BLOBS)
+        state = push.began(told)[0]
+        told["changes"]["written"]["guards/x.py"] = (FILE, b"")
+        told["changes"]["removed"].append("x")
+        told["changes"]["read"].append("x")
+        told["blobs"]["guards/x.py"] = ""
+        told["message"] = "Other"
+        self.assertEqual(state["push"], PUSH)
 
     def test_a_pushs_changes_are_what_applied_gives_path_by_path(self):
         def told(**changed):
@@ -1218,7 +1240,9 @@ class Push(unittest.TestCase):
             blobs = {path: "QQo=" for path in changes["written"]} if isinstance(changes.get("written"), dict) else {}
             return dict(PUSH, changes=changes, blobs=blobs)
         for good in (told(), told(removed=[]), told(written={}), told(read=["docs/a.md", "docs/z.md"]),
-                     told(written={"a/b": (FILE, b"")}, removed=["a/c", "ab"])):
+                     told(written={"a/b": (FILE, b"")}, removed=["a/c", "ab"]),
+                     # A file replaced by a directory, and a directory by a file: `applied` gives both.
+                     told(written={"a/b": (FILE, b"")}, removed=["a"]), told(written={"d": (FILE, b"")}, removed=["d/b"])):
             self.assertIsNotNone(push.began(good)[0], good["changes"])
             self.assertIsNone(push.touched(good["changes"])[1])
             self.assertIsNone(push.existing(good["changes"], {})[1])
@@ -1236,8 +1260,7 @@ class Push(unittest.TestCase):
                 ("a path that is no text", told(written={("docs/a.md",): (FILE, b"")})),
                 ("a removed path that is no text", told(removed=[["tests/t.py"]])),
                 ("a file written above a file written", told(written={"a": (FILE, b""), "a/b": (FILE, b"")})),
-                ("a file written under a file removed", told(written={"a/b": (FILE, b"")}, removed=["a"])),
-                ("a file removed under a file written", told(written={"a": (FILE, b"")}, removed=["a/b"])),
+                ("a file removed above a file removed", told(written={"x": (FILE, b"")}, removed=["a", "a/b"])),
                 ("a file written and removed", told(removed=["docs/a.md"])),
                 ("a file removed twice", told(removed=["tests/t.py", "tests/t.py"])),
                 ("a file read twice", told(read=["docs/a.md", "docs/a.md"])),
@@ -1257,7 +1280,9 @@ class Push(unittest.TestCase):
                 ("removed of another kind", told(removed=Listed(["tests/t.py"]))),
                 ("read of another kind", told(read=Listed())),
                 ("a file of another kind", told(written={"docs/a.md": Pair((FILE, b"A\n"))})),
-                ("a file's bytes of another kind", told(written={"docs/a.md": (FILE, Said(b"A\n"))}))):
+                ("a file's bytes of another kind", told(written={"docs/a.md": (FILE, Said(b"A\n"))})),
+                ("a file's mode of another kind", told(written={"docs/a.md": (Text(FILE), b"A\n")})),
+                ("a key of the changes of another kind", dict(PUSH, changes={Text(key): value for key, value in WROTE.items()}))):
             self.assertEqual(push.began(bad), NOT_PERMITTED, said)
             self.assertEqual(push.touched(bad["changes"]), NOT_PERMITTED, said)
             self.assertEqual(push.existing(bad["changes"], {}), NOT_PERMITTED, said)
@@ -1273,7 +1298,8 @@ class Push(unittest.TestCase):
         self.assertEqual(push.existing(changes, {}), ([], None))
         self.assertEqual(push.existing(changes, {"tests/t.py": FILE}), (["tests/t.py"], None))
         # A tree in no shape a port gives is the port's read that this cannot take: a person's, as the patch guard's.
-        for tree_said in (list(tree), None, Mapping(tree)):
+        for tree_said in (list(tree), None, Mapping(tree), dict(tree, **{"tests/t.py": None}), {5: FILE},
+                          {Unequal("tests/t.py"): FILE}, dict(tree, **{"tests/t.py": Text(FILE)}), {"x": "040000"}):
             self.assertEqual(push.existing(changes, tree_said), (None, patch.TREE_UNREAD), tree_said)
         # What `applied` gave is what is asked about, as it gave it.
         got, reason = patch.applied(CHANGE + NEW + GONE + COPIED, TREE, HELD)
