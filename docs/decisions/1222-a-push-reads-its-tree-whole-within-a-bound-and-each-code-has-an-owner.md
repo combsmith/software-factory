@@ -1,4 +1,4 @@
-# 9999. A push reads its tree whole within a bound, and each code has an owner
+# 1222. A push reads its tree whole within a bound, and each code has an owner
 
 Status: accepted. 2026-11-25, the Solution Architect; issue 838. Extends the patch guard's record and decision 0188.
 
