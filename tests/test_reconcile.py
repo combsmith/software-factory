@@ -1204,7 +1204,8 @@ class SeenPort(unittest.TestCase):
         # An item of an empty, blank or numbered kind places nothing either (Astra); one GitHub names with a number in
         # it does (Claude, Muse).
         project = [{"event": "added_to_project_v2", "actor": PERSON, "created_at": EARLY}]
-        self.assertIs(seen_._tail(Pages({path: [project, new, old, close]}), path, SINCE)[1], True)
+        # Its second page is left unread; the pages run in time all the same (cubic).
+        self.assertIs(seen_._tail(Pages({path: [project, old, old, close]}), path, SINCE)[1], True)
         for kind in ("", " ", "42"):
             pages = [old] + [new] * 12 + [[dict(kindless[0], event=kind)], close]
             self.assertIs(seen_._tail(Pages({path: pages}), path, SINCE)[1], False, kind)
