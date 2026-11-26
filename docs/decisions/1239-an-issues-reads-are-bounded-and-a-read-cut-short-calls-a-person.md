@@ -1,4 +1,4 @@
-# 0000. An issue's reads are bounded and a read cut short calls a person
+# 1239. An issue's reads are bounded and a read cut short calls a person
 
 Status: accepted. Replaces `docs/decisions/0234-an-issues-reads-are-bounded-by-pages-and-by-a-budget-of-requests-a-pass-and-an-issue-past-its-bound-calls-a-person.md`, `docs/decisions/0250-an-issues-references-and-links-are-cut-past-their-one-page.md`, `docs/decisions/0251-a-pass-reads-issues-to-a-budget-of-requests-oldest-left-out-first.md`, `docs/decisions/0252-a-short-issue-list-reads-no-issue-and-stops-no-pass.md`, `docs/decisions/0253-a-chain-of-spans-broken-while-an-issue-is-named-calls-a-person.md` and `docs/decisions/1167-the-view-shows-an-issue-left-unread-as-the-pass-before-decided-it.md`. 2026-11-26, the Solution Architect; issues 849 and 1238. Nothing decided changes.
 

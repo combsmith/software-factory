@@ -1,6 +1,6 @@
 # 0251. A pass reads issues to a budget of requests, oldest left out first
 
-Status: replaced by `docs/decisions/0000-an-issues-reads-are-bounded-and-a-read-cut-short-calls-a-person.md`, which holds the rule in force.
+Status: replaced by `docs/decisions/1239-an-issues-reads-are-bounded-and-a-read-cut-short-calls-a-person.md`, which holds the rule in force.
 
 ## Decision
 

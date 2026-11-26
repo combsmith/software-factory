@@ -1,6 +1,6 @@
 # 0234. An issue's reads are bounded by pages and by a budget of requests a pass, and an issue past its bound calls a person
 
-Status: replaced by `docs/decisions/0000-an-issues-reads-are-bounded-and-a-read-cut-short-calls-a-person.md`, which holds the rule in force.
+Status: replaced by `docs/decisions/1239-an-issues-reads-are-bounded-and-a-read-cut-short-calls-a-person.md`, which holds the rule in force.
 
 ## Decision
 
