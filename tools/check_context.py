@@ -412,17 +412,24 @@ def _words(text: str) -> int:
 
 def _budget(where: str, text: str, sections: list) -> list:
     """Why a record from BUDGET_FROM on is over its budget of words, rows or mutants: nothing where it is not. The
-    Status is all that comes before the first section, its lines joined; a section given twice is counted whole."""
+    Status is all that comes before the first section, its lines joined, and it replaces only as its first paragraph
+    says, which is the Status tools/check_decisions.py reads. A section given twice is counted whole, and a heading of
+    one # after the title, which would end a section unread, is refused (issue 1174)."""
     head = text.split("\n## ", 1)[0]
     status = " ".join(head.split("\n", 1)[1].split()) if "\n" in head else ""
+    lines = head.split("\n")[1:]
+    start = next((i for i, line in enumerate(lines) if line.strip()), len(lines))
+    end = next((i for i in range(start, len(lines)) if not lines[i].strip()), len(lines))
+    first = " ".join(" ".join(lines[start:end]).split())
     parts = {name: "\n\n".join(body for heading, body in sections if heading == name)
              for name in ("Decision", "Why", "Boundaries")}
-    problems = []
+    problems = ["%s: a heading '%s' after the title; a record's one heading of one # is its title" % (where, line)
+                for line in _plain(text)[1:] if line.startswith("# ")]
     said = _words(TOKEN.sub("", status[len("Status:"):] if status.startswith("Status:") else status))
     if said > STATUS_WORDS:
         problems.append("%s: the Status is %d words, and the most is %d, not counting words in backticks"
                         % (where, said, STATUS_WORDS))
-    most = REPLACING_WORDS if REPLACING.match(status) else REASONS_WORDS
+    most = REPLACING_WORDS if REPLACING.match(first) else REASONS_WORDS
     reasons = _words(parts["Decision"]) + _words(parts["Why"])
     if reasons > most:
         problems.append("%s: the Decision and the Why are %d words, and the most is %d" % (where, reasons, most))
