@@ -226,6 +226,36 @@ class IssueSimulation(unittest.TestCase):
         d = issue.decide(w.facts(), w.records(), w.context(), issues.CONFIG, w.now())
         self.assertNotEqual((d["outcome"], d.get("admit", {}).get("intent")), (terms.ADMIT, issue.INVESTIGATE))
 
+    def test_the_issue_world_breaks_on_a_run_admitted_or_started_for_a_role_held_for_a_person(self):  # issue 1223
+        # A Kernel blind to the Run that ended `person` admits its Role, or lets it start: the world breaks.
+        w = IssueWorld(2, faults=False, people=False)
+        w.minute += 1
+        ended = {"run": "p1", "item": dict(issues.ITEM), "role": "business-analyst", "intent": issue.INVESTIGATE,
+                 "content_id": w.cid(), "status": "completed", "conclusion": "failure", "outcome": terms.ENDED_PERSON,
+                 "started_at": w.now(), "minute": w.minute}
+        w.runs.append(dict(ended))
+        real = issue.decide
+        blind = lambda facts, runs, *rest: real(facts, [r for r in runs if r["run"] != "p1"], *rest)
+        with mock.patch.object(issue, "decide", blind), \
+                self.assertRaisesRegex(world.Broken, "a Run admitted for a Role held for a person"):
+            for _ in range(200):
+                w.step()
+        w = IssueWorld(2, faults=False, people=False)
+        while not any(r["status"] == "queued" for r in w.runs):
+            w.step()
+        queued = [r for r in w.runs if r["status"] == "queued"][0]
+        w.runs.insert(0, dict(ended, role=queued["role"], intent=queued["intent"], started_at=queued["started_at"],
+                              minute=queued["minute"]))
+        with mock.patch.object(issue, "decide", blind), \
+                self.assertRaisesRegex(world.Broken, "a Run started for a Role held for a person"):
+            w.start_next()
+
+    def test_the_seeds_end_a_run_on_a_persons_code(self):  # issue 1223
+        # The twin of the pull request's world: on these seeds the issue is held for a person, and no Run of the Role
+        # starts until a person acts or its record expires.
+        for seed in (4, 14):
+            self.assertGreater(run(seed).person_holds, 0, seed)
+
     def test_the_seeds_plant_a_branch_the_factory_never_pushed(self):  # issue 1216, decision 1207
         # On these seeds another App plants a branch at the next work branch's name: the opening is held for a person,
         # and never opened from it, which the world checks at every pass and apply. On seed 290 an App's label nobody

@@ -1,0 +1,52 @@
+{
+  "schema": "advice/1",
+  "run": "r_01JA7Q",
+  "release": "factory/v0.3.1",
+  "lens": "astra",
+  "status": "completed",
+  "reason": null,
+  "findings": [
+    {
+      "schema": "finding/1",
+      "id": "astra:5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f",
+      "source": {
+        "lens": "astra",
+        "kind": "advisory",
+        "actor": "astra-reader@astra-model"
+      },
+      "surface": {
+        "type": "annotation",
+        "key": "astra:5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f"
+      },
+      "location": {
+        "path": "kernel/decide.py",
+        "start_line": 88
+      },
+      "category": "uncategorised",
+      "severity": "major",
+      "criterion": null,
+      "content_id": "sha256:5d0c"
+    }
+  ],
+  "texts": [
+    {
+      "id": "astra:5d0c9e1f5d0c9e1f5d0c9e1f5d0c9e1f",
+      "category": "functional",
+      "criterion": "PR-3",
+      "body": "A deferral is returned where the facts are whole\n\n`decide` returns `defer` when `checks` is an empty list, which is a whole read of no check."
+    }
+  ],
+  "off_change": 100,
+  "usage": {
+    "api": "responses",
+    "deployment": "astra-reader",
+    "model": "astra-model",
+    "answering_model": "astra-model",
+    "effort": "xhigh",
+    "asks": 1,
+    "input_tokens": 48211,
+    "output_tokens": 9120,
+    "cost_usd": 0.93,
+    "seconds": 318.4
+  }
+}

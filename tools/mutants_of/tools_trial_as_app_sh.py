@@ -94,4 +94,16 @@ MUTANTS = [
     # Issue 458: a signal becomes a script's exit, the same in each.
     ('a signal ends the App trial as if it had passed', 'tools/trial_as_app.sh',
      "; finish 130\" HUP", "; finish 0\" HUP", ('tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit',)),
+    # Issue 1215: what the trials share, held by the tests that hold every trial to the same words.
+    ("the App's script takes credentials from the environment", "tools/trial_as_app.sh",
+     "unset SSLKEYLOGFILE token jwt signature minted minting\n", "", ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
+    ("the App's script finds its root by CDPATH", "tools/trial_as_app.sh", "root=$(CDPATH= cd -P -- ", "root=$(cd -P -- ", ("tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does",)),
+    ("the App's script finds its root logically", "tools/trial_as_app.sh", "root=$(CDPATH= cd -P -- ", "root=$(CDPATH= cd -- ", ("tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does",)),
+    ("the App's script exports what its environment says to", "tools/trial_as_app.sh", "set +a\nunset CDPATH\n", "unset CDPATH\n",
+     ("tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment",)),
+    ("the App's script looks along CDPATH", "tools/trial_as_app.sh", "set +a\nunset CDPATH\n", "set +a\n", ("tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment",)),
+    ("the App's calls read a .curlrc", "tools/trial_as_app.sh", '        curl -q -sS -i --fail-with-body -X "$1"',
+     '        curl -sS -i --fail-with-body -X "$1"', ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
+    ("the App's mint reads a .curlrc", "tools/trial_as_app.sh", '    curl -q -sS -i --fail-with-body -X POST',
+     '    curl -sS -i --fail-with-body -X POST', ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
 ]

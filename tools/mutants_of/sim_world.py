@@ -8,6 +8,19 @@ SIM_ENQUEUE = ("tests.test_simulator.Simulation.test_the_factorys_own_enqueue_ho
 
 TARGETS = ("sim/world.py",)
 MUTANTS = [
+    # Issue 1223: a Run killed past its limit may end on a person's code, and the item is held for a person.
+    ("the world holds no Role for a person", 'sim/world.py',
+     '    return any(r.get("outcome") == t.ENDED_PERSON for r in ran if r["started_at"] == latest)\n',
+     '    return False\n',
+     ("tests.test_simulator.Simulation.test_the_world_breaks_on_a_run_started_for_a_role_held_for_a_person",)),
+    ("the world reads a Role's first Run for a person", 'sim/world.py',
+     '    latest = max((r["started_at"] for r in ran), default=None)\n',
+     '    latest = min((r["started_at"] for r in ran), default=None)\n',
+     ("tests.test_simulator.Simulation.test_the_world_breaks_on_a_run_started_for_a_role_held_for_a_person",)),
+    ("the world never ends a Run on a person's code", 'sim/world.py',
+     '        self.persons = random.Random("persons %d" % seed) if seed % PERSON_EVERY == PERSON else None\n',
+     '        self.persons = None\n',
+     ("tests.test_simulator.Simulation.test_the_seeds_end_a_run_on_a_persons_code",)),
     # Issue 526: the facts port reads the description's edits, and an absent edit time is unread, never none (0140).
     ("the fake's look is the Maintainer's alone", 'sim/world.py',
      '        looks = [rv["submitted_at"] for rv in self.reviews if self.is_person(rv["by"])\n',

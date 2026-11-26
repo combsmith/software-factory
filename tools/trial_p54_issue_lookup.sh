@@ -32,13 +32,17 @@
 # non-zero exit; a refused mint shows its status and GitHub's answer, redacted, and a token that may be live is told
 # to the Maintainer.
 set -eu
+# Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
+# (issue 1215).
+set +a
+unset CDPATH
 set +x
 
 if [ "$#" -ne 4 ]; then
     echo "usage: tools/trial_p54_issue_lookup.sh OUT CONTROLLER_KEY REPO ISSUE" >&2
     exit 2
 fi
-root=$(cd "$(dirname "$0")/.." && pwd -P)
+root=$(CDPATH= cd -P -- "$(dirname -- "$0")/.." && pwd -P)
 if [ -e "$1" ] || [ -L "$1" ]; then
     echo "trial_p54_issue_lookup: $1 exists; name a new directory" >&2
     exit 2
@@ -106,6 +110,9 @@ case "$scratch/" in "$root"/*)
     echo "trial_p54_issue_lookup: the scratch directory $scratch is inside the repo; set TMPDIR outside it" >&2
     exit 2 ;;
 esac
+# No credential's name is taken from the environment, where one exported would reach every child, and curl is
+# told of no file to write its TLS keys to (issue 1215).
+unset SSLKEYLOGFILE token jwt signature minted minting
 token=""
 
 revoke() {
