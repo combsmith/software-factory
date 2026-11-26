@@ -555,4 +555,13 @@ MUTANTS = [
     ('a blob of a size below 0 is taken', 'guards/push.py',
      ' and held[1] >= 0 for held',
      ' for held', PUSH_LISTING),
+    ('one name may be given for two contents', 'guards/push.py',
+     '\n                or (step == BLOB_MADE and name in state["made"].values())):',
+     '):', PUSH_WRITE_CODES),
+    ("an admitted tree's path may hold an empty part", 'guards/push.py',
+     ' and "" not in path.split("/") for path in tree)',
+     ' for path in tree)', PUSH_PATHS),
+    ('a tree may remove a file the changes keep', 'guards/push.py',
+     'elif not (path in removed and sha is None',
+     'elif not (sha is None', PUSH_TREE),
 ]

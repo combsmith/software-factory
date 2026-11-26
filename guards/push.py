@@ -355,7 +355,9 @@ def seen(state, method, path, body, answer) -> tuple:
     status, got, push = answer["status"], answer["body"], state["push"]
     if step in (BLOB_MADE, TREE_MADE):
         name = got["sha"] if status == CREATED and _mapping(got) and "sha" in got else None
-        if not _sha(name) or (step == TREE_MADE and name == state["tree"]):
+        # The admitted tree for the changes, or one name for two contents, is no name of what was made.
+        if (not _sha(name) or (step == TREE_MADE and name == state["tree"])
+                or (step == BLOB_MADE and name in state["made"].values())):
             return None, ANSWER_REFUSED
         if step == TREE_MADE:
             return dict(state, new=name), None
@@ -402,7 +404,7 @@ def existing(changes, tree) -> tuple:
                                          for path, mode in tree.items()):
         return None, patch.TREE_UNREAD
     # A bound on depth, asked before a path is split, bounds what `_above` builds; no tree holds a file under a file.
-    if (not all(path.count("/") < len(patch.DEEPEST) for path in tree)
+    if (not all(path.count("/") < len(patch.DEEPEST) and "" not in path.split("/") for path in tree)
             or any(above in tree for path in tree for above in _above(path))):
         return None, patch.TREE_UNREAD
     written, removed = changes["written"], set(changes["removed"])

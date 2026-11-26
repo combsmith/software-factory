@@ -1364,7 +1364,7 @@ class Push(unittest.TestCase):
                           # A file that is a directory to another, which no tree holds, at any depth
                           dict(tree, **{"docs": FILE}), dict(tree, **{"x/y": FILE, "x/y/z/w": FILE}),
                           # and a path deeper than any name read, before it is split
-                          dict(tree, **{"/".join("d" * (len(patch.DEEPEST) + 1)): FILE})):
+                          dict(tree, **{"/".join("d" * (len(patch.DEEPEST) + 1)): FILE}), {"tests//t.py": FILE}, {"/a": FILE}):
             self.assertEqual(push.existing(changes, tree_said), (None, patch.TREE_UNREAD), tree_said)
         # What `applied` gave is what is asked about, as it gave it.
         got, reason = patch.applied(CHANGE + NEW + GONE + COPIED, TREE, HELD)
@@ -1621,6 +1621,8 @@ class Push(unittest.TestCase):
                 ("a removed file of another mode", entries[:2] + [dict(entries[2], mode="100755")]),
                 ("a removed file's blob", entries[:2] + [dict(entries[2], sha=MADE)]),
                 ("a written file removed", [dict(entries[0], sha=None)] + entries[1:]),
+                ("another file removed", entries[:2] + [dict(entries[2], path="docs/b.md")]),
+                ("a mode of another kind", [dict(entries[0], mode=Raising(FILE))] + entries[1:]),
                 ("another type", [dict(entries[0], type="commit")] + entries[1:]),
                 ("a key more", [dict(entries[0], size=2)] + entries[1:]),
                 ("an entry of another kind", [Mapping(entries[0])] + entries[1:]),
@@ -1652,6 +1654,7 @@ class Push(unittest.TestCase):
         for answer, why in (
                 # GitHub refused the write, or answered with what was not made.
                 ({"status": "422", "body": {}}, push.ANSWER_REFUSED), ({"status": "401", "body": {}}, push.ANSWER_REFUSED),
+                ({"status": "429", "body": {}}, push.ANSWER_REFUSED),
                 ({"status": "200", "body": {"sha": MADE}}, push.ANSWER_REFUSED),
                 ({"status": "201", "body": {"sha": "x"}}, push.ANSWER_REFUSED), ({"status": "201", "body": None}, push.ANSWER_REFUSED),
                 ({"status": "201", "body": {"sha": Text(MADE)}}, push.ANSWER_REFUSED),
@@ -1662,6 +1665,10 @@ class Push(unittest.TestCase):
                 ({"status": 201, "body": {"sha": MADE}}, push.NOT_PERMITTED), ({"status": "201"}, push.NOT_PERMITTED)):
             self.assertEqual(push.seen(state, "POST", GIT + "blobs", blob, answer), (None, why), answer)
             self.assertEqual(push.seen(made, "POST", GIT + "trees", self.TREE, answer), (None, why), answer)
+        # A blob named as another content's was not made of these bytes.
+        half, _ = push.seen(state, "POST", GIT + "blobs", blob, {"status": "201", "body": {"sha": MADE}})
+        self.assertEqual(push.seen(half, "POST", GIT + "blobs", {"content": "eAo=", "encoding": "base64"},
+                                   {"status": "201", "body": {"sha": MADE}}), (None, push.ANSWER_REFUSED))
         # A tree that is the admitted one made nothing of the changes.
         self.assertEqual(push.seen(made, "POST", GIT + "trees", self.TREE, {"status": "201", "body": {"sha": ROOT_TREE}}),
                          (None, push.ANSWER_REFUSED))
