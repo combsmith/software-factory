@@ -950,7 +950,7 @@ A Run that dies before it uploads anything still has a run record, and counts as
 subject to the fault classes below. Its
 cost is not known exactly; its duration is the estimate.
 
-**Whose fault a failure was.** A failed Run is one of four kinds, and only the first is an attempt.
+**Whose fault a failure was.** A failed Run is one of five kinds, and only the first is an attempt.
 
 | Outcome | Example | Counts as an attempt | Then |
 |---|---|---|---|
@@ -958,6 +958,7 @@ cost is not known exactly; its duration is the estimate.
 | `capacity` | The model window ran out mid-Run | No | Every model Run is deferred until the window is expected to reset |
 | `environment` | A token expired; an App was uninstalled; GitHub was unavailable | No | Several in a row pause Admission automatically, raise one alert, and clear when a probe Run succeeds. A Run GitHub started no job of counts the same, named `runs_never_started` (decision 0116) |
 | `superseded` | The item was held or changed before `apply`, or a newer Run in its group replaced it while it waited | No | The next pass decides afresh |
+| `person` | A file the patch reads that GitHub will never hand over; the code itself stays in the outcome's reason | No | The item is held as `run_needs_person`, and a writer's action renews it as it renews the attempts. Read before the brakes; it counts toward the Run ceiling, as it reached a model (issue 838) |
 
 A pass reads `outcome.json` only for Runs that did not succeed, which are few. A killed Run has no
 outcome file; one that ran, its conclusion `failure` or `timed_out`, is read as `item`, an attempt,

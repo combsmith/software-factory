@@ -15,7 +15,7 @@ Status: accepted. 2026-11-26, the Solution Architect; issue 838. Extends decisio
 
 Each input and key is held to its exact type, as in the patch guard. The state keeps a copy of what it was told. A file may become a directory, or a directory a file, as `applied` allows.
 
-Once pull request 1222 is merged, `WHOSE` names each code here: this pull request adds its own if it merges second, else the follow-on that pins the push port's person code does. Push part 2's `seen` takes the port's accepted listing, refuses one not marked whole, and holds only the order, the commit and the branch.
+The push port's `WHOSE` names each code as a part sets it: this pull request adds `push_not_permitted`. Push part 2's `seen` takes the port's accepted listing, refuses one not marked whole, and holds only the order, the commit and the branch.
 
 Limits: until `WHOSE` holds a code, no test reads its owner. The cost ceiling alone bounds a branch that keeps moving.
 

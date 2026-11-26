@@ -12,8 +12,8 @@ import subprocess
 import sys
 import unittest
 
-from kernel import derive
-from kernel.decide import decide, left_alone, still_wanted, stuck_runs, unnamed_scope
+from kernel import brakes, derive
+from kernel.decide import _decision, decide, left_alone, still_wanted, stuck_runs, unnamed_scope
 from tests.support import (COMMIT, CONFIG, DIGEST, GREEN, LENS_OF, MAINTAINER, NOW, OTHER_APP, OTHER_WORKFLOW, QUEUE_APP,
                            REPORTER, ROOT,
                            changed, config, context, contract, evidence, facts, labelled, review, run, thread,
@@ -3133,6 +3133,68 @@ class Ceilings(unittest.TestCase):
         for kind in ("capacity", "environment", "superseded"):
             failures = [run(conclusion="failure", outcome=kind, at="2026-10-11T12:1%d:00Z" % i, name="f%d" % i) for i in range(3)]
             self.assertEqual(go(facts(), failures)["outcome"], "admit", kind)
+
+    def test_a_run_that_ended_person_holds_the_item_and_calls_a_person_and_spends_no_attempt(self):  # issue 838
+        # A Run that ended on a person's code, its fault `person`, fails the same way again on the same commit: the item
+        # is held for a person, with that Run as evidence, before any brake, a Pause among them, since a Hold is a reading.
+        ended = run(conclusion="failure", outcome="person", at=at(10), name="p1")
+        for ctx in (None, context(paused=True), context(paused=None)):
+            d = go(facts(), [ended], ctx=ctx)
+            self.assertEqual((d["state"], d["reason"], d["outcome"], d["attention"], d["evidence"]),
+                             ("held", "run_needs_person", "hold", "needs_you", ["p1"]), ctx)
+        # The same Run ended for the item, the environment, capacity or as superseded, or with no outcome, raises no
+        # such Hold: the next Run is admitted.
+        for kind in ("item", "environment", "capacity", "superseded", None):
+            self.assertEqual(go(facts(), [dict(ended, outcome=kind)])["admit"], REVIEW_IT, kind)
+        # The Role's latest Run alone is read: one after it that ended otherwise lets the next through; one before, not.
+        other = run(conclusion="failure", outcome="item", at=at(11), name="i1")
+        self.assertEqual(go(facts(), [ended, other])["admit"], REVIEW_IT)
+        d = go(facts(), [dict(other, started_at=at(9), began_at=at(9)), ended])
+        self.assertEqual((d["reason"], d["evidence"]), ("run_needs_person", ["p1"]))
+        d = go(facts(), [ended, dict(other, started_at=at(9), began_at=at(9))])
+        self.assertEqual((d["reason"], d["evidence"]), ("run_needs_person", ["p1"]))
+        # Another Role's Run that ended `person` holds no Run of this Role.
+        fixer = run(role=CONFIG["author_role"], intent="fix-findings", conclusion="failure", outcome="person", at=at(5),
+                    name="d1")
+        self.assertEqual(go(facts(), [fixer])["admit"], REVIEW_IT)
+        # A later Run of the Role superseded, or cancelled with no outcome, ran nothing on the commit: the Hold stands.
+        for gone in ({"outcome": "superseded", "conclusion": "failure"}, {"outcome": None, "conclusion": "cancelled"}):
+            d = go(facts(), [ended, dict(other, **gone)])
+            self.assertEqual((d["reason"], d["evidence"]), ("run_needs_person", ["p1"]), gone)
+        self.assertEqual(go(facts(), [ended, dict(other, outcome=None, conclusion="timed_out")])["reason"], "awaiting_review")
+        # A Run that reported `person` and was cancelled after holds as any that ended `person`.
+        self.assertEqual(go(facts(), [dict(ended, conclusion="cancelled")])["reason"], "run_needs_person")
+        # Two tied that ended `person` name the least id, whatever their order.
+        both = [dict(ended, run="p2"), ended]
+        for tied in (both, both[::-1]):
+            self.assertEqual(go(facts(), tied)["evidence"], ["p1"], [r["run"] for r in tied])
+        # Nor does another Role's later Run lift this Role's Hold.
+        d = go(facts(), [ended, dict(fixer, outcome="item", started_at=at(11), began_at=at(11))])
+        self.assertEqual((d["reason"], d["evidence"]), ("run_needs_person", ["p1"]))
+        # Two Runs of the Role started in one second are in no order: either that ended `person` holds the item.
+        for tied in ([ended, dict(other, started_at=at(10), began_at=at(10))],
+                     [dict(other, started_at=at(10), began_at=at(10)), ended]):
+            d = go(facts(), tied)
+            self.assertEqual((d["reason"], d["evidence"]), ("run_needs_person", ["p1"]), [r["run"] for r in tied])
+        # A writer's action releases it, as it releases attempts_exhausted: the Runs before it are not read.
+        self.assertEqual(go(facts(last_writer_action_at=at(10)), [ended])["admit"], REVIEW_IT)
+        self.assertEqual(go(facts(last_writer_action_at=at(9)), [ended])["reason"], "run_needs_person")
+        # The brakes count a Run that ended `person` as no attempt and, whatever it says of its Engine, no Run that spent
+        # no model; it reached a model, so it counts toward the Run ceiling, the cost ceiling (FR-39).
+        many = [dict(ended, run="p%d" % i, engine_started=False) for i in range(LIMITS["max_runs_per_item"])]
+        self.assertEqual((brakes._attempts(many, "review-change"), brakes._outside(many), brakes._spent(many)),
+                         ([], [], many))
+        self.assertIsNone(brakes.run_ceilings(_decision, facts(), [], "review-change", many[1:], LIMITS))
+        self.assertEqual(brakes.run_ceilings(_decision, facts(), [], "review-change", many, LIMITS)["reason"],
+                         "run_ceiling")
+        # A person is asked what attempts_exhausted asks.
+        rows = {row["reason"]: row for row in json.loads((ROOT / "config" / "feed.json").read_text())["decision_required"]}
+        self.assertEqual(dict(rows["run_needs_person"], reason=None), dict(rows["attempts_exhausted"], reason=None))
+        # So a later Run that lifts the Hold refunds no Run of the ceiling: with a ceiling of two, the next is refused.
+        two = config(limits=dict(LIMITS, max_runs_per_item=2))
+        self.assertEqual(go(facts(), [ended, other], cfg=two)["reason"], "run_ceiling")
+        self.assertEqual(go(facts(), [dict(ended, outcome="capacity"), other], cfg=two)["reason"], "run_ceiling")
+        self.assertEqual(go(facts(), [other], cfg=two)["admit"], REVIEW_IT)
 
     def test_a_writers_action_grants_a_fresh_allowance(self):  # I-28
         failures = [run(conclusion="failure", outcome="item", at="2026-10-11T12:1%d:00Z" % i, name="f%d" % i) for i in range(3)]

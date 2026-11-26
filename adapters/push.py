@@ -22,11 +22,16 @@ number (P-71). A refusal, a 404 or a 422, is an answer: the guard reads the work
 Decision admitted none of, and takes no other. GitHub answers that 404 alike to a token that cannot read the repo, so
 a push reads with the Role's own (P-71). A limit: a token that loses its access mid-push reads the branch as absent;
 its next write fails for the same lack, so nothing is written. None for a request `request` would not build or the
-sender would not send, an answer with no status from 100 to 599 or no body, or a transport's `Unanswered`, `OSError`
-(a timeout among them) or a body's errors. Anything else it raises is a bug in that transport, and stays raised.
+sender would not send, an answer with no status from 100 to 599 or no body, a rate limit's 403 (decision 1138), or a
+transport's `Unanswered`, `OSError` (a timeout among them) or a body's errors. Anything else it raises is a bug in that transport, and stays raised.
 
 `content` gives a blob's bytes from its read, the base64 GitHub wraps with newlines (P-71), decoded here, never in a
 guard, and held to the name asked, never the answer's own.
+
+`listed`, `to_read` and `read_whole` read the tree a patch lands on, as `guards/patch.py` takes it: its listing, then
+the bytes of each file the patch reads, one by one, whole or not at all, within `MOST_FILES` files and `MOST_BYTES`
+bytes. Each gives a code where it gives nothing, and `WHOSE` names whose each code of the guard and of this port is: the
+Role's, counted as its attempt; a person's, a Hold; or the port's, an environment fault, for no answer alone.
 
 `harness/push.py`, by hand, owes this port: every request sent by `transport`'s sender; its writers in
 `tools/check_writes.py`'s CALLERS; one request given unchanged to `permits` and `send`; `content` asked for the name
@@ -39,7 +44,9 @@ import hashlib
 import re
 
 from adapters.effects import Allowed
-from adapters.github import JSON, Unanswered, request
+from adapters.github import JSON, LARGEST, Unanswered, request
+from guards import patch
+from guards import push as guard
 
 SHA = re.compile(r"[0-9a-f]{40}")
 REPO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9_.-]{1,100}")
@@ -60,6 +67,38 @@ ALPHABET = re.compile(r"[A-Za-z0-9+/]*")
 # git's own directory, and the head of the short name another file system gives it (`git~1`), as `guards/patch.py`.
 GIT_OWN = ".git"
 GIT_SHORT = "git~"
+# The most files a push's patch may have read, and the most bytes in all: a patch that reads more is the Role's own
+# attempt, refused whole, and nothing is cut short. 64 MiB.
+MOST_FILES = 1000
+MOST_BYTES = 67108864
+# The largest file whose blob answer the transport takes whole: base64, a newline after every 60 characters, each
+# written in JSON as two, is 62 characters for every 45 bytes, and an answer past `LARGEST` is refused. 64 KiB is left
+# for the rest of the answer. A file the listing says is larger is never read, by any attempt; GitHub's own limit on a
+# blob, 100 MB, is higher still.
+MOST_BLOB = (LARGEST - 65536) * 45 // 62
+# A directory's mode in a tree's listing, and in a tree object, which writes it with no leading zero; and a link's,
+# a blob that is no file. A submodule's, a commit, is `guards/patch.py`'s `SUBMODULE`.
+DIRECTORY = "040000"
+TREE_MODE = "40000"
+LINK = "120000"
+# Besides GitHub's own failure, 500 and above, a status the port reads as no answer to a listing: a rate limit, or a
+# token expired or refused. A blob is read after its listing, by the same token: a 403 on it alone is GitHub refusing
+# that blob, and it will refuse it again, so it is a person's. A rate limit's 403, with no request left or a time to
+# wait, is no answer to either (decision 1138): `send` gives none.
+UNANSWERED = ("401", "403", "429")
+BLOB_UNANSWERED = ("401", "429")
+# A lone surrogate, which JSON may hold and UTF-8 does not write: no name git holds.
+SURROGATES = ("\ud800", "\udfff")
+# The port's codes. A read cut short or of no shape is `guards/patch.py`'s `TREE_UNREAD`.
+READS_TOO_LARGE = "push_reads_too_large"
+TREE_UNFETCHED = "push_tree_unfetched"
+ROLE, PERSON, PORT = "role", "person", "port"
+# Whose each code of the patch guard, the push guard and this port is: the Role's, counted as its attempt; a person's, a Hold on
+# the item, since the same commit reads the same way again; or the port's, an environment fault. Every code is here,
+# and none is read with a default: `WHOSE[code]`. A code's letters begin `push_`, `patch_` or `bundle_`: a test finds
+# every code of the three modules by them.
+WHOSE = {patch.UNREADABLE: ROLE, patch.NOT_APPLIED: ROLE, patch.NOT_A_FILE: ROLE, patch.PATH_TWIN: ROLE,
+         patch.TREE_UNREAD: PERSON, READS_TOO_LARGE: ROLE, TREE_UNFETCHED: PORT, guard.NOT_PERMITTED: PERSON}
 
 
 def _plain(value) -> bool:
@@ -244,7 +283,8 @@ def transport(live, repo, branch):
 def send(sender, repo, branch, req):
     """GitHub's answer to `req`, `{"status": the status as text, "body": what it said}`, or None where `req` is no
     request `request` builds or holds what JSON does not, `repo` or `branch` is told wrongly, `sender` is not
-    `transport`'s for them, it would not send `req`, or GitHub gave no answer with a status and a body."""
+    `transport`'s for them, it would not send `req`, or GitHub gave no answer with a status and a body, or a rate
+    limit's 403."""
     if not (_repo(repo) and _work(branch)) or type(req) is not dict or not _plain(req) or set(req) != REQUEST \
             or req["headers"] != {} or req["accept"] != JSON:
         return None
@@ -255,9 +295,16 @@ def send(sender, repo, branch, req):
     except (Unanswered, OSError, TypeError, ValueError, KeyError, AttributeError):
         return None
     status = answer.get("status") if isinstance(answer, dict) else None
-    if type(status) is not int or not 100 <= status <= 599 or "body" not in answer:
+    if type(status) is not int or not 100 <= status <= 599 or "body" not in answer or _rate_limited(answer):
         return None
     return {"status": str(status), "body": answer["body"]}
+
+
+def _rate_limited(answer: dict) -> bool:
+    """Whether a 403 is a rate limit's: no request left or a time to wait, as `adapters/pause.py` tells one from a
+    refusal (decision 1138)."""
+    headers = answer.get("headers") if type(answer.get("headers")) is dict else {}
+    return answer["status"] == 403 and (str(headers.get("x-ratelimit-remaining")) == "0" or "retry-after" in headers)
 
 
 def _said(said, text: str) -> bool:
@@ -280,6 +327,110 @@ def content(answer, sha):
     if hashlib.sha1(b"blob %d\0" % len(data) + data, usedforsecurity=False).hexdigest() != sha:
         return None
     return data
+
+
+def _unanswered(answer, statuses=UNANSWERED) -> bool:
+    """Whether `send` gave no answer, or one the port reads as none: a status `statuses` names, or 500 and above."""
+    if type(answer) is not dict or type(answer.get("status")) is not str:
+        return True
+    status = answer["status"]
+    return status in statuses or status.startswith("5")
+
+
+def _tree_name(entries: list) -> str:
+    """The git name of the tree object of `entries`, each `(mode, name, sha)` as a tree object writes it: sorted by
+    name, a directory's name as if a `/` followed it, each a mode, a name, a NUL and the 20 bytes of its sha."""
+    def order(entry):
+        return entry[1].encode() + (b"/" if entry[0] == TREE_MODE else b"")
+    body = b"".join(b"%s %s\0" % (mode.encode(), name.encode()) + bytes.fromhex(sha)
+                    for mode, name, sha in sorted(entries, key=order))
+    # Git names a tree by sha1 of `tree <size>\0` and its entries: the hash is git's, compared with git's own.
+    return hashlib.sha1(b"tree %d\0" % len(body) + body, usedforsecurity=False).hexdigest()
+
+
+def listed(answer, sha):
+    """`((tree, blobs), None)` from `send`'s answer to `read_tree` of `sha`, or `(None, code)`. `tree` is each path the
+    tree holds that is no directory, to its mode, as `guards/patch.py`'s `applied` takes it; `blobs` is each file's
+    and link's `(sha, size)`. Each directory's entries are rebuilt into its tree object and named as git names it, the
+    whole into `sha`: an entry left out, added, listed twice or under no directory listed is a listing of no tree.
+    An answer the port reads as none is the port's, `TREE_UNFETCHED`; one GitHub cut short, `truncated`, of another
+    tree, or in any shape not read here, is a person's, `TREE_UNREAD`: the same commit reads the same way again, and
+    no part of a listing is taken."""
+    if _unanswered(answer):
+        return None, TREE_UNFETCHED
+    body = answer.get("body") if _said(answer.get("status"), "200") else None
+    if type(body) is not dict or body.get("truncated") is not False or not _said(body.get("sha"), sha) \
+            or type(body.get("tree")) is not list:
+        return None, patch.TREE_UNREAD
+    entries = body["tree"]
+    if not all(type(entry) is dict and type(entry.get("path")) is str and _sha(entry.get("sha")) for entry in entries):
+        return None, patch.TREE_UNREAD
+    # A path is of parts each named, with no NUL, which a tree object writes after a name, and no lone surrogate, which
+    # UTF-8 does not write; and it is listed once: two entries of one path can make a tree's name and still be no tree.
+    paths = [entry["path"] for entry in entries]
+    if len(set(paths)) != len(paths) or any("" in path.split("/") or "\0" in path
+                                             or any(SURROGATES[0] <= c <= SURROGATES[1] for c in path)
+                                             for path in paths):
+        return None, patch.TREE_UNREAD
+    folders = {"": []}
+    folders.update({entry["path"]: [] for entry in entries
+                    if (entry.get("type"), entry.get("mode")) == ("tree", DIRECTORY)})
+    named = {"": sha}
+    tree, blobs = {}, {}
+    for entry in entries:
+        path, kind, mode, size = entry["path"], entry.get("type"), entry.get("mode"), entry.get("size")
+        parent, _, name = path.rpartition("/")
+        if not name or parent not in folders:
+            return None, patch.TREE_UNREAD
+        if path in folders:
+            folders[parent].append((TREE_MODE, name, entry["sha"]))
+            named[path] = entry["sha"]
+            continue
+        if kind == "commit" and mode == patch.SUBMODULE:
+            tree[path] = mode
+        elif kind == "blob" and mode in FILE_MODES + (LINK,) and type(size) is int and size >= 0:
+            tree[path], blobs[path] = mode, (entry["sha"], size)
+        else:
+            return None, patch.TREE_UNREAD
+        folders[parent].append((mode, name, entry["sha"]))
+    if any(_tree_name(held) != named[path] for path, held in folders.items()):
+        return None, patch.TREE_UNREAD
+    return (tree, blobs), None
+
+
+def to_read(listing, sources):
+    """`(paths, None)`, the files among `sources` (`guards/patch.py`'s) whose bytes a push reads, in their order, or
+    `(None, code)`. A path the listing does not hold, a link or a submodule is read by no one: the guard refuses the
+    patch without its bytes. A file larger than the transport takes whole, `MOST_BLOB`, is a person's, `TREE_UNREAD`.
+    More files than `MOST_FILES`, or more bytes than `MOST_BYTES` in all by the listing's sizes, is the Role's,
+    `READS_TOO_LARGE`: nothing is read. A patch `sources` cannot read reads nothing, and the guard names it."""
+    tree, blobs = listing
+    paths = [path for path in sources or () if tree.get(path) in FILE_MODES]
+    if any(blobs[path][1] > MOST_BLOB for path in paths):
+        return None, patch.TREE_UNREAD
+    if len(paths) > MOST_FILES or sum(blobs[path][1] for path in paths) > MOST_BYTES:
+        return None, READS_TOO_LARGE
+    return paths, None
+
+
+def read_whole(listing, paths, read):
+    """`(contents, None)`, each of `paths` to its bytes, or `(None, code)`, all or nothing. `read(path)` gives `send`'s
+    answer to `read_blob` of the sha the listing gives that path; it is asked in order, and asked no more once one
+    gives a code, so no more than `MOST_BYTES` and one answer are ever held. A missing answer, or one the port reads as
+    none, `BLOB_UNANSWERED`, is the port's, `TREE_UNFETCHED`; any other that gives no bytes of that name, a refusal, a
+    403 among them, or a blob too large, of no blob or of other bytes, a person's, `TREE_UNREAD`. Bytes past `MOST_BYTES` in all, whatever the listing
+    said, are the Role's, `READS_TOO_LARGE`."""
+    contents, held = {}, 0
+    for path in paths:
+        answer = read(path) if callable(read) else None
+        data = content(answer, listing[1][path][0])
+        if data is None:
+            return None, TREE_UNFETCHED if _unanswered(answer, BLOB_UNANSWERED) else patch.TREE_UNREAD
+        held += len(data)
+        if held > MOST_BYTES:
+            return None, READS_TOO_LARGE
+        contents[path] = data
+    return contents, None
 
 
 def allowed(repo, branch) -> tuple:

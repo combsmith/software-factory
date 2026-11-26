@@ -15,7 +15,8 @@ from __future__ import annotations
 
 from kernel import brakes
 from kernel import terms as t
-from kernel.derive import acted_since_writer, in_progress, is_time, run_deferral, runs_on, seconds, since_writer, stale, standing_labels
+from kernel.derive import (acted_since_writer, in_progress, is_time, needs_person, run_deferral, runs_on, seconds, since_writer,
+                           stale, standing_labels)
 from kernel.gate import is_person
 
 # The States of lifecycle/issue.json that a pull request's do not share. `held` and `not_served` are terms.py's.
@@ -102,6 +103,7 @@ NEEDS_YOU_REASONS = frozenset({
     "linked_twice",
     "acceptance_lapsed",
     "attempts_exhausted",
+    "run_needs_person",
     "run_ceiling",
     "environment_ceiling",
     "act_ceiling",
@@ -1104,6 +1106,11 @@ def _implementing(facts, state, reason, evidence, mine, config):
         return _decision(facts, state, "draft_checks_unreadable", evidence, t.DEFER)
     if draft["checks"] != "failing":
         return _decision(facts, state, reason, evidence, t.NOTHING)
+    # The author Role's last Run ended on a code only a person can mend: held for a person before the rounds' brake, as
+    # every Run wanted is before the brakes (issue 838).
+    ended = needs_person(since_writer(mine, facts), config["author_role"])
+    if ended:
+        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)
     unreadable = _decision(facts, t.HELD, "limits_unreadable", [], t.HOLD)
     held = brakes.implementing_rounds(_decision, facts, since_writer(mine, facts), config["limits"], unreadable)
     if held:
@@ -1236,6 +1243,11 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     if isinstance(wanted, dict):
         return wanted
     role, intent, carried = wanted
+
+    # The Role's last Run ended on a code only a person can mend: held for a person before the brakes (issue 838).
+    ended = needs_person(since_writer(mine, facts), role)
+    if ended:
+        return _decision(facts, t.HELD, "run_needs_person", ended, t.HOLD)
 
     # The brakes on a Run (decision 0003): the Pause, the attempts and the Run ceiling.
     brake = brakes.on_run(_decision, facts, state, evidence, context, intent, since_writer(mine, facts), limits)

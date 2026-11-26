@@ -76,6 +76,7 @@ REASONS = frozenset({
     "last_pusher_unreadable", "max_rounds", "mergeable_unreadable", "merged", "model_lens_input_needs_person",
     "outside_not_admitted", "path_needs_person", "paths_unreadable", "pause_unreadable", "paused",
     "proposals_await_owner", "protected_paths_unreadable", "resolve_due", "review_unreadable", "run_ceiling",
+    "run_needs_person",
     "timeline_bounded",
     "run_unidentified", "run_unreadable", "runs_unnamed", "thread_unreadable", "too_large",
 })
@@ -197,3 +198,6 @@ WORK_PREFIX = "factory-work/issue-"
 
 # The conclusions of a Run that ran and did not report: with no outcome, it is the item's, an attempt (issue 286).
 RAN_AND_DIED = ("failure", "timed_out")
+# The fault of a Run that ended on a code only a person can mend, such as a file the port will never be given: the same
+# commit ends the same way again (issue 838). The code itself stays in the Run's outcome; the Kernel reads no code.
+ENDED_PERSON = "person"
