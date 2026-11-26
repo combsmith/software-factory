@@ -1206,7 +1206,7 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     # nor under a Hold the Run wanted places: it waits for the release, as under a person's Hold, so a label nobody
     # counts never takes an issue out of held (issue 1216). Removing such a label stops no work, so it is braked as any
     # act: while the act count is spent or cannot be read, it waits, and the issue reads as it will once the label
-    # is removed (issue 1251).
+    # is removed, but admits no Run that would add that same label (issue 1251).
     closes = unmerged_closes(facts)
     if len(closes) > config["limits"]["max_unmerged_closes"]:
         return dict(_stop(facts, state, "unmerged_closes", closes, context, PLACE_HOLD), attention=t.NEEDS_YOU)
@@ -1218,7 +1218,10 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
         brake = brakes.on_act(_decision, facts, state, [label], context, REMOVE_LABEL, since_writer(mine, facts),
                               config["limits"], acted_since_writer(mine, facts))
         if _waits(brake):
-            return _decide(_removed(facts, label), runs, context, config, now)
+            then = _decide(_removed(facts, label), runs, context, config, now)
+            if _adds(then, label):
+                return _decision(facts, state, brake["reason"], [label], t.DEFER)
+            return then
         return _stop(facts, state, "label_not_counted", [label], context, REMOVE_LABEL, label=label)
     return after
 
@@ -1227,6 +1230,13 @@ def _waits(d) -> bool:
     """Whether the brakes' Decision `d` on removing a label that does not count makes the removal wait: the act count
     is spent or cannot be read (issue 1251). Under the Pause alone, the removal is stopped as any act that stops work."""
     return d is not None and (d["reason"] == "act_ceiling" or d["reason"] == "acts_unreadable")
+
+
+def _adds(d: dict, label: str) -> bool:
+    """Whether `d` admits a Run whose effect adds `label`: the readiness Run's adds factory:ready. While another App's
+    `label` waits for its removal, that add changes nothing on GitHub, so the verdict could not land: the issue defers
+    instead, on the brake that makes the removal wait (issue 1251)."""
+    return d["outcome"] == t.ADMIT and d["admit"]["intent"] == JUDGE_READINESS and label == LABEL_READY
 
 
 def _removed(facts: dict, label: str) -> dict:

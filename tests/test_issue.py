@@ -2150,6 +2150,25 @@ class RemoveLabel(unittest.TestCase):
         d = decide(facts(label_events=[labelled(READY, OTHER_APP, 1)], acts_since_writer=top, linked=closes))
         self.assertEqual(what(d), ("act", "unmerged_closes", "place_hold"))
 
+    def test_no_run_that_adds_a_waiting_label_is_admitted(self):  # issue 1251
+        # While another App's factory:ready waits for its removal, a readiness Run's own add would change nothing on
+        # GitHub: the issue defers on the brake that makes the removal wait. Once the label is removed, it is admitted.
+        top = LIMITS["max_acts_per_item"]
+        analysed = [comment(ANALYST, 3)]
+        waiting = ACCEPTED + [labelled(READY, OTHER_APP, 4)]
+        gone = waiting + [unlabelled(READY, OTHER_APP, 6)]
+        for acts, reason in ((top, "act_ceiling"), (top + 1, "act_ceiling"), (None, "acts_unreadable")):
+            d = decide(facts(label_events=waiting, role_comments=analysed, acts_since_writer=acts))
+            self.assertEqual((d["state"], what(d), d["evidence"]), ("triage", ("defer", reason, None), [READY]), acts)
+            self.assertNotIn("admit", d, acts)
+            d = decide(facts(label_events=gone, role_comments=analysed, acts_since_writer=acts))
+            self.assertEqual((d["state"], what(d)), ("triage", ("admit", "triage", JUDGE)), acts)
+        # One act below the ceiling the label is removed; a waiting label the Run wanted does not add stops nothing.
+        d = decide(facts(label_events=waiting, role_comments=analysed, acts_since_writer=top - 1))
+        self.assertEqual(what(d), ("act", "label_not_counted", "remove_label"))
+        d = decide(facts(label_events=READIED_BY_A_PERSON + [labelled(TRIAGE, OTHER_APP, 3)], acts_since_writer=top))
+        self.assertEqual(what(d), ("admit", "ready", OPEN))
+
 class UnmergedCloses(unittest.TestCase):
     """The Controller places factory:hold when unmerged closes pass max_unmerged_closes (I-43)."""
 
