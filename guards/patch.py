@@ -14,7 +14,8 @@ It reads a narrower patch than `harness/bundle.py` does, on purpose, and what it
   names both files and every other line that names one must agree with it; and of no more parts than `DEEPEST` bounds;
 - a file is a file: a link, a submodule, a path under a file, and a mode other than a file's two are refused; where a
   file stands is asked of the tree the push leaves, so a file removed or moved away leaves its place;
-- no file is written where it, or a directory above it, differs by case alone from another path the push leaves;
+- no file is written where it, or a directory above it, differs by case or canonical form alone from another path
+  the push leaves, as macOS reads names (`_folded`);
 - no file is written twice or copied twice, and none is written where the tree holds one the patch does not say it
   changes;
 - a section's extended lines stand in the order git writes them, and a change of mode is a file's between its two
@@ -60,6 +61,12 @@ INDEX = b"index "
 PLAIN_MODES = (b"100644", b"100755")
 # A file's two modes. A link's, 120000, and a submodule's, 160000, are no file's: such a change is a person's to push.
 FILE_MODES = ("100644", "100755")
+# The modes of what a tree holds that is no directory: a file's two, a link's and a submodule's.
+TREE_MODES = ("100644", "100755", "120000", "160000")
+# The first and the last surrogate: no text a name is decoded to holds one alone.
+SURROGATES = ("\ud800", "\udfff")
+# A submodule's mode: what it names is a commit of another repository, with no bytes here to read.
+SUBMODULE = "160000"
 DIGITS = b"0123456789"
 HEX = b"0123456789abcdef"
 # A hash of more characters than this, a SHA-256 name in full, is no hash git writes; nor is one of fewer than this,
@@ -86,7 +93,8 @@ NUL = b"\x00"
 UNREADABLE = "bundle_unreadable"        # no patch this reads: the Role's, as decision 0188 has it
 NOT_APPLIED = "patch_does_not_apply"    # a patch, but not of the admitted commit's files
 NOT_A_FILE = "push_not_a_file"          # it writes what is no file, or through one
-PATH_TWIN = "push_path_collision"      # it writes a path another it leaves differs from by case alone
+PATH_TWIN = "push_path_collision"      # it writes a path another it leaves differs from by case or form alone
+TREE_UNREAD = "push_tree_unreadable"    # the port's reads are in no shape this reads: the Factory's, never the Role's
 
 
 def _number(said):
@@ -436,6 +444,23 @@ def content(old: bytes, hunks: list):
     return b"\n".join(out) + (b"" if open_end else b"\n")
 
 
+# The two characters whose canonical decomposition is one of `NAME_CHARS`, though case folding leaves them as they are.
+# No other character's decomposition, folded in case and decomposed again, is ASCII where its case folding is not.
+CANONICAL = (("\u037e", ";"), ("\u1fef", "`"))
+
+
+def _folded(name: str) -> str:
+    """`name` as a file system that ignores case and canonical form reads it, as macOS's does: decomposed, folded in
+    case, and decomposed again. guards/ imports nothing, so no table of decompositions is at hand. But every name a
+    patch writes, and each directory above it, is of `NAME_CHARS`, which are ASCII, and two names are one only where
+    both fold to it. So it is enough to fold each name exactly where its fold is ASCII: case folding, and the two
+    characters `CANONICAL` holds, do that. A test reads every character against the real fold."""
+    folded = name.casefold()
+    for form, plain in CANONICAL:
+        folded = plain.join(folded.split(form))
+    return folded
+
+
 def _above(path: str) -> list:
     """Each directory `path` stands under, the nearest last."""
     names = path.split("/")
@@ -448,14 +473,49 @@ def _placed(path: str, tree: dict, folders: dict) -> bool:
     return not any(part in tree for part in _above(path)) and path not in folders
 
 
+def _handed(tree, contents) -> bool:
+    """Whether `tree` and `contents` are in a shape a port gives. A tree is a mapping of paths, as text, to the modes
+    git writes of what is no directory. No path of it has more parts than `DEEPEST` has characters, as no name this
+    reads has; nor an empty part, a `.` or `..` part, git's own directory in any case, or a NUL, which git holds in no
+    tree; and none is a directory to another. Contents are a mapping of paths the tree holds, none a submodule, to
+    bytes. Each is of its type exactly: a subclass of
+    `dict`, `str` or `bytes` would be read by its own methods. Each pair is read as it stands, and no key is looked up
+    until every key is known to be plain text, since a lookup compares keys."""
+    if type(tree) is not dict or type(contents) is not dict:
+        return False
+    if not all(type(path) is str and type(mode) is str and mode in TREE_MODES for path, mode in tree.items()):
+        return False
+    # A bound on depth, asked before a path is split, bounds what is built of each path here and in `_above`.
+    if not all(path.count("/") < len(DEEPEST) for path in tree):
+        return False
+    if not all(all(part not in ("", ".", "..") and part.casefold() != GIT_OWN for part in path.split("/"))
+               and str(NUL, "ascii") not in path for path in tree):
+        return False
+    # A surrogate, alone, is no character of a name git holds, as UTF-8 or as any other text a port decodes.
+    if any(SURROGATES[0] <= c <= SURROGATES[1] for path in tree for c in path):
+        return False
+    if not all(type(path) is str and type(said) is bytes for path, said in contents.items()):
+        return False
+    if not all(path in tree and tree[path] != SUBMODULE for path in contents):
+        return False
+    return not any(part in tree for path in tree for part in _above(path))
+
+
 def applied(patch, tree: dict, contents: dict) -> tuple:
     """`(changes, None)`, or `(None, reason)` where nothing may land. `changes` is `{"written": {path: (mode, bytes)},
     "removed": [path], "read": [path]}`: what the push writes, what it removes, and what a rename or a copy read, each
     path once; `harness/apply.py`'s `push_refusal` is asked about what was read as it is about what is written.
-    Every reason is the Role's: what a port did not read is told apart by the next part."""
+    A tree or contents in no shape a port gives, and a file the tree holds whose bytes it did not hand over, are the
+    Factory's fault, under its own code; every other reason is the Role's."""
+    if not _handed(tree, contents):
+        return None, TREE_UNREAD
     sections = read(patch)
     if sections is None:
         return None, UNREADABLE
+    # A file the patch reads, of the tree, whose bytes were not handed over is the Factory's, whatever else is wrong
+    # with the patch, and in whatever order its sections stand.
+    if any(tree.get(s["old"]) in FILE_MODES and s["old"] not in contents for s in sections if s["kind"] != "new"):
+        return None, TREE_UNREAD
     written, removed, taken, copied = {}, [], {}, {}
     for section in sections:
         kind, old, new = section["kind"], section["old"], section["new"]
@@ -467,13 +527,12 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
             if new in tree:
                 return None, NOT_APPLIED
         else:
-            before, mode = contents.get(old), tree.get(old)
+            mode = tree.get(old)
             if mode is None:
                 return None, NOT_APPLIED
             if mode not in FILE_MODES:
                 return None, NOT_A_FILE
-            if type(before) is not bytes:
-                return None, NOT_APPLIED
+            before = contents[old]
             if section["old_mode"] not in (None, mode) or section["index_mode"] not in (None, mode):
                 return None, NOT_APPLIED
             if kind in ("rename", "copy") and new in tree:
@@ -505,16 +564,16 @@ def applied(patch, tree: dict, contents: dict) -> tuple:
     for path in written:
         if not _placed(path, left, folders):
             return None, NOT_A_FILE
-    # Nor may a file written, or a directory above it, differ by case alone from another path or directory the push
-    # leaves: where case is not told apart, as on macOS's default file system, git checks both out as one. A file
-    # renamed to its own name in another case leaves its old name, and lands.
+    # Nor may a file written, or a directory above it, differ by case or canonical form alone from another path or
+    # directory the push leaves: where those are not told apart, as on macOS's default file system, git checks both
+    # out as one. A file renamed to its own name in another case leaves its old name, and lands.
     cases, twins = {}, {}
     for path in list(left) + list(written):
         for name in _above(path) + [path]:
-            if cases.get(name.casefold(), name) != name:
-                twins[name.casefold()] = True
-            cases[name.casefold()] = name
+            if cases.get(_folded(name), name) != name:
+                twins[_folded(name)] = True
+            cases[_folded(name)] = name
     for path in written:
-        if any(name.casefold() in twins for name in _above(path) + [path]):
+        if any(_folded(name) in twins for name in _above(path) + [path]):
             return None, PATH_TWIN
     return {"written": written, "removed": removed, "read": list(taken)}, None

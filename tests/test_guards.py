@@ -2,6 +2,7 @@
 byte for byte, or not at all."""
 from __future__ import annotations
 
+import unicodedata
 import unittest
 
 from guards import patch
@@ -530,6 +531,10 @@ class Patch(unittest.TestCase):
         # Hunks that are not the file's land nothing, of this file or of any other the patch names.
         wrong = CHANGE + section("run.sh", b"@@ -1 +1 @@\n-#!/bin/bash\n+exit\n", extended=b"index 1111111..2222222 100755\n")
         self.assertEqual(landed(wrong), (None, patch.NOT_APPLIED))
+        # A last line with no newline lands with none: no byte is added where git's marker stands.
+        bare = (b"diff --git a/n b/n\nnew file mode 100644\nindex 0000000..2222222\n--- /dev/null\n+++ b/n\n"
+                b"@@ -0,0 +1 @@\n+x\n\\ No newline at end of file\n")
+        self.assertEqual(landed(bare), ({"written": {"n": (FILE, b"x")}, "removed": [], "read": []}, None))
 
     def test_a_new_a_removed_a_renamed_and_a_copied_file_are_each_what_the_patch_says(self):
         new = (b"diff --git a/docs/n.md b/docs/n.md\nnew file mode 100644\nindex 0000000..2222222\n--- /dev/null\n"
@@ -546,8 +551,8 @@ class Patch(unittest.TestCase):
         self.assertEqual(landed(moved)[0], {"written": {"docs/b.md": (FILE, b"A" + OLD[1:])}, "removed": ["docs/a.md"],
                                             "read": ["docs/a.md"]})
         whole = b"diff --git a/run.sh b/bin/run.sh\nsimilarity index 100%\nrename from run.sh\nrename to bin/run.sh\n"
-        self.assertEqual(landed(whole)[0], {"written": {"bin/run.sh": ("100755", b"#!/bin/sh\n")}, "removed": ["run.sh"],
-                                            "read": ["run.sh"]})
+        self.assertEqual(landed(whole), ({"written": {"bin/run.sh": ("100755", b"#!/bin/sh\n")}, "removed": ["run.sh"],
+                                          "read": ["run.sh"]}, None))
         copied = b"diff --git a/docs/a.md b/docs/c.md\nsimilarity index 100%\ncopy from docs/a.md\ncopy to docs/c.md\n"
         self.assertEqual(landed(copied), ({"written": {"docs/c.md": (FILE, OLD)}, "removed": [], "read": ["docs/a.md"]}, None))
         # A section of no hunk lands the bytes that were read, themselves: a copy costs the patch no bytes anew.
@@ -569,6 +574,8 @@ class Patch(unittest.TestCase):
         self.assertEqual(landed(two)[0]["read"], ["docs/a.md", "run.sh"])
         moves = landed(two.replace(b"copy ", b"rename "))[0]
         self.assertEqual((moves["read"], moves["removed"]), (["docs/a.md", "run.sh"], ["docs/a.md", "run.sh"]))
+        mixed = landed(two.replace(b"copy from run.sh\ncopy to", b"rename from run.sh\nrename to"))[0]
+        self.assertEqual((mixed["read"], mixed["removed"]), (["docs/a.md", "run.sh"], ["run.sh"]))
         # A copy with a hunk is the admitted commit's file with the hunk applied, and the file itself stays.
         changed = (copied.replace(b"100%", b"87%") + b"index 1111111..2222222 100644\n--- a/docs/a.md\n+++ b/docs/c.md\n"
                    b"@@ -1,2 +1,2 @@\n-a\n+A\n b\n")
@@ -625,25 +632,31 @@ class Patch(unittest.TestCase):
                 self.assertEqual(landed(data), (None, patch.NOT_APPLIED))
         # A removal that leaves bytes is no removal: the tree holds more than the patch takes.
         self.assertEqual(landed(gone, held=dict(HELD, **{"tests/t.py": b"x\ny\n"})), (None, patch.NOT_APPLIED))
-        # An empty file is removed with no hunk, as git writes it; one whose bytes were not handed over is not.
-        self.assertEqual(landed(gone[:gone.index(b"--- ")], held={}), (None, patch.NOT_APPLIED))
+        # An empty file is removed with no hunk, as git writes it; one whose bytes were not handed over is not, and that
+        # is the Factory's.
+        self.assertEqual(landed(gone[:gone.index(b"--- ")], held={}), (None, patch.TREE_UNREAD))
         self.assertEqual(landed(gone[:gone.index(b"--- ")], held=dict(HELD, **{"tests/t.py": b""}))[0]["removed"], ["tests/t.py"])
-        # A file the tree does not hold is not the patch's to change, whatever bytes were read for its name.
-        self.assertEqual(landed(section("docs/none.md", b"@@ -1 +1 @@\n-a\n+b\n"), held={"docs/none.md": b"a\n"}),
+        # A file removed that the tree does not hold is not the tree's, with no hunk as with one.
+        self.assertEqual(landed(CHANGE + b"diff --git a/missing b/missing\ndeleted file mode 100644\nindex e69de29..0000000\n"),
                          (None, patch.NOT_APPLIED))
+        # Bytes read for a name the tree does not hold are no read of the tree: the Factory's.
+        self.assertEqual(landed(section("docs/none.md", b"@@ -1 +1 @@\n-a\n+b\n"), held={"docs/none.md": b"a\n"}),
+                         (None, patch.TREE_UNREAD))
         # A file the tree holds whose bytes were not handed over, or are no bytes, is not guessed at: with hunks or
         # with none, nothing lands.
         class Said(bytes):      # nor a subclass of bytes, which would land as the file's bytes, its own methods and all
             pass
         for data in (CHANGE, moved % ((b"docs/b.md",) * 2), copied % ((b"docs/c.md",) * 2), MODE):
             for held in ({}, {"docs/a.md": OLD.decode()}, {"docs/a.md": Said(OLD)}):
-                self.assertEqual(landed(data, held=held), (None, patch.NOT_APPLIED), (data, held))
+                self.assertEqual(landed(data, held=held), (None, patch.TREE_UNREAD), (data, held))
         away = b"diff --git a/tests/t.py b/x\nsimilarity index 100%\nrename from tests/t.py\nrename to x\n"
         twice = (CHANGE + CHANGE, CHANGE + moved % ((b"docs/b.md",) * 2), moved % ((b"docs/b.md",) * 2) + CHANGE,
                  gone + new % ((b"tests/t.py",) * 3), new % ((b"n",) * 3) + new % ((b"n",) * 3),
                  gone + away, moved % ((b"docs/b.md",) * 2) + moved % ((b"docs/c.md",) * 2),      # a file moved once it is gone
                  copied % ((b"docs/c.md",) * 2) + copied % ((b"docs/c.md",) * 2),
                  copied % ((b"docs/c.md",) * 2) + copied % ((b"docs/d.md",) * 2),     # a file copied twice
+                 copied % ((b"docs/c.md",) * 2) + b"diff --git a/run.sh b/r2\nsimilarity index 100%\ncopy from run.sh\n"
+                 b"copy to r2\n" + copied % ((b"docs/d.md",) * 2),                     # and with another copy between
                  # two files moved onto one name; a new file and a copy on one name
                  moved % ((b"x",) * 2) + away, new % ((b"docs/c.md",) * 3) + copied % ((b"docs/c.md",) * 2))
         for data in twice:
@@ -654,6 +667,8 @@ class Patch(unittest.TestCase):
         new = (b"diff --git a/%s b/%s\nnew file mode %s\nindex 0000000..2222222\n--- /dev/null\n+++ b/%s\n"
                b"@@ -0,0 +1 @@\n+docs/a.md\n")
         cases = (
+            EMPTY % (b"ok", b"ok") + EMPTY % (b"link/x", b"link/x"),             # each file is asked, not the first
+            EMPTY % (b"link/x", b"link/x") + EMPTY % (b"ok", b"ok"),             # nor the last
             new % (b"l", b"l", b"120000", b"l"),                               # a link
             new % (b"m", b"m", b"160000", b"m"),                               # a submodule
             section("link", b"@@ -1 +1 @@\n-docs/a.md\n\\ No newline at end of file\n+run.sh\n\\ No newline at end of file\n",
@@ -690,8 +705,8 @@ class Patch(unittest.TestCase):
                      new % (b"l", b"l", b"120000", b"l") + new % (b"l/x", b"l/x", b"100644", b"l/x")):
             self.assertEqual(landed(data), (None, patch.UNREADABLE), data)
         # A directory that holds a link or a submodule alone is a directory all the same.
-        for held in ({"d/l": "120000"}, {"d/sub": "160000"}):
-            self.assertEqual(landed(new % (b"d", b"d", b"100644", b"d"), tree=held), (None, patch.NOT_A_FILE), held)
+        for tree in ({"d/l": "120000"}, {"d/sub": "160000"}):
+            self.assertEqual(landed(new % (b"d", b"d", b"100644", b"d"), tree=tree, held={}), (None, patch.NOT_A_FILE), tree)
         # A directory is one at any depth: where the tree holds `a/b/c`, neither `a/b` nor `a` is a file's place.
         for name in (b"a/b", b"a"):
             self.assertEqual(landed(new % (name, name, b"100644", name), tree=dict(TREE, **{"a/b/c": FILE})),
@@ -710,6 +725,11 @@ class Patch(unittest.TestCase):
         into = b"diff --git a/run.sh b/run.sh/x\nsimilarity index 100%\nrename from run.sh\nrename to run.sh/x\n"
         self.assertEqual(landed(into)[0], {"written": {"run.sh/x": ("100755", b"#!/bin/sh\n")}, "removed": ["run.sh"],
                                            "read": ["run.sh"]})      # and a file moved under its own old name
+        # Each file removed leaves its place, not the first or the last alone.
+        for first, second in ((b"e", b"f"), (b"f", b"e")):
+            data = empty_gone % (first, first) + empty_gone % (second, second) + empty_new % (b"f/x", b"f/x")
+            self.assertEqual(landed(data, tree={"e": FILE, "f": FILE}, held={"e": b"", "f": b""})[0]["written"],
+                             {"f/x": (FILE, b"")}, data)
         # A directory that keeps one file, or a file that stays, is still in the way.
         for data, tree, held in ((empty_new % (b"d", b"d") + empty_gone % (b"d/x", b"d/x"), {"d/x": FILE, "d/y": FILE},
                                   {"d/x": b""}),
@@ -724,9 +744,26 @@ class Patch(unittest.TestCase):
             self.assertEqual(landed(EMPTY % (name, name)), (None, patch.PATH_TWIN), name)
         self.assertEqual(landed(EMPTY % (b"n", b"n") + EMPTY % (b"N", b"N")), (None, patch.PATH_TWIN))
         self.assertEqual(landed(EMPTY % (b"d/n", b"d/n") + EMPTY % (b"D/m", b"D/m")), (None, patch.PATH_TWIN))
+        # A directory at any depth above the file is asked, not the top one or the nearest alone.
+        self.assertEqual(landed(EMPTY % (b"Docs/b/x", b"Docs/b/x"), tree={"docs/a.md": FILE}, held={}), (None, patch.PATH_TWIN))
+        self.assertEqual(landed(EMPTY % (b"docs/X/n", b"docs/X/n"), tree={"docs/x/m": FILE}, held={}), (None, patch.PATH_TWIN))
         moved = b"diff --git a/%s b/%s\nsimilarity index 100%%\nrename from %s\nrename to %s\n"
         copied = b"diff --git a/%s b/%s\nsimilarity index 100%%\ncopy from %s\ncopy to %s\n"
         self.assertEqual(landed(copied % ((b"docs/a.md", b"docs/A.md") * 2)), (None, patch.PATH_TWIN))
+        # A name in another canonical form is the same name: U+037E is a semicolon, U+1FEF a grave accent.
+        for name, other in ((b"a;", "a\u037e"), (b"x`", "x\u1fef"), (b"l;/x", "l\u037e"), (b"a;;", "a\u037e\u037e"),
+                            (b"x``", "x\u1fef\u1fef")):
+            self.assertEqual(landed(EMPTY % (name, name), tree={other: FILE}, held={}), (None, patch.PATH_TWIN), other)
+        # Each file written is asked, the first and the last alike.
+        for data in (EMPTY % (b"Docs/n", b"Docs/n") + EMPTY % (b"ok", b"ok"), EMPTY % (b"ok", b"ok") + EMPTY % (b"Docs/n", b"Docs/n")):
+            self.assertEqual(landed(data), (None, patch.PATH_TWIN), data)
+        # A directory between is folded as a file is.
+        self.assertEqual(landed(EMPTY % (b"r/p;/two/new", b"r/p;/two/new"), tree={"r/p\u037e/one/old": FILE}, held={}),
+                         (None, patch.PATH_TWIN))
+        # A file changed or moved in beside a twin that stays is refused as a new one is.
+        self.assertEqual(landed(MODE, tree={"docs/a.md": FILE, "docs/A.md": FILE}, held={"docs/a.md": OLD}),
+                         (None, patch.PATH_TWIN))
+        self.assertEqual(landed(moved % ((b"run.sh", b"docs/A.md") * 2)), (None, patch.PATH_TWIN))
         # A file renamed to its own name in another case leaves its old name, and lands; so does a file whose name
         # differs from no other's, beside two the tree already holds in two cases that the patch does not touch.
         self.assertEqual(landed(moved % ((b"docs/a.md", b"docs/A.md") * 2))[0]["written"], {"docs/A.md": (FILE, OLD)})
@@ -737,6 +774,127 @@ class Patch(unittest.TestCase):
         # The code is its own, by its letters, and no other's.
         self.assertEqual(patch.PATH_TWIN, "push_path_collision")
         self.assertNotIn(patch.PATH_TWIN, (patch.UNREADABLE, patch.NOT_APPLIED, patch.NOT_A_FILE))
+
+
+    def test_what_a_port_did_not_read_is_the_factorys_under_its_own_code(self):
+        # A tree or contents in no shape a port gives is the Factory's, whatever the patch is: a path is text.
+        for tree, held in ((None, HELD), (TREE, None), ([], HELD), (TREE, []), ({**TREE, b"f": FILE}, HELD),
+                           ({**TREE, None: FILE}, HELD), ({1: FILE}, HELD), ({**TREE, "unread": None}, HELD),
+                           ({**TREE, "lone": "040000"}, HELD), ({**TREE, "n": 100644}, HELD), ({**TREE, "n": b"100644"}, HELD),
+                           # a tree that holds a file where it holds a directory; contents whose path is no text, or
+                           # that are no bytes, though the patch reads none of them
+                           ({**TREE, "run.sh/x": FILE}, HELD), ({**TREE, "docs/a.md/x/y": FILE}, HELD),
+                           ({**TREE, "link/x": FILE}, HELD), ({**TREE, "vendored/x": FILE}, HELD),     # or a link, or a submodule
+                           # a path git holds in no tree: an empty one, one with an empty part, one with a NUL
+                           ({**TREE, "": FILE}, HELD), ({**TREE, "docs//x": FILE}, HELD), ({**TREE, "x/": FILE}, HELD),
+                           ({**TREE, "a\x00b": FILE}, HELD),
+                           # and a pair in no shape stands anywhere, the first as well as the last
+                           ({b"f": FILE, **TREE}, HELD), ({"lone": "040000", **TREE}, HELD), ({1: FILE, **TREE}, HELD),
+                           (TREE, {b"other": b"", **HELD}), (TREE, {"tests/t.py": None, "docs/a.md": OLD}),
+                           ({"/".join(["d"] * 33): FILE, **TREE}, HELD), ({"docs/./x": FILE, **TREE}, HELD),
+                           (TREE, {"other": b"", **HELD}),
+                           # git's own directory, in any case; and bytes for a submodule, which has none to read
+                           ({**TREE, "d/.git/config": FILE}, HELD), ({**TREE, ".GIT": FILE}, HELD),
+                           ({**TREE, "src/.GiT/f": FILE}, HELD),
+                           (TREE, {**HELD, "vendored": b"x"}), (TREE, {**HELD, "vendored": b""}),
+                           # what stands under a file is in no tree, whatever it is; nor is a surrogate alone
+                           ({**TREE, "run.sh/sub": "160000"}, HELD), ({**TREE, "run.sh/l": "120000"}, HELD),
+                           ({**TREE, "bad\ud800": FILE}, HELD), ({**TREE, "bad\udfff/x": FILE}, HELD),
+                           # nor a `.` or `..` part, which would name another path: docs/./a.md is docs/a.md
+                           ({**TREE, "docs/./x": FILE}, HELD), ({**TREE, "docs/../x": FILE}, HELD),
+                           ({**TREE, "./x": FILE}, HELD), ({**TREE, "x/..": FILE}, HELD), ({**TREE, ".": FILE}, HELD),
+                           (TREE, {**HELD, b"other": b""}), (TREE, {**HELD, "tests/t.py": None}),
+                           (TREE, {**HELD, "tests/t.py": "text"})):
+            self.assertEqual(patch.applied(CHANGE, tree, held), (None, patch.TREE_UNREAD))
+            self.assertEqual(patch.applied(b"no patch\n", tree, held), (None, patch.TREE_UNREAD))
+        # Each is of its type exactly: a subclass of dict, str or bytes would be read by its own methods.
+        class Map(dict):
+            pass
+
+        class Text(str):
+            pass
+
+        class Said(bytes):
+            pass
+        for tree, held in ((Map(TREE), HELD), (TREE, Map(HELD)), ({**TREE, Text("n"): FILE}, HELD),
+                           ({**TREE, "n": Text(FILE)}, HELD), (TREE, {"docs/a.md": OLD, Text("run.sh"): b""}),
+                           (TREE, {**HELD, "run.sh": Said(b"")})):
+            self.assertEqual(patch.applied(CHANGE, tree, held), (None, patch.TREE_UNREAD), (tree, held))
+        # A path of more parts than DEEPEST has characters is in no tree a port gives; one of as many parts is.
+        # A path whose part holds .git but is not it is a name; a link's bytes may be handed over.
+        self.assertIsNone(patch.applied(CHANGE, {**TREE, ".github/x": FILE, "x.git": FILE, "git~1/x": FILE, ".git.": FILE}, HELD)[1])
+        # Refusing reads no key that is not plain text, so no method of one is called: not its hash, nor its equality.
+        class Counted(str):
+            calls = []
+
+            def __hash__(self):
+                Counted.calls.append("hash")
+                return str.__hash__(self)
+
+            def __eq__(self, other):
+                Counted.calls.append("eq")
+                return str.__eq__(self, other)
+        for tree, held in (({**TREE, Counted("n"): FILE}, HELD), (TREE, {**HELD, Counted("n"): b""}),
+                           ({"d/x": FILE, Counted("d"): FILE}, {})):
+            del Counted.calls[:]
+            self.assertEqual(patch.applied(CHANGE, tree, held), (None, patch.TREE_UNREAD))
+            self.assertEqual(Counted.calls, [])
+        # A character either side of the surrogates is a character of a name.
+        self.assertIsNone(patch.applied(CHANGE, {**TREE, "a\ud7ff": FILE, "b\ue000": FILE}, HELD)[1])
+        # A part that begins or ends with dots is a name all the same.
+        self.assertIsNone(patch.applied(CHANGE, {**TREE, ".x/...": FILE, "..y": FILE}, HELD)[1])
+        deepest = "/".join(["d"] * len(patch.DEEPEST))
+        self.assertEqual(patch.applied(CHANGE, {**TREE, deepest + "/e": FILE}, HELD), (None, patch.TREE_UNREAD))
+        self.assertIsNone(patch.applied(CHANGE, {**TREE, deepest: FILE}, HELD)[1])
+        # A mode git does not write, a file listed before the file above it, an absolute path, and bytes for a name
+        # the tree does not hold are in no shape a port gives either.
+        for tree, held in (({**TREE, "other": "100600"}, HELD), ({**TREE, "z/child": FILE, "z": FILE}, HELD),
+                           ({**TREE, "/x": FILE}, HELD), (TREE, {**HELD, "other": b""})):
+            self.assertEqual(patch.applied(CHANGE, tree, held), (None, patch.TREE_UNREAD), (tree, held))
+        # Missing bytes are the Factory's before any fault of the Role's, in whatever section either stands: beside
+        # an old mode that is not the tree's, and after a section whose index mode is not.
+        wrong = CHANGE.replace(b"2222222 100644", b"2222222 100755")
+        self.assertEqual(landed(b"diff --git a/docs/a.md b/docs/a.md\nold mode 100755\nnew mode 100644\n", held={}),
+                         (None, patch.TREE_UNREAD))
+        self.assertEqual(landed(wrong + GONE, held={"docs/a.md": OLD}), (None, patch.TREE_UNREAD))
+        self.assertEqual(landed(CHANGE + GONE, held={"tests/t.py": b"x\n"}), (None, patch.TREE_UNREAD))
+        plain = b"diff --git a/run.sh b/run.sh\nold mode 100755\nnew mode 100644\n"     # a runnable file's bytes too
+        self.assertEqual(landed(plain, held={}), (None, patch.TREE_UNREAD))
+        self.assertEqual(landed(wrong + GONE + EMPTY % (b"n", b"n"), held={"docs/a.md": OLD}), (None, patch.TREE_UNREAD))
+        self.assertEqual(landed(wrong + GONE), (None, patch.NOT_APPLIED))
+        # A new file reads nothing, and a new file where the tree holds one is the Role's, read or not.
+        self.assertEqual(landed(EMPTY % (b"docs/a.md", b"docs/a.md"), held={}), (None, patch.NOT_APPLIED))
+        # So is a file the tree holds whose bytes were not handed over, or are no bytes: with hunks or with none, it is
+        # not guessed at. What is no patch is the Role's all the same, and so is a file the tree does not hold.
+        moved = b"diff --git a/docs/a.md b/docs/b.md\nsimilarity index 100%\nrename from docs/a.md\nrename to docs/b.md\n"
+        for data in (CHANGE, moved, COPIED, MODE):
+            for held in ({}, {"docs/a.md": OLD.decode()}, {"docs/a.md": None}):
+                self.assertEqual(landed(data, held=held), (None, patch.TREE_UNREAD), (data, held))
+        # Missing bytes are the Factory's whatever else the section says: beside a mode that is not the tree's too.
+        self.assertEqual(landed(CHANGE.replace(b"2222222 100644", b"2222222 100755"), held={}), (None, patch.TREE_UNREAD))
+        # The Factory's code is its own, by its letters, and none of the Role's three.
+        self.assertEqual(patch.TREE_UNREAD, "push_tree_unreadable")
+        self.assertNotIn(patch.TREE_UNREAD, (patch.UNREADABLE, patch.NOT_APPLIED, patch.NOT_A_FILE, patch.PATH_TWIN))
+        for data in (GONE, GONE[:GONE.index(b"--- ")]):      # a file removed, by its hunk or with none
+            self.assertEqual(landed(data, held={}), (None, patch.TREE_UNREAD), data)
+        self.assertEqual(landed(b"no patch\n", held={}), (None, patch.UNREADABLE))
+        self.assertEqual(landed(section("docs/none.md", b"@@ -1 +1 @@\n-a\n+b\n"), held={}), (None, patch.NOT_APPLIED))
+        # A link and a submodule are refused before any bytes of one are asked for.
+        for name, mode in (("link", b"120000"), ("vendored", b"160000")):
+            hunks, extended = b"@@ -1 +1 @@\n-a\n+b\n", b"index 1111111..2222222 %s\n" % mode
+            self.assertEqual(landed(section(name, hunks, extended=extended), held={}), (None, patch.NOT_A_FILE), name)
+
+    def test_a_name_is_folded_as_macos_folds_it_wherever_that_is_ascii(self):
+        # Every character, against the real fold: where either fold is ASCII, the two are the same. A name's fold is
+        # its characters' folds, so this holds for every name of NAME_CHARS and every name it is compared with.
+        for point in range(0x110000):
+            if 0xD800 <= point <= 0xDFFF:
+                continue
+            said = chr(point)
+            real = unicodedata.normalize("NFD", unicodedata.normalize("NFD", said).casefold())
+            if real.isascii() or patch._folded(said).isascii():
+                self.assertEqual(patch._folded(said), real, hex(point))
+        self.assertEqual(patch._folded("Docs/A\u037e\u1fefK\u212a"), "docs/a;`kk")
 
 
 if __name__ == "__main__":
