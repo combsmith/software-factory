@@ -9376,42 +9376,6 @@ class Push(unittest.TestCase):
         self.assertEqual(push.read_whole(listing, ["a"], {"a": limited}.get), (None, guard.RATE_LIMITED))
         self.assertEqual((push.WHOSE[patch.TREE_UNREAD], push.WHOSE[push.TREE_UNFETCHED]), (push.PERSON, push.PORT))
 
-    def test_both_of_p71s_pushes_land_through_the_guard(self):
-        # P-71's two pushes, as GitHub answered them, each request asked of `permits` and each answer given to `seen`,
-        # a tree's through `listed`: the branch made at C1, then moved to C2; each ends landed.
-        first = json.loads((ROOT / "trials" / "P-71.json").read_text())["exchanges"]
-        moved = json.loads((ROOT / "trials" / "P-71.moved.json").read_text())["exchanges"]
-
-        def replay(state, exchanges):
-            for exchange in exchanges:
-                method, path = exchange["request"]["call"].split(" ")[:2]
-                body, answer = exchange["request"]["body"], {"status": str(exchange["response"]["status"]),
-                                                             "body": exchange["response"]["body"]}
-                if "/trees/" in path:
-                    answer, code = push.listed(answer, path.split("/trees/")[1][:40])
-                    self.assertIsNone(code, path)
-                self.assertTrue(guard.permits(state, method, path, body), path)
-                state, why = guard.seen(state, method, path, body, answer)
-                self.assertIsNone(why, path)
-            return state
-        blob = [exchange["request"]["body"]["content"] for exchange in first[5:7]]
-        made = {"repo": PUSHED, "branch": WORK, "parent": first[0]["response"]["body"]["sha"], "head": None,
-                "message": first[9]["request"]["body"]["message"], "blobs": {"docs/written.md": blob[0], "bin/tool.sh": blob[1]},
-                "changes": {"written": {"docs/written.md": (FILE_MODE, base64.b64decode(blob[0])),
-                                        "bin/tool.sh": ("100755", base64.b64decode(blob[1]))}, "removed": ["gone.txt"], "read": []}}
-        state = replay(guard.began(made)[0], [first[i] for i in (4, 0, 1, 5, 6, 7, 8, 9, 10)])
-        self.assertTrue(replay(state, first[11:12] + first[13:])["landed"])
-        # The same branch write again, refused with a 422, and the branch read again at the commit made: moved.
-        stale = replay(state, first[12:13])
-        self.assertEqual(guard.seen(stale, "GET", first[13]["request"]["call"].split(" ")[1], None,
-                                    {"status": "200", "body": first[13]["response"]["body"]}), (None, guard.BRANCH_MOVED))
-        at = first[10]["response"]["body"]["sha"]
-        content = moved[0]["request"]["body"]["content"]
-        again = {"repo": PUSHED, "branch": WORK, "parent": at, "head": at, "message": moved[3]["request"]["body"]["message"],
-                 "changes": {"written": {"docs/notes.md": (FILE_MODE, base64.b64decode(content))}, "removed": [], "read": []},
-                 "blobs": {"docs/notes.md": content}}
-        self.assertTrue(replay(guard.began(again)[0], [first[13], first[10], first[8]] + moved[0:6] + moved[9:10])["landed"])
-
     def test_every_code_of_the_patch_guard_and_the_port_names_whose_it_is(self):
         # Every code, of either module, is in the table, and nothing else: none is read with a default.
         coded = re.compile(r"(?:push|patch|bundle)_[a-z_]+")

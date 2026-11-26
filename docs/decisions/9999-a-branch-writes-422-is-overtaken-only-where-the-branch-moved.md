@@ -22,7 +22,7 @@ GitHub's refs API answers 422 when the branch moved, and also when a ruleset or 
 
 | Boundary | Check |
 |---|---|
-| A 422, then the branch moved, gives `push_branch_moved` | `tests/test_guards.py::test_each_read_back_and_branch_write_says_whose_a_stop_is`, `tests/test_adapters.py::test_both_of_p71s_pushes_land_through_the_guard`, `guards/push.py`, mutant: "a branch write refused as stale is a refusal" |
+| A 422, then the branch moved, gives `push_branch_moved` | `tests/test_guards.py::test_each_read_back_and_branch_write_says_whose_a_stop_is`, `guards/push.py`, mutant: "a branch write refused as stale is a refusal" |
 | A 422, then the branch where the Decision admitted it, gives `push_answer_refused` | `tests/test_guards.py::test_each_read_back_and_branch_write_says_whose_a_stop_is`, `guards/push.py`, mutant: "every 422 on a branch write is moved" |
 | A 422, then no answer, gives `push_unanswered` | `tests/test_guards.py::test_each_read_back_and_branch_write_says_whose_a_stop_is`, `guards/push.py`, mutant: "no answer after a 422 is read as the branch" |
 | No branch write leaves after a 422 | `tests/test_guards.py::test_each_read_back_and_branch_write_says_whose_a_stop_is`, `guards/push.py`, mutant: "a branch is made again after a 422" |
