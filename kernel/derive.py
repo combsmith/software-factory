@@ -659,13 +659,15 @@ def overdue(lifecycle, work_item: str, state: str, moved, passes_since, now: str
     return stale(lifecycle, state, moved, passes_since, now)
 
 
-def run_deferral(_decision, facts: dict, state, evidence: list, context: dict, now: str, limits: dict):
+def run_deferral(_decision, facts: dict, state, evidence: list, context: dict, now: str, limits: dict, role,
+                 pushers):
     """The deferral that keeps a Run of either kind of Work item from starting now, or None. Capacity and the org's
     concurrency are not brakes: they bound no cycle (§4.1), and only defer, so each is read whole or fails closed, and
     nothing raises. The model provider's deadline that is missing, or that cannot be compared with `now`, either being
     no moment, is unreadable. So is a count of active Runs that is no whole number, a bool among them, or is below zero.
     A Run listed before its run-name may be the Run in flight on this item, so no Run is admitted until it can be named,
-    and a list that cannot be read defers too (I-46, decision 0036)."""
+    and a list that cannot be read defers too (I-46, decision 0036). Last, a Run of a Role that pushes waits while
+    GitHub's limit on its App holds (`github_waiting`, issue 838)."""
     until = context.get("model_deferred_until", "unreadable")
     if until is not None and not (is_time(until) and is_time(now)):
         return _decision(facts, state, "capacity_unreadable", evidence, t.DEFER)
@@ -681,7 +683,32 @@ def run_deferral(_decision, facts: dict, state, evidence: list, context: dict, n
     past = unnamed_past(context, now, limits)
     if past and len(past) > limits["max_unnamed_runs"]:
         return _decision(facts, state, "runs_unnamed", evidence, t.DEFER)
+    waiting = github_waiting(context, facts["item"], role, pushers, now)
+    if waiting is None:
+        return _decision(facts, state, "github_capacity_unreadable", evidence, t.DEFER)
+    if waiting:
+        return _decision(facts, state, "github_capacity", evidence, t.DEFER)
     return None
+
+
+def github_waiting(context: dict, item: dict, role, pushers, now: str):
+    """Whether a Run of `role` on `item` waits for GitHub's limit to reset (issue 838): the Controller lists each
+    Role and owner whose Run GitHub limited, until when, and the Run waits while its own is listed and `now` is before
+    that. Each Role writes through its own App, and an App's installation is the owner's, so the two name what GitHub
+    counts against. A Role that does not push never waits, whatever the list says; for one that does, a list, an entry
+    or a list of the Roles that push that cannot be read is None, and defers it."""
+    if not (isinstance(pushers, list) and all(isinstance(name, str) for name in pushers)):
+        return None
+    if role not in pushers:
+        return False
+    waits = context.get("github_deferred")
+    if not (isinstance(waits, list) and isinstance(item.get("repo"), str) and is_time(now)):
+        return None
+    if not all(isinstance(w, dict) and isinstance(w.get("role"), str) and isinstance(w.get("owner"), str)
+               and is_time(w.get("until")) for w in waits):
+        return None
+    owner = item["repo"].partition("/")[0]
+    return any(w["role"] == role and w["owner"] == owner and w["until"] > now for w in waits)
 
 
 def unnamed_runs(context: dict):

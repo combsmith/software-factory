@@ -9,6 +9,8 @@ import re
 
 from tools.hooks import protected
 
+# The Effect of a Role's push (schemas/effect.schema.json).
+PUSH = "push_commits"
 RELEASE = re.compile(r"factory/v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)")
 
 
@@ -31,7 +33,16 @@ def kernel(root: pathlib.Path) -> dict:
     held = dict(_json(root, "config", "defaults.json"), protected_paths=protected.protected_of(hooks))
     held["model_lens_inputs"] = protected.model_inputs_of(hooks, held["required_lenses"]["model"])
     held["person_only_paths"] = person_only(hooks, held["required_lenses"]["model"])
+    held["pushers"] = pushers(root)
     return held
+
+
+def pushers(root: pathlib.Path) -> list:
+    """The Roles that push, by name: each manifest in `roles/` with an Intent that permits `push_commits`, the grant
+    `tools/check_authority.py` holds to the Role's App. It is the one list: the Kernel defers these Roles' Runs alone
+    while GitHub's limit holds (issue 838)."""
+    found = (_json(root, "roles", p.name) for p in sorted((root / "roles").glob("*.json")))
+    return [m["name"] for m in found if any(PUSH in i["permitted_effects"] for i in m["intents"])]
 
 
 def person_only(hooks: dict, models: list) -> list:
