@@ -47,6 +47,12 @@ def run_1215(script, test):
 
 TARGETS = ("tools/context_eval.sh", "tools/trial_p12_status.sh", "tools/trial_p13_cli.sh", "tools/trial_p13_ended.sh", "tools/trial_p26_sandbox.sh", "tools/trial_p39_reach.sh", "tools/trial_p4_narrow.sh", "tools/trial_p50_linux_sandbox.sh", "tools/trial_p51_sandbox_writes.sh", "tools/trial_p54_issue_lookup.sh", "tools/trial_p56_comments.sh", "tools/trial_p58_edits.sh", "tools/trial_p59_read_confinement.sh", "tools/trial_p61_timeline.sh", "tools/trial_p8_cost.sh", "tools/trial_p80_branch_reads.sh", "tools/trial_p81_review_order.sh", "tools/trial_reader_reads.sh",)
 MUTANTS = [
+    # Issue 1281: each family's read tells a curl that failed apart from an answer whose status line cannot be read.
+    *[("%s swaps a failed curl and an unread status line" % script, "tools/" + script,
+       '        [ "$%s" = 0 ] || why=' % ok, '        [ "$%s" = 1 ] || why=' % ok,
+       run_1215(script, "test_a_curl_that_failed_is_told_apart_from_a_status_line_that_cannot_be_read"))
+      for script, ok in ((s, "call_ok" if s in ("trial_p12_status.sh", "trial_p81_review_order.sh") else "read_ok")
+                         for s in FAMILY_1215)],
     # Decision 0048: a person's write access is read from the collaborator permission.
     ("the reader's token is not narrowed", "tools/trial_reader_reads.sh",
      '\\"permissions\\":{\\"$1\\":\\"read\\"}}', '\\"permissions\\":{}}',

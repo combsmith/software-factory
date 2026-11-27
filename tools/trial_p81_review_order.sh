@@ -204,7 +204,10 @@ ask() {   # METHOD PATH [BODY]
     status=$(awk 'BEGIN { head = 1 } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
     if [ "$call_ok" = 0 ] || [ -z "$status" ]; then
         drop "$scratch/raw-$n"
-        echo "trial_p81_review_order: $1 /$2: curl failed; nothing of it reaches OUT" >&2
+        # A curl that failed, or an answer whose status line cannot be read (a proxy's odd answer, a cut head).
+        why="curl failed"
+        [ "$call_ok" = 0 ] || why="curl answered, but its status line could not be read"
+        echo "trial_p81_review_order: $1 /$2: $why; nothing of it reaches OUT" >&2
         exit 1
     fi
     # Three digits, as requests.json and the terminal take it unquoted (the security read).

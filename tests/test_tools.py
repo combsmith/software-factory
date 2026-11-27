@@ -15889,6 +15889,13 @@ if method == "DELETE":
     sys.stdout.write(open(os.path.join(here, "revoke.status")).read().strip())
     sys.exit(0)
 roles = json.load(open(os.path.join(here, "roles")))
+# A read that curl says failed, and one curl answered whose status line cannot be read (issue 1281).
+if os.path.exists(os.path.join(here, "answer.broke")):
+    sys.stdout.write("HTTP/2 200\r\n\r\n{")
+    sys.exit(18)
+if os.path.exists(os.path.join(here, "answer.headless")):
+    sys.stdout.write("HTTP/2 OK\r\ncontent-type: application/json\r\n\r\n{}")
+    sys.exit(0)
 if os.path.exists(os.path.join(here, "slow")):
     # Mid-read: tell the test on one pipe, and wait on the other until the test lets the read end, or is gone.
     told, held = (int(n) for n in open(os.path.join(here, "slow")).read().split())
@@ -16226,6 +16233,23 @@ esac
         asked = [a["status"] for a in json.loads((self.out.parent / "proxied" / "requests.json").read_text()) if "call" in a]
         self.assertEqual(asked, plain)
         self.assertIn(403, asked)
+
+
+    def test_a_curl_that_failed_is_told_apart_from_a_status_line_that_cannot_be_read(self):
+        # Both stop with nothing in OUT and the token revoked; only what the person is told differs (issue 1281).
+        for flag, said in (("answer.broke", ": curl failed; nothing of it reaches OUT"),
+                           ("answer.headless", ": curl answered, but its status line could not be read; nothing of it reaches OUT")):
+            with self.subTest(flag=flag):
+                self.setUp()
+                (self.stand_in / flag).write_text("")
+                ran = self.run_script()
+                self.assertNotEqual(ran.returncode, 0, ran.stdout)
+                self.assertIn(said, ran.stderr)
+                self.assertEqual(ran.stderr.count("nothing of it reaches OUT"), 1, ran.stderr)
+                self.assertEqual([c["method"] for c in self.calls()][-1], "DELETE")
+                self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+                self.assertFalse((self.out / "requests.json").exists())
+                self.assertFalse([p.name for p in self.out.iterdir() if p.name.startswith("clean-") and p.read_text()])
 
 
 class IssueLookupTrial(ReaderTrialScript):
