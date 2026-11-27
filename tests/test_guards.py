@@ -1,8 +1,10 @@
 """The guards on a Role's own writes (issue 838). `guards/patch.py`: a Role's patch, read as git writes it and applied
 byte for byte, or not at all. `guards/push.py`: what a push is told, and the paths apply is asked about.
-`guards/opening.py`: what the draft an opening Run opens may say, the Result's own title and body."""
+`guards/opening.py`: what the draft an opening Run opens may say, the Result's own title and body.
+`guards/workflows.py`: whether a job takes its settings only from files on the base's protected list (issue 1177)."""
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import random
@@ -11,7 +13,7 @@ import tempfile
 import unicodedata
 import unittest
 
-from guards import opening, patch, push
+from guards import opening, patch, push, workflows
 
 FILE = "100644"
 OLD = b"a\nb\nc\nd\ne\nf\ng\nh\n"
@@ -2016,6 +2018,173 @@ class Opening(unittest.TestCase):
                                          "fix\\ture"])
         self.assertNone(["fixture", "prefix", "suffix", "fixing", "enclosed", "closely", "closing", "reclose", "resolver",
                          "unresolved", "fixtures", "PREFIX", "FIXTURE", "Prefix", "Fixture"])
+
+
+# A scan beside a secret, as `.github/workflows/sonarcloud.yml` writes it, but for its comments.
+SCAN = """name: SonarCloud Analysis
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  merge_group:
+permissions: {}
+jobs:
+  sonarcloud:
+    name: SonarCloud
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up JDK 21
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: SonarCloud Scan
+        if: env.SONAR_TOKEN != ''
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+"""
+SCAN_AT = ".github/workflows/sonarcloud.yml"
+LISTED = [".github/", "sonar-project.properties"]
+SCAN_STEP = "        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0\n"
+CHECKOUT_WITH = "          persist-credentials: false\n"
+
+
+def settings(text: str = SCAN, listed=None, path: str = SCAN_AT):
+    return workflows.refusal(path, text, LISTED if listed is None else listed)
+
+
+def changed(old: str, new: str) -> str:
+    assert SCAN.count(old) == 1, old
+    return SCAN.replace(old, new)
+
+
+class Settings(unittest.TestCase):
+    def test_a_jobs_settings_on_the_bases_list_pass_and_off_it_are_refused(self):
+        self.assertEqual((workflows.UNREADABLE, workflows.UNLISTED), ("settings_unreadable", "settings_unlisted"))
+        self.assertIsNone(settings())
+        # The repo's own scan, read against the repo's own list, passes: its settings file is on it.
+        root = pathlib.Path(__file__).resolve().parents[1]
+        own = [e["path"] for e in json.loads((root / "config" / "hooks.json").read_text())["protected"]]
+        self.assertIsNone(workflows.refusal(SCAN_AT, (root / SCAN_AT).read_text(), own))
+        self.assertEqual(workflows.refusal(SCAN_AT, (root / SCAN_AT).read_text(),
+                                           [p for p in own if p != "sonar-project.properties"]), workflows.UNLISTED)
+        # Off the list, the scan's settings or its own workflow, it is refused; a folder on it holds what is under it.
+        for listed in ([".github/"], ["sonar-project.properties"], [], [".github/workflows/", "sonar-project.properties"],
+                       [SCAN_AT, "sonar-project.properties"]):
+            expected = None if len(listed) == 2 else workflows.UNLISTED
+            self.assertEqual(settings(listed=listed), expected, listed)
+        # A pattern, a folder of another name, or a path that only begins as the file does, holds nothing here.
+        for listed in ([".github/", "sonar-*.properties"], [".github/", "sonar-project.properties/"],
+                       [".git", "sonar-project.properties"], [".github/", "sonar-project"],
+                       [".github/workflows", "sonar-project.properties"]):
+            self.assertEqual(settings(listed=listed), workflows.UNLISTED, listed)
+        # A job that takes settings from no file passes on its workflow alone.
+        bare = SCAN.split("      - name: Set up JDK 21\n")[0]
+        self.assertIsNone(settings(bare, listed=[".github/"]))
+        self.assertEqual(settings(bare, listed=["sonar-project.properties"]), workflows.UNLISTED)
+        # Every job is read: a second job's scan is held to the list as the first's is.
+        twice = SCAN + "  again:\n    runs-on: ubuntu-24.04\n    steps:\n      - name: Scan\n" + SCAN_STEP
+        self.assertIsNone(settings(twice))
+        self.assertEqual(settings(twice.replace(SCAN_STEP, "        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n", 1),
+                                  listed=[".github/"]), workflows.UNLISTED)
+
+    def test_what_the_table_does_not_name_is_refused(self):
+        refused = {
+            "a command": changed(SCAN_STEP, SCAN_STEP + "        run: make test\n"),
+            "a step that is a command alone": changed("      - name: Set up JDK 21\n", "      - run: make\n      - name: Set up JDK 21\n"),
+            "another action": changed(SCAN_STEP, "        uses: actions/cache@3d3c42e5aac5ba805825da76410c181273ba90b1\n"),
+            "the scan at another pin": changed("d209202bc7d53ff1cc128f7f907dac145c9d6ae9", "v8"),
+            "a local action": changed(SCAN_STEP, "        uses: ./.github/actions/scan\n"),
+            "an action named in another case": changed("SonarSource/", "sonarsource/"),
+            "a workflow called": changed("    runs-on: ubuntu-24.04\n", "    uses: o/r/.github/workflows/x.yml@main\n"),
+            "a container": changed("    runs-on: ubuntu-24.04\n", "    runs-on: ubuntu-24.04\n    container: node\n"),
+            "a matrix": changed("    runs-on: ubuntu-24.04\n", "    runs-on: ubuntu-24.04\n    strategy:\n      matrix:\n        x: a\n"),
+            "defaults": changed("permissions: {}\n", "permissions: {}\ndefaults:\n  run:\n    shell: bash\n"),
+            "a working folder": changed(SCAN_STEP, SCAN_STEP + "        working-directory: sub\n"),
+            "a checkout's own input": changed(CHECKOUT_WITH, CHECKOUT_WITH + "          repository: o/r\n"),
+            "a java version from a file": changed("          java-version: '21'\n", "          java-version-file: .java-version\n"),
+            "an input with kids": changed("          fetch-depth: 0\n", "          fetch-depth:\n            x: 0\n"),
+            "a step's env": changed(SCAN_STEP, SCAN_STEP + "        env:\n          HOME: x\n"),
+            "an env with kids": changed("      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}\n", "      SONAR_TOKEN:\n        x: y\n"),
+            "an env of a value": changed("    env:\n      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}\n", "    env: x\n"),
+            "a tab": changed("    name: SonarCloud\n", "    name:\tSonarCloud\n"),
+            "an anchor": changed("    name: SonarCloud\n", "    name: &n SonarCloud\n"),
+            "an alias": changed("    name: SonarCloud\n", "    name: *n\n"),
+            "a merge key": changed("    name: SonarCloud\n", "    <<: *n\n"),
+            "a tag": changed("    name: SonarCloud\n", "    name: !!str SonarCloud\n"),
+            "a block scalar": changed("        if: env.SONAR_TOKEN != ''\n", "        if: >\n          true\n"),
+            "a flow list": changed("permissions: {}\n", "permissions: {}\nenv: [a]\n"),
+            "a flow mapping": changed("      fetch-depth: 0\n", "      fetch-depth: {a: 0}\n"),
+            "a quote left open": changed("          java-version: '21'\n", "          java-version: '21\n"),
+            "a quoted key": changed("    name: SonarCloud\n", "    \"name\": SonarCloud\n"),
+            "a key given twice": changed(SCAN_STEP, SCAN_STEP + SCAN_STEP),
+            "a job given twice": SCAN + "  sonarcloud:\n    runs-on: x\n    steps:\n      - name: x\n" + SCAN_STEP,
+            "an item with no key on its line": changed("      - name: SonarCloud Scan\n", "      -\n        name: SonarCloud Scan\n"),
+            "a key and its colon run together": changed("    name: SonarCloud\n", "    name:SonarCloud\n"),
+            "a line of no key": changed("    name: SonarCloud\n", "    name: SonarCloud\n    stray\n"),
+            "a kid off its column": changed("      contents: read\n", "      contents: read\n     x: y\n"),
+            "a job named in quotes": SCAN + "  \"other\":\n    runs-on: x\n    steps:\n      - name: x\n" + SCAN_STEP,
+            "a value with kids": changed("    name: SonarCloud\n", "    name: SonarCloud\n      x: y\n"),
+            "an item among a job's keys": changed("    timeout-minutes: 15\n", "    - timeout-minutes: 15\n"),
+            "a key among the steps": changed("      - name: Checkout repository\n", "      x: y\n      - name: Checkout repository\n"),
+            "a step that uses nothing": changed("      - name: SonarCloud Scan\n", "      - name: Nothing\n      - name: SonarCloud Scan\n"),
+            "a job with no steps": SCAN + "  other:\n    runs-on: x\n",
+            "a job of a value": SCAN + "  other: x\n",
+            "steps of a value": SCAN.split("    steps:\n")[0] + "    steps: x\n",
+            "a key of no table": changed("permissions: {}\n", "permissions: {}\nother: x\n"),
+            "no jobs": SCAN.split("jobs:\n")[0],
+            "jobs of none": SCAN.split("jobs:\n")[0] + "jobs:\n",
+            "an item at the top": "- x\n" + SCAN,
+        }
+        for why, text in refused.items():
+            self.assertEqual(settings(text, listed=LISTED + ["x/"]), workflows.UNREADABLE, why)
+        # What is no exact kind, or no workflow, reads nothing.
+        for path, text, listed in ((".github/x.yml", SCAN, LISTED), (Odd(SCAN_AT), SCAN, LISTED), (SCAN_AT, Odd(SCAN), LISTED),
+                                   (SCAN_AT, SCAN, tuple(LISTED)), (SCAN_AT, SCAN, [".github/", Odd("sonar-project.properties")]),
+                                   (None, SCAN, LISTED), (SCAN_AT, None, LISTED), (SCAN_AT, SCAN, None)):
+            self.assertEqual(workflows.refusal(path, text, listed), workflows.UNREADABLE, (path, listed))
+        # What is read but not looked into, the events and the permissions, may be quoted and commented, but a flow form
+        # there is refused as anywhere: the lines are read before their keys.
+        self.assertEqual(settings(changed("  merge_group:\n", "  merge_group:\n    types: [checks_requested]\n")),
+                         workflows.UNREADABLE)
+        for text in (changed("      contents: read\n", "      contents: \"read\" # a comment\n"),
+                     changed("    name: SonarCloud\n", "    # a comment\n\n    name: 'Sonar Cloud'\n")):
+            self.assertIsNone(settings(text), text)
+
+    def test_every_route_that_points_the_scan_at_another_settings_file_is_refused(self):
+        routes = {
+            "the scan's settings file named": SCAN_STEP + "        with:\n          args: -Dproject.settings=other.properties\n",
+            "the scan's base named": SCAN_STEP + "        with:\n          args: -Dsonar.projectBaseDir=sub\n",
+            "any argument to the scan": SCAN_STEP + "        with:\n          args: -Dsonar.verbose=true\n",
+            "the scan's base given": SCAN_STEP + "        with:\n          projectBaseDir: sub\n",
+            "the scan's base given as it is": SCAN_STEP + "        with:\n          projectBaseDir: .\n",
+            "the scanner's options": SCAN_STEP + "        env:\n          SONAR_SCANNER_OPTS: -Dproject.settings=x\n",
+            "the scanner's parameters": SCAN_STEP + "        env:\n          SONAR_SCANNER_JSON_PARAMS: x\n",
+            "the scanner's old parameters": SCAN_STEP + "        env:\n          SONARQUBE_SCANNER_PARAMS: x\n",
+        }
+        for why, step in routes.items():
+            self.assertEqual(settings(changed(SCAN_STEP, step)), workflows.UNREADABLE, why)
+        # The same names given to the job, or to the workflow, are refused too, and so is a checkout put elsewhere.
+        for name in ("SONAR_SCANNER_OPTS", "SONAR_SCANNER_JSON_PARAMS", "SONARQUBE_SCANNER_PARAMS"):
+            self.assertEqual(settings(changed("      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}\n",
+                                              "      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}\n      %s: x\n" % name)),
+                             workflows.UNREADABLE, name)
+            self.assertEqual(settings(changed("permissions: {}\n", "permissions: {}\nenv:\n  %s: x\n" % name)),
+                             workflows.UNREADABLE, name)
+        self.assertEqual(settings(changed(CHECKOUT_WITH, CHECKOUT_WITH + "          path: sub\n")), workflows.UNREADABLE)
+        # The two names the table allows, at each level, pass.
+        self.assertIsNone(settings(changed("permissions: {}\n", "permissions: {}\nenv:\n  GITHUB_TOKEN: x\n")))
+        self.assertIsNone(settings(changed(SCAN_STEP, SCAN_STEP + "        env:\n          SONAR_TOKEN: x\n")))
 
 
 if __name__ == "__main__":

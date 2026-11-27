@@ -1,17 +1,15 @@
 # guards/
 
-Pure guards on a Role's own writes: each says what a write may land, or a code for why not. `patch.py` applies a patch byte for byte. `push.py` holds a push through to the branch read again. `opening.py` keeps a draft from linking; the rest is to come.
+Pure guards on a Role's own writes: each says what a write may land, or a code why not. `patch.py` applies a patch byte for byte, `push.py` holds a push to the branch read anew, `opening.py` keeps a draft from linking, `workflows.py` a job to the base's list.
 A guard binds the Role that writes this repo's code. So it lives here, never in `kernel/` or `adapters/`, where that Role may push; a port hands a guard what it read, and the Harness calls it. A guard reads nothing itself.
 
 | Rule | Held by |
 |---|---|
 | No I/O: no file, socket, process, environment variable or clock. Nothing is kept between calls. No `raise`, no special name, no number but 0 and 1; each rule here has a mutant a test kills | `tools/check_purity.py`, `tools/mutants.py` |
-| A guard calls nothing it is given: it takes no `_decision`, the one parameter the Kernel may call | `tests/test_tools.py::test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone` |
+| A guard calls nothing it is given, no `_decision`; no module is named as the Kernel's terms, gate or brakes are | `tests/test_tools.py::test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone` |
 | Only `__future__` and `guards` are imported, `guards` by its name and never relatively. Never the Kernel: it is not protected whole, so no guard rests on it | `tests/test_tools.py::test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone` |
 | Every folder here has an `__init__.py` and holds the source the check reads and an `AGENTS.md` alone, no link: Python imports what was read | `tests/test_tools.py::test_the_guards_are_the_package_python_imports_and_read_nothing_off_a_value` |
-| No module here is named as `kernel/terms.py`, `kernel/gate.py` or `kernel/brakes.py` is: the check's rules for those names are the Kernel's | `tests/test_tools.py::test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone` |
-| Nothing is read of a value but by a built-in type's method that is called: a generator's frame is one attribute from every builtin | `tests/test_tools.py::test_the_guards_are_the_package_python_imports_and_read_nothing_off_a_value` |
-| A module's name here is bound by its import alone: no parameter, local, function or other import takes it | `tests/test_tools.py::test_the_guards_are_the_package_python_imports_and_read_nothing_off_a_value` |
+| Nothing is read of a value but by a built-in type's method called; a module's name is bound by its import alone | `tests/test_tools.py::test_the_guards_are_the_package_python_imports_and_read_nothing_off_a_value` |
 | A Role's push that touches `guards/` is refused: it is a protected path | `tests/test_apply.py::test_a_push_is_held_to_the_bases_list_by_each_class_of_path` |
 | A package at the top of the repo is one of verify's inputs, whole, and this one is | `tests/test_tools.py::test_every_package_at_the_top_of_the_repo_is_a_lens_input_whole` |
 | A patch is read section by section as git writes it: each one's kind, its two names and its modes | `tests/test_guards.py::test_a_patch_is_read_section_by_section_as_git_writes_it` |
@@ -38,3 +36,5 @@ A guard binds the Role that writes this repo's code. So it lives here, never in 
 | Writes follow and end the branch and listing reads; tree, commit and branch read back | `tests/test_guards.py::test_nothing_is_written_before_the_branch_and_the_listing_were_read`, `tests/test_guards.py::test_a_push_lands_its_commit_and_branch_read_back` |
 | One blob of each written content, and one tree naming exactly the changes | `tests/test_guards.py::test_a_blob_is_made_once_of_each_written_content`, `tests/test_guards.py::test_the_one_tree_names_exactly_the_changes_by_the_blobs_made` |
 | A draft's title and body, as GitHub renders them, link no issue by its syntax, mention no one, close nothing | `tests/test_guards.py::test_a_drafts_title_and_body_are_text_this_reads`, `tests/test_guards.py::test_a_draft_links_mentions_and_closes_nothing` |
+| A job's settings files and its workflow are on the base's list, word for word or under a folder | `tests/test_guards.py::Settings.test_a_jobs_settings_on_the_bases_list_pass_and_off_it_are_refused` |
+| What its table does not name is refused, never passed, every route that points the scan elsewhere among it | `tests/test_guards.py::Settings.test_what_the_table_does_not_name_is_refused` |
