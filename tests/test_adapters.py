@@ -7998,11 +7998,16 @@ class Linked(unittest.TestCase):
                              {26: [{"seen_at": minute(1), "gone_at": None}]})
         self.assertEqual((got[0], got[1], got[3]), ([], False, True))
         # So does a closer of the present life that no reference names now; one of a life before counts nothing (issue 1179).
-        # The answers past the bound are there to be asked, so a read past it is told by what it lists, not a want of them.
-        router = Router(github.Replay([linked_read(ref(*range(1, 26)), [closed_by(15, 26)])] + many(25)[1:]
-                                      + [pull_read(26), pull_timeline(26)]), {})
+        # The answers past the bound are there to be asked, so a read past it is told by what it lists and asks.
+        replay = github.Replay([linked_read(ref(*range(1, 26)), [closed_by(15, 26)])] + many(25)[1:]
+                               + [pull_read(26), pull_timeline(26)])
+        router = Router(replay, {})
         got = linked.listing(router, "o/r", 41, UPDATED, minute(10), IDENTITIES, self.accounts(router), {})
-        self.assertEqual((got[0], got[1], got[3]), ([], False, True))
+        self.assertEqual((got[0], got[1], got[3], len(replay._left)), ([], False, True, 52))
+        # A closer a reference names too is one pull request, counted once.
+        router = Router(github.Replay([linked_read(ref(*range(1, 26)), [closed_by(15, 25)])] + many(25)[1:]), {})
+        got = linked.listing(router, "o/r", 41, UPDATED, minute(10), IDENTITIES, self.accounts(router), {})
+        self.assertEqual((len(got[0]), got[3]), (25, False))
         router = Router(github.Replay([linked_read(ref(*range(1, 26)), [closed_by(5, 26)])] + many(25)[1:]), {})
         got = linked.listing(router, "o/r", 41, UPDATED, minute(10), IDENTITIES, self.accounts(router), {})
         self.assertEqual((len(got[0]), got[1], got[3]), (25, True, False))
