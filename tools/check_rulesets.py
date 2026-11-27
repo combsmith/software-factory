@@ -114,8 +114,9 @@ def _advisory(rulesets: dict, root: pathlib.Path) -> list:
         if not isinstance(advisory, list) or not all(isinstance(name, str) for name in advisory):
             raise TypeError("advisory is not a list of names")
         lenses, models = required["deterministic"], required["model"]
-        if not isinstance(lenses, list) or not all(isinstance(lens, dict) for lens in lenses):
-            raise TypeError("the deterministic Lenses are not a list of Lenses")
+        if not isinstance(lenses, list) or not all(isinstance(lens, dict) and isinstance(lens.get("lens"), str)
+                                                   and isinstance(lens.get("check"), str) for lens in lenses):
+            raise TypeError("the deterministic Lenses are not a list of Lenses, each with its name and its check")
         if not isinstance(models, list) or not all(isinstance(name, str) for name in models):
             raise TypeError("the model Lenses are not a list of names")
     except (OSError, ValueError, KeyError, TypeError) as err:
@@ -125,11 +126,12 @@ def _advisory(rulesets: dict, root: pathlib.Path) -> list:
     problems = []
     for title, ruleset in sorted(rulesets.items()):
         rules = ruleset.get("rules") if isinstance(ruleset, dict) else None
-        # A rule of either kind that is present is read whole: only one that is absent names nothing.
-        status, scanning = (rules.get(kind, {}) for kind in ("required_status_checks", "code_scanning")) \
+        # A rule of either kind that is present is read whole, its list too: only one that is absent names nothing.
+        status, scanning = (rules.get(kind, {key: []}) for kind, key in (("required_status_checks", "required_status_checks"),
+                                                                         ("code_scanning", "code_scanning_tools"))) \
             if isinstance(rules, dict) else (None, None)
-        checks = status.get("required_status_checks", [] if not status else None) if isinstance(status, dict) else None
-        tools = scanning.get("code_scanning_tools", [] if not scanning else None) if isinstance(scanning, dict) else None
+        checks = status.get("required_status_checks") if isinstance(status, dict) else None
+        tools = scanning.get("code_scanning_tools") if isinstance(scanning, dict) else None
         if not isinstance(checks, list) or not isinstance(tools, list) \
                 or not all(isinstance(item, dict) and isinstance(item.get(name), str)
                            for items, name in ((checks, "context"), (tools, "tool")) for item in items):

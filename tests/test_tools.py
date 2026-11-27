@@ -17103,22 +17103,23 @@ class Rulesets(unittest.TestCase):
         for title in ("factory release tags", "another ruleset"):
             kept = json.loads(json.dumps(self.rulesets))
             held = self.rulesets["rulesets"].setdefault(title, {"target": "branch", "enforcement": "disabled", "rules": {}})
-            held["rules"]["code_scanning"] = {"code_scanning_tools": [{"tool": "CodeQL"}, {"tool": "advisory-astra"}]}
-            self.assertTrue(caught(self.run_on(), "the %s ruleset names 'advisory-astra', the advisory Lens" % title), title)
+            for tools in ([{"tool": "CodeQL"}, {"tool": "advisory-astra"}], [{"tool": "advisory-astra"}, {"tool": "CodeQL"}]):
+                held["rules"]["code_scanning"] = {"code_scanning_tools": tools}
+                self.assertTrue(caught(self.run_on(), "the %s ruleset names 'advisory-astra', the advisory Lens" % title), (title, tools))
             self.rulesets = kept
             self.main = self.rulesets["rulesets"]["main"]["rules"]
         # The names barred are the configured ones, read as the ruleset's are, beside spaces too.
         kept = json.loads(json.dumps(self.rulesets))
         for roster, name, barred in ((["nova"], "advisory-nova", True), (["nova"], "advisory-astra", False),
                                      (["astra "], "advisory-astra ", True), (["astra "], "astra", True),
-                                     (["ASTRA"], "advisory-astra", True)):
+                                     (["ASTRA"], "advisory-astra", True), ([" astra"], "advisory-astra", True)):
             self.harness["advisory"] = roster
             self.rulesets["rulesets"]["another ruleset"] = {"rules": {"required_status_checks": {"required_status_checks": [{"context": name}]}}}
             self.assertEqual(caught(self.run_on(), "the another ruleset ruleset names %r, the advisory Lens" % name), barred, (roster, name))
         self.harness["advisory"] = ["coderabbit", "astra", "kimi"]
         # A rule that is present is read whole: one that holds no list where its names go is never one that names none.
         for odd in ({"required_status_checks": None}, {"required_status_checks": ""}, {"code_scanning": []},
-                    {"code_scanning": {"code_scanning_tools": [{"tool": 7}]}},
+                    {"code_scanning": {"code_scanning_tools": [{"tool": 7}]}}, {"required_status_checks": {}}, {"code_scanning": {}},
                     {"code_scanning": {"parameters": {"code_scanning_tools": [{"tool": "astra"}]}}},
                     {"required_status_checks": {"strict_required_status_checks_policy": True}}):
             self.rulesets["rulesets"]["another ruleset"] = {"rules": odd}
@@ -17127,11 +17128,15 @@ class Rulesets(unittest.TestCase):
         self.main = self.rulesets["rulesets"]["main"]["rules"]
         self.assertEqual(self.run_on(), [])
         # A required model Lens is held to the check's name as well as the Lens's.
-        lenses["model"].append("Advisory-Astra")
+        lenses["model"].insert(0, "Advisory-Astra")      # first among them, as well as last above
         self.assertTrue(caught(self.run_on(), "a required Lens is named 'Advisory-Astra', the advisory Lens astra's"))
-        lenses["model"].pop()
+        lenses["model"].pop(0)
+        lenses["deterministic"].insert(0, {"lens": "lint", "check": "advisory-kimi", "app_id": 15368, "workflow": None})
+        self.assertTrue(caught(self.run_on(), "a required Lens is named 'advisory-kimi', the advisory Lens kimi's"))
+        lenses["deterministic"].pop(0)
         # Required Lenses in a shape this check does not read are never read as naming none.
-        for key, odd in (("model", "astra"), ("model", [{"lens": "astra"}]), ("deterministic", "astra"), ("deterministic", ["astra"])):
+        for key, odd in (("model", "astra"), ("model", [{"lens": "astra"}]), ("deterministic", "astra"), ("deterministic", ["astra"]),
+                         ("deterministic", [{"lens": {"name": "astra"}, "check": "lint"}]), ("deterministic", [{"lens": "lint"}])):
             kept_lenses = lenses[key]
             lenses[key] = odd
             self.assertTrue(caught(self.run_on(), "cannot be read for the advisory Lenses"), (key, odd))
