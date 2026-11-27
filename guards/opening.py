@@ -1,9 +1,9 @@
 """What the draft pull request an opening Run opens may say in its title and body (issue 838; the Factory Builder's
 ruling 4 on S6).
 
-The title and the body come from the Result, written by a model. `apply` writes them with a line of its own, which
-closes the Run's issue and no other: so that line is the only link in the draft, and the Result's text links nothing,
-mentions no one and closes nothing.
+The title and the body come from the Result, written by a model. `apply` writes them with what it adds itself: the
+issue's `(#N)` after the title, and a line that closes the Run's issue and no other. So those are the only links in
+the draft, and the Result's text links nothing, mentions no one and closes nothing.
 
 - `refusal(title, body)`: None where the draft may say them, or the one reason, a code, why it may not. The first
   of these that holds is the one given:
@@ -44,16 +44,19 @@ let through binds or notifies what no one admitted.
 
 Its stated limits:
 - GitHub also links a commit's SHA (`owner/repo@sha` is refused as a mention, since a login may begin with a letter
-  or a digit), a URL to a user, a repository, a file or a commit, and a repository's own autolink prefixes: none
-  binds an issue or a pull request, notifies anyone or closes anything, so each is let through. An autolink's target
-  may be an issue's page; whether a repository holds such a prefix is its settings', which this reads none of.
+  or a digit) and a URL to a user, a repository, a file or a commit: none binds an issue or a pull request, notifies
+  anyone or closes anything, so each is let through.
+- A repository's own autolink prefixes are let through, and no prefix is refused: an admin sets each one's target,
+  not the model, and this reads no settings. Even one whose target is an issue's page is, as far as is known, a plain
+  link: no mention, no close and no cross-reference on the target. That is from memory, not a trial.
 - An invisible character between a mark and a digit, `#` U+200B `12`, is let through: GitHub links no reference so
   split, and the text shows one only to the eye.
 - A mark is read only as ASCII writes it: GitHub reads no other `#`, `@`, digit or hyphen in a reference or a
   mention, so a full-width number sign before a digit is let through.
 - That `apply`'s own line reads as written is `apply`'s, and not this guard's: written after the Result's text, an
   unclosed code fence there would make it code; written before, nothing that follows changes how it reads.
-- How long a title and a body may be is `effect/1`'s schema's to bound: a guard writes no number.
+- How long a title and a body may be is `effect/1`'s schema's to bound: a guard writes no number. The issue's
+  `(#N)` after the title is `apply`'s too, and so is refusing a title too long to carry it.
 
 `apply` gives both arguments; this reads nothing itself.
 """
