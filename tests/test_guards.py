@@ -1267,7 +1267,7 @@ class Push(unittest.TestCase):
     def test_a_pushs_changes_are_what_applied_gives_path_by_path(self):
         def told(**changed):
             changes = dict(WROTE, **changed)
-            blobs = {path: "QQo=" for path in changes["written"]} if isinstance(changes.get("written"), dict) else {}
+            blobs = {path: path for path in changes["written"]} if isinstance(changes.get("written"), dict) else {}
             return dict(PUSH, changes=changes, blobs=blobs)
         for good in (told(), told(removed=[]), told(written={}), told(read=["docs/a.md", "docs/z.md"]),
                      told(written={"a/b": (FILE, b"")}, removed=["a/c", "ab"]),
@@ -1386,7 +1386,7 @@ class Push(unittest.TestCase):
         self.assertIsNone(reason)
         self.assertEqual(push.touched(got), ((["docs/a.md", "docs/c.md", "docs/n.md", "tests/t.py"], ["docs/a.md"]), None))
         self.assertEqual(push.existing(got, TREE), (["docs/a.md", "tests/t.py"], None))
-        self.assertIsNotNone(push.began(dict(PUSH, changes=got, blobs={path: "" for path in got["written"]}))[0])
+        self.assertIsNotNone(push.began(dict(PUSH, changes=got, blobs={path: path for path in got["written"]}))[0])
 
 
     @staticmethod
@@ -1432,7 +1432,8 @@ class Push(unittest.TestCase):
         # A blob refused, or not answered, is a stop of its own, whoever judges the bytes given.
         for answer, why in ((None, push.UNANSWERED), ({"status": "503", "body": {}}, push.UNANSWERED),
                             ({"status": "404", "body": {}}, push.ANSWER_REFUSED), ({"status": "206", "body": {}}, push.ANSWER_REFUSED),
-                            ({"status": "403", "body": {}}, push.ANSWER_REFUSED)):
+                            ({"status": "403", "body": {}}, push.ANSWER_REFUSED), ({"status": "401", "body": {}}, push.UNANSWERED),
+                            ({"status": "429", "body": {}}, push.RATE_LIMITED)):
             self.assertEqual(push.seen(state, "GET", blob, None, answer), (None, why), answer)
         self.assertEqual([push.permits(once, "GET", GIT + "blobs/" + sha, None) for sha in (BLOB_A, BLOB_T)], [False, True])
         self.assertEqual(push.seen(once, "GET", blob, None, None), NOT_PERMITTED)
@@ -1477,9 +1478,10 @@ class Push(unittest.TestCase):
             self.assertEqual(push.seen(committed, "GET", AT_TREE, None, listing), NOT_PERMITTED, said)
 
     def test_each_read_says_whose_a_stop_is(self):
-        self.assertEqual((push.BRANCH_MOVED, push.ANSWER_REFUSED, push.UNANSWERED),
-                         ("push_branch_moved", "push_answer_refused", "push_unanswered"))
+        self.assertEqual((push.BRANCH_MOVED, push.ANSWER_REFUSED, push.UNANSWERED, push.RATE_LIMITED),
+                         ("push_branch_moved", "push_answer_refused", "push_unanswered", "push_rate_limited"))
         moved, refused, unanswered = (None, push.BRANCH_MOVED), (None, push.ANSWER_REFUSED), (None, push.UNANSWERED)
+        limited = (None, push.RATE_LIMITED)
         for told, answer, why in (
                 # The branch as the Decision did not admit it: someone else wrote it.
                 (PUSH, ref(NEW_A), moved), (PUSH, ref(PARENT), moved), (MOVE, ABSENT, moved), (MOVE, ref(NEW_A), moved),
@@ -1496,7 +1498,7 @@ class Push(unittest.TestCase):
                 # No answer, or one read as none.
                 (PUSH, None, unanswered), (MOVE, {"status": "500", "body": {}}, unanswered),
                 (PUSH, {"status": "401", "body": {}}, unanswered),
-                (MOVE, {"status": "403", "body": {}}, unanswered), (PUSH, {"status": "429", "body": {}}, unanswered), (MOVE, {"status": "599", "body": {}}, unanswered),
+                (MOVE, {"status": "403", "body": {}}, unanswered), (PUSH, {"status": "429", "body": {}}, limited), (MOVE, {"status": "599", "body": {}}, unanswered),
                 # An answer in no shape `send` gives is the caller's to have checked.
                 (PUSH, {"status": 404, "body": {}}, NOT_PERMITTED), (PUSH, {"status": "404"}, NOT_PERMITTED),
                 (PUSH, Mapping(ABSENT), NOT_PERMITTED), (PUSH, {"status": "5oops", "body": {}}, NOT_PERMITTED),
@@ -1508,7 +1510,7 @@ class Push(unittest.TestCase):
             self.assertEqual(push.seen(push.began(told)[0], "GET", AT_BRANCH, None, answer), why, (told["head"], answer))
         first, _ = push.seen(push.began(PUSH)[0], "GET", AT_BRANCH, None, ABSENT)
         for answer, why in (({"status": "404", "body": {}}, refused), ({"status": "403", "body": {}}, refused),
-                            ({"status": "401", "body": {}}, unanswered), ({"status": "429", "body": {}}, unanswered), ({"status": "200", "body": {"sha": NEW_A, "tree": {"sha": ROOT_TREE}}}, refused),
+                            ({"status": "401", "body": {}}, unanswered), ({"status": "429", "body": {}}, limited), ({"status": "200", "body": {"sha": NEW_A, "tree": {"sha": ROOT_TREE}}}, refused),
                             ({"status": "200", "body": {"sha": PARENT, "tree": {"sha": "x"}}}, refused),
                             ({"status": "200", "body": {"sha": PARENT, "tree": ROOT_TREE}}, refused),
                             ({"status": "200", "body": {"sha": PARENT}}, refused), ({"status": "200", "body": None}, refused),
@@ -1606,6 +1608,27 @@ class Push(unittest.TestCase):
         entries = [{"path": path, "mode": FILE, "type": "blob", "sha": MADE} for path in ("docs/a.md", "docs/b.md")]
         self.assertTrue(push.permits(both, "POST", GIT + "trees", {"base_tree": ROOT_TREE, "tree": entries + [
             {"path": "tests/t.py", "mode": FILE, "type": "blob", "sha": None}]}))
+        # Two files of one content are one blob however `apply` encodes each: here as GitHub wraps it, with a newline.
+        twice = dict(same, blobs={"docs/a.md": "QQo=", "docs/b.md": "QQo=\n"})
+        both, _ = push.seen(self.read(twice), "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"},
+                            {"status": "201", "body": {"sha": MADE}})
+        self.assertEqual(both["made"], {"docs/a.md": MADE, "docs/b.md": MADE})
+        self.assertFalse(push.permits(both, "POST", GIT + "blobs", {"content": "QQo=\n", "encoding": "base64"}))
+        self.assertTrue(push.permits(both, "POST", GIT + "trees", {"base_tree": ROOT_TREE, "tree": entries + [
+            {"path": "tests/t.py", "mode": FILE, "type": "blob", "sha": None}]}))
+        self.assertEqual(push.seen(both, "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"},
+                                   {"status": "201", "body": {"sha": MADE}}), (None, push.NOT_PERMITTED))
+        # Each blob names the files of the content it was made of, in whatever order the blobs are made.
+        later, _ = push.seen(state, "POST", GIT + "blobs", {"content": "eAo=", "encoding": "base64"},
+                             {"status": "201", "body": {"sha": NEW_A}})
+        later, _ = push.seen(later, "POST", GIT + "blobs", {"content": "QQo=", "encoding": "base64"},
+                             {"status": "201", "body": {"sha": MADE}})
+        self.assertEqual(later["made"], {"docs/a.md": MADE, "docs/n.md": NEW_A})
+        self.assertFalse(push.permits(dict(self.read(twice), made={"docs/b.md": MADE}), "POST", GIT + "blobs",
+                                      {"content": "QQo=", "encoding": "base64"}))
+        # One base64 for two contents is no push `apply` tells.
+        self.assertEqual(push.began(dict(same, changes=dict(WROTE, written={"docs/a.md": (FILE, b"A\n"), "docs/b.md": (FILE, b"B\n")}))),
+                         (None, push.NOT_PERMITTED))
         # Files of one content are named by one blob in any state.
         self.assertFalse(push.permits(dict(self.read(same), made={"docs/a.md": MADE}), "POST", GIT + "blobs",
                                       {"content": "QQo=", "encoding": "base64"}))
@@ -1676,8 +1699,9 @@ class Push(unittest.TestCase):
         made = self.made(state)
         for answer, why in (
                 # GitHub refused the write, or answered with what was not made.
-                ({"status": "422", "body": {}}, push.ANSWER_REFUSED), ({"status": "401", "body": {}}, push.ANSWER_REFUSED),
-                ({"status": "429", "body": {}}, push.ANSWER_REFUSED),
+                ({"status": "422", "body": {}}, push.ANSWER_REFUSED), ({"status": "403", "body": {}}, push.ANSWER_REFUSED),
+                # A token expired is the port's; GitHub's limit on it, a code of its own.
+                ({"status": "401", "body": {}}, push.UNANSWERED), ({"status": "429", "body": {}}, push.RATE_LIMITED),
                 ({"status": "200", "body": {"sha": MADE}}, push.ANSWER_REFUSED),
                 ({"status": "201", "body": {"sha": "x"}}, push.ANSWER_REFUSED), ({"status": "201", "body": None}, push.ANSWER_REFUSED),
                 ({"status": "201", "body": {"sha": Text(MADE)}}, push.ANSWER_REFUSED),

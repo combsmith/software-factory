@@ -16628,8 +16628,8 @@ class ReviewOrderTrial(IssueLookupTrial):
     FIRST = "issues: read and pull_requests: write"
     NOT_A_NUMBER = "is not a pull request's number"
     # The stand-in answers the review, the comments, the timeline and the reviews list, keeping each body sent for the
-    # test to read. Two a page, the timeline has three pages; the reviews list
-    # is empty. Files beside it refuse the review's start or the comments, start it submitted, or list a review before it.
+    # test to read. Two a page, the timeline has three pages, or as many as a file says; the reviews list is empty. Files beside it refuse
+    # a read, the review's start or the comments, start it submitted, or list a review before it.
     CURL = BranchReadsTrial.CURL.replace('elif "/issues/" in url:', """elif "/timeline" in url or "/reviews" in url or "/comments" in url:
     if os.path.exists(os.path.join(here, "read.broke")):
         sys.stdout.write("HTTP/2 200\\r\\n\\r\\n{")
@@ -16646,7 +16646,10 @@ class ReviewOrderTrial(IssueLookupTrial):
     import urllib.parse
     query = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
     leak = "gh" + "s_" + "L" * 36
-    if method == "POST" and url.endswith("/reviews"):
+    refused = os.path.join(here, "refuse.read")
+    if method == "GET" and os.path.exists(refused) and open(refused).read() in url:
+        status, answer = 404, {"message": "Not Found"}
+    elif method == "POST" and url.endswith("/reviews"):
         status, answer = (422, {"message": "Validation Failed"}) if os.path.exists(os.path.join(here, "no-review")) else \\
             (200, {"id": "7/../x" if os.path.exists(os.path.join(here, "odd.id")) else 81,
                    "state": "COMMENTED" if os.path.exists(os.path.join(here, "not-pending")) else "PENDING"})
@@ -16660,10 +16663,11 @@ class ReviewOrderTrial(IssueLookupTrial):
         status, answer = 201, {"id": 9, "created_at": "2026-11-26T12:00:20Z"}
     elif query.get("per_page") == "2":
         page = int(query.get("page", "1"))
-        named = '<https://api.github.com/x?per_page=2&page=%d>; rel="next"' % (page + 1) if page < 3 else \\
+        last = int(open(os.path.join(here, "last.page")).read()) if os.path.exists(os.path.join(here, "last.page")) else 3
+        named = '<https://api.github.com/x?per_page=2&page=%d>; rel="next"' % (page + 1) if page < last else \\
             '<https://api.github.com/x?per_page=2&page=1>; rel="first"'
         sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\nlink: %s\\r\\n\\r\\n%s" % (named, json.dumps(
-            [{"event": "commented", "id": page, "created_at": "2026-11-26T12:00:0%dZ" % page, "leak": leak}])))
+            [{"event": "commented", "id": page, "created_at": "2026-11-26T12:00:%02dZ" % page, "leak": leak}])))
         sys.exit(0)
     else:
         status, answer = 200, [{"event": "reviewed", "id": 81, "submitted_at": "2026-11-26T12:01:40Z", "leak": leak}]
@@ -16732,11 +16736,48 @@ elif "/issues/" in url:""", 1)
                 self.assertEqual([c["method"] for c in self.calls()], ["POST", "GET", "GET", "POST", "DELETE"])
                 self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
 
+    def test_a_read_not_answered_200_stops_the_run_and_its_token_is_revoked(self):
+        # A refused read is no evidence: neither the first timeline nor the review's comments, the last, is taken as one.
+        for fragment, made in (("timeline?per_page=100", 1), ("/reviews/81/comments", 18)):
+            with self.subTest(fragment=fragment):
+                self.setUp()
+                (self.stand_in / "refuse.read").write_text(fragment)
+                ran = self.run_script()
+                self.assertNotEqual(ran.returncode, 0, ran.stdout)
+                self.assertIn(": GitHub answered 404, not 200; nothing after it is asked", ran.stderr)
+                self.assertNotIn("Done", ran.stdout)
+                calls = [c for c in self.calls() if c["method"] != "SLEEP"]
+                self.assertIn(fragment, calls[-2]["url"])
+                self.assertEqual(len(calls), made + 2)    # the mint, the calls made, the revocation
+                self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+                self.assertFalse((self.out / "requests.json").exists())
+
+    def test_a_timeline_of_thirty_pages_is_read_whole(self):
+        (self.stand_in / "last.page").write_text("30")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        urls = [c["url"] for c in self.calls()]
+        self.assertEqual(sum("per_page=2" in u for u in urls), 30)
+        self.assertTrue(urls[-2].endswith("/reviews/81/comments?per_page=100"), urls[-2])
+        self.assertIn("Done.", ran.stdout)
+
+    def test_a_timeline_past_the_page_bound_stops_the_run_with_no_done(self):
+        (self.stand_in / "last.page").write_text("31")
+        ran = self.run_script()
+        self.assertNotEqual(ran.returncode, 0, ran.stdout)
+        self.assertIn("page 30 of two still names a next page; the rest is unread, so the run is not whole", ran.stderr)
+        self.assertNotIn("Done", ran.stdout)
+        urls = [c["url"] for c in self.calls()]
+        self.assertEqual(sum("per_page=2" in u for u in urls), 30)
+        self.assertFalse(any("/reviews/81/comments" in u for u in urls))
+        self.assertEqual(self.calls()[-1]["method"], "DELETE")
+        self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+
     def test_a_pull_request_reviewed_before_is_written_to_not_at_all(self):
         (self.stand_in / "reviewed-before").write_text("")
         ran = self.run_script()
         self.assertNotEqual(ran.returncode, 0, ran.stdout)
-        self.assertIn("the pull request's reviews were not read as none, status 200; nothing is written", ran.stderr)
+        self.assertIn("the pull request's reviews were not read as none; nothing is written", ran.stderr)
         self.assertEqual([c["method"] for c in self.calls()], ["POST", "GET", "GET", "DELETE"])
 
     def test_a_comment_refused_stops_the_run_before_the_submission(self):
