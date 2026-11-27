@@ -17116,7 +17116,7 @@ class Rulesets(unittest.TestCase):
         self.harness["advisory"] = ["coderabbit", "astra", "kimi"]
         self.assertEqual(self.run_on(), [])
         self.assertEqual(check_rulesets.CHECK % "astra", "advisory-astra")
-        for name in ("advisory-astra", "astra", "kimi", "advisory-kimi", "coderabbit", "Advisory-Astra", "KIMI", " astra "):
+        for name in ("advisory-astra", "astra", "kimi", "advisory-kimi", "coderabbit", "Advisory-Astra", "KIMI", " astra ", " AdViSoRy-AsTrA "):
             checks = self.main["required_status_checks"]["required_status_checks"]
             lens = name.strip().lower().replace("advisory-", "")
             for at in (0, len(checks)):         # wherever it stands among the checks required
@@ -17142,7 +17142,7 @@ class Rulesets(unittest.TestCase):
         # Nor is one made required by another road: a required Lens of that name, or with that check.
         lenses = self.defaults["required_lenses"]
         for change in ({"lens": "astra"}, {"check": "advisory-astra"}, {"check": "Kimi"}, {"check": " advisory-kimi "}, {"lens": "ASTRA"},
-                       {"lens": "advisory-astra"}, {"lens": " astra "}):
+                       {"lens": "advisory-astra"}, {"lens": " astra "}, {"check": " AdViSoRy-AsTrA "}):
             lenses["deterministic"].append(dict({"lens": "lint", "check": "lint", "app_id": 15368, "workflow": None}, **change))
             self.assertTrue(caught(self.run_on(), "a required Lens is named %r, the advisory Lens" % list(change.values())[0]), change)
             lenses["deterministic"].pop()
@@ -17161,6 +17161,9 @@ class Rulesets(unittest.TestCase):
             self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"), odd)
             self.rulesets["rulesets"]["another ruleset"] = {"rules": {"code_scanning": {"code_scanning_tools": odd}}}
             self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"), odd)
+        # One tool unread among tools read is still a ruleset this check cannot read.
+        self.rulesets["rulesets"]["another ruleset"] = {"rules": {"code_scanning": {"code_scanning_tools": [{"tool": "CodeQL"}, {"tool": 7}]}}}
+        self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"))
         self.rulesets = kept
         self.main = self.rulesets["rulesets"]["main"]["rules"]
         self.assertEqual(self.run_on(), [])
@@ -17218,7 +17221,7 @@ class Rulesets(unittest.TestCase):
         lenses["deterministic"] = kept_lenses
         self.assertEqual(self.run_on(), [])
         # With no list of the advisory Lenses to read, nothing is shown, and the check says so.
-        for unreadable in ({}, {"advisory": "astra"}, {"advisory": [7]}, {"advisory": ["astra", 7]}, {"advisory": None}, ["astra"]):
+        for unreadable in ({}, {"advisory": "astra"}, {"advisory": [7]}, {"advisory": ["astra", 7]}, {"advisory": None}, ["astra"], {"advisory": {}}):
             self.harness = unreadable
             self.assertTrue(caught(self.run_on(), "cannot be read for the advisory Lenses"), unreadable)
 
