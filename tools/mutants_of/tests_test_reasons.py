@@ -9,6 +9,8 @@ MUTANTS = [
      'any((a.asname or a.name.split(".")[0]) == "reason"', 'any(a.name.split(".")[0] == "reason"', ("tests.test_reasons.Written.test_a_reason_written_any_way_is_read",)),
     ("the scan reads no handler bound to the name reason", "tests/test_reasons.py",
      "(ast.ExceptHandler, ast.FunctionDef,", "(ast.FunctionDef,", ("tests.test_reasons.Written.test_a_reason_written_any_way_is_read",)),
+    ("the scan reads no definition bound to the name reason", "tests/test_reasons.py",
+     "(ast.ExceptHandler, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)", "(ast.ExceptHandler,)", ("tests.test_reasons.Written.test_a_reason_written_any_way_is_read",)),
     # Decision 0248: every reason is in one of two sets, a pull request's and an issue's own.
     ("the scan reads no choice between reasons", "tests/test_reasons.py",
      "    elif isinstance(node, ast.IfExp):\n        _give(node.body, found, unread)\n        _give(node.orelse, found, unread)\n",

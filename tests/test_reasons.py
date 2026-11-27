@@ -171,7 +171,8 @@ def written(tree, taken: dict) -> tuple:
     place or name, a table bound anywhere but once at the top level, a handed table bound again, and the name `reason`
     bound any other way, by a loop, a comprehension, `:=`, an import, a handler or a definition, is put in `unread`.
     The scan assumes good faith, as the Kernel's other source checks do: it reads the forms the Kernel writes and
-    refuses the ones the record lists, and no others (decision 0248's limit row). The runtime test is the binding hold.
+    refuses the ones named here, the record's among them (decision 0248's limit row). The runtime test is the binding
+    hold.
     """
     found, unread, calls, bound = [], [], 0, set()
     tops = {id(t) for node in tree.body if isinstance(node, ast.Assign) for t in node.targets}
