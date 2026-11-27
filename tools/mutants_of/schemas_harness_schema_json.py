@@ -26,4 +26,10 @@ MUTANTS = [
     ("a reader's share may pass the step's whole", 'schemas/harness.schema.json',
      '"type": "integer",\n            "minimum": 60,\n            "maximum": 1440',
      '"type": "integer",\n            "minimum": 60,\n            "maximum": 1441', ('tests.test_tools.Repo.test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else',)),
+    ("a reader's share may be any number", 'schemas/harness.schema.json',
+     '"type": "integer",\n            "minimum": 60,',
+     '"type": "number",\n            "minimum": 60,', ('tests.test_tools.Repo.test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else',)),
+    ("a reader's share of a whole minute is refused", 'schemas/harness.schema.json',
+     '"type": "integer",\n            "minimum": 60,\n            "maximum": 1440',
+     '"type": "integer",\n            "minimum": 61,\n            "maximum": 1440', ('tests.test_tools.Repo.test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else',)),
 ]

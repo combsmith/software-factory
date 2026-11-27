@@ -3591,8 +3591,10 @@ class Repo(unittest.TestCase):
                   "seconds": 900, "share": 540, "usd_per_million": {"input": 2.5, "output": 20}}
         self.assertEqual(validate(dict(whole, readers={"astra": reader, "kimi": dict(reader, api="chat")}), schema), [])
         # A reader's share of the advise step is its own, from a minute to the step's whole (decision 0243).
-        for share in (59, 1441, None):
+        for share in (59, 1441, None, 60.5):
             self.assertTrue(validate(dict(whole, readers={"astra": dict(reader, share=share)}), schema), share)
+        for share in (60, 1440):
+            self.assertEqual(validate(dict(whole, readers={"astra": dict(reader, share=share)}), schema), [], share)
         self.assertTrue(validate(dict(whole, readers={"astra": {k: v for k, v in reader.items() if k != "share"}}), schema))
         self.assertEqual(validate(dict(whole, readers={}), schema), [])
         # A model is pinned as its vendor writes it, capitals and all (trial P-75).
