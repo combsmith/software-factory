@@ -347,7 +347,7 @@ def _readers(harness) -> list:
             out.append("harness: the reader %s is no advisory Lens; name it under advisory, or take its block out" % name)
         elif not re.fullmatch(r"[a-z]{1,31}", name):
             out.append("harness: the reader %s has a name advice/1 cannot hold: letters alone, 31 at most" % name)
-        elif any(str(harness["readers"][name].get(pin, "")).casefold().startswith("claude") for pin in ("model", "deployment")):
+        elif any("claude" in str(harness["readers"][name].get(pin, "")).casefold() for pin in ("model", "deployment")):
             # A second family's read is never the Engine's own family's (decision 0224).
             out.append("harness: the reader %s is of the Engine's own family; an advisory Lens reads with a second family" % name)
     return out
