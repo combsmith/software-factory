@@ -52,8 +52,12 @@ JOB_STATUSES = NOT_STARTED | {"in_progress", "completed"}     # a job's, as a ru
 CONCLUSIONS = {"success": "success", "failure": "failure", "startup_failure": "cancelled", "cancelled": "cancelled",
                "skipped": "cancelled", "timed_out": "timed_out"}
 FRESH = {"Cache-Control": "no-cache"}
+# What an outcome says beside its fault, each a field of the run record, and of what kind (`engines`).
+SAID = (("engine_started", bool), ("github_reset", int))
+# The fault of a Run GitHub limited: only its reset is kept.
+GITHUB_CAPACITY = "github_capacity"
 # The faults an outcome names, as `outcome/1` holds them: one of these, once read, is that attempt's for good.
-CONCLUDED = {"item", "capacity", "environment", "superseded", "person"}
+CONCLUDED = {"item", "capacity", "github_capacity", "environment", "superseded", "person"}
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 HTTP_DATE = re.compile(r"(Mon|Tue|Wed|Thu|Fri|Sat|Sun), ([0-9]{2}) ([A-Z][a-z]{2}) ([0-9]{4}) "
                        r"([0-9]{2}:[0-9]{2}:[0-9]{2}) GMT")
@@ -176,6 +180,9 @@ def _record(row: dict, repo: str, branch: str, roles: set, dispatcher: tuple):
     # person's cancel and a concurrency group's say nothing here, so only this counts toward the automatic pause (0116).
     if status == "completed" and never_ran:
         record["never_ran"] = never_ran
+    # When it ended, from which GitHub's limit is waited out (issue 838): never before it started.
+    if status == "completed" and _time(row.get("updated_at")) and row["updated_at"] >= started:
+        record["ended_at"] = row["updated_at"]
     # When it was dispatched, which a re-run keeps, and whether the pass job's own token re-ran it: reconciliation reads
     # the dispatch by the one, and a re-run by that token as a write no Effect records (decision 0063).
     created = row.get("created_at")
@@ -300,11 +307,12 @@ def known(previous: list) -> dict:
 
 
 def engines(previous: list) -> dict:
-    """Whether each Run's Engine step started, as the last pass record before this one read it with its outcome, by
-    its Run id and when its attempt started (issue 757). It is read only beside an outcome `known` keeps, and `known`
-    keeps a fault from the last record alone, so no earlier record's word is needed. Only a true or a false is kept:
-    an outcome is written once, so what it said stands for its attempt. A key the record lists twice is not kept, and
-    nothing is kept from what lists no runs."""
+    """What each Run's outcome said beside its fault, as the last pass record before this one read it, by its Run id
+    and when its attempt started: whether its Engine step started (issue 757), and when GitHub's limit resets (issue
+    838), each a field of the run record. It is read only beside an outcome `known` keeps, and `known` keeps a fault
+    from the last record alone, so no earlier record's word is needed. Only a true or a false is kept of the one, and a
+    whole number of the other: an outcome is written once, so what it said stands for its attempt. A key the record
+    lists twice is not kept, and nothing is kept from what lists no runs."""
     def said_in(record) -> tuple:
         rows = record.get("runs") if isinstance(record, dict) else None
         if not isinstance(rows, list):
@@ -315,9 +323,10 @@ def engines(previous: list) -> dict:
             if not (isinstance(key[0], str) and isinstance(key[1], str)):
                 continue
             keys.append(key)
-            if type(row.get("engine_started")) is bool:
-                said[key] = row["engine_started"]
-        return {key: started for key, started in said.items() if keys.count(key) == 1}, keys
+            told = {name: row[name] for name, kind in SAID if type(row.get(name)) is kind}
+            if told:
+                said[key] = told
+        return {key: told for key, told in said.items() if keys.count(key) == 1}, keys
     return said_in(previous[-1])[0] if isinstance(previous, list) and previous else {}
 
 
@@ -336,8 +345,10 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     GitHub run its name names (issue 338). Nothing calls `known` until
     the pass's entry, the effects port's next part (#193), hands it the records it placed.
 
-    `engine_started`, where a failed Run's outcome says it, is whether its Engine step started; `engines` is what
-    `engines` read of it from the pass records before, kept with an outcome `kept` holds (issue 757).
+    `engine_started`, where a failed Run's outcome says it, is whether its Engine step started, and `github_reset` when
+    GitHub's limit resets; `engines` is what `engines` read of them from the pass records before, kept with an outcome
+    `kept` holds (issues 757 and 838). A reset beside any other fault is
+    not kept. `ended_at` is when a completed Run ended, GitHub's `updated_at`, where it is no earlier than its start.
 
     `began` is what `begun` read from the pass records before, and None asks no job: no record then says when it
     began. Given, each Run in progress or completed has its jobs read for `began_at` (`_began`), but one `began`
@@ -386,15 +397,16 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     for record, github_id, keyed in failed:
         if keyed and (record["run"], record["started_at"]) in kept:
             record["outcome"] = kept[(record["run"], record["started_at"])]
-            if (record["run"], record["started_at"]) in engines:
-                record["engine_started"] = engines[(record["run"], record["started_at"])]
+            record.update(engines.get((record["run"], record["started_at"]), {}))
             continue
-        told = []
+        told, reset = [], []
         record["outcome"], read_whole = artifacts.outcome(
             transport, repo, github_id, record["run"],
-            lambda answer: reads.append(dict(read_at(answer), read="outcome")), told)
+            lambda answer: reads.append(dict(read_at(answer), read="outcome")), told, reset)
         if told:
             record["engine_started"] = told[0]
+        if reset and record["outcome"] == GITHUB_CAPACITY:
+            record["github_reset"] = reset[0]
         whole = whole and read_whole
     asked = 0
     for record, github_id, attempt, keyed in ran if began is not None else []:
