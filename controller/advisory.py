@@ -89,16 +89,19 @@ def _own(record: dict, worst: float) -> float:
     if asks == 0:
         return 0.0 if cost is None or (_number(cost, 0, 0)) else worst
     # A cost is written to a millionth of a dollar: one that rounds to nought is none, and no read costs nothing.
+    if type(cost) in (int, float) and cost > DEAREST:
+        return float(DEAREST)          # more than a record may hold: at least the most it may, never the worst case alone
     return float(cost) if _number(cost, 0, DEAREST) and round(cost, 6) > 0 else worst
 
 
 def _elsewhen(record: dict, day: str) -> bool:
     """Whether a finished Run is shown to be another day's: the day and its start can be read, and the day is neither
-    its start's, its end's nor one between them. One whose end cannot be read may have ended on any day since its start."""
+    its start's, its end's nor one between them. One whose end cannot be read, or is before its start, may have ended on
+    any day since its start."""
     started, ended = record.get("started_at"), record.get("ended_at")
     if day is None or not _placed(started):
         return False
-    last = max(started[:DAY], ended[:DAY]) if _placed(ended) else day
+    last = ended[:DAY] if _placed(ended) and ended >= started else day
     return not started[:DAY] <= day <= last
 
 

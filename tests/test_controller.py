@@ -3431,11 +3431,12 @@ class Advisory(unittest.TestCase):
                                (ran(status="in_progress", advisory_asks=1, advisory_cost_usd=0.01), 2),
                                (ran(status="queued", advisory_asks=0, advisory_cost_usd=None), 2),
                                (ran(status=None, advisory_asks=1, advisory_cost_usd=0.01), 2),
-                               # Its fields do not agree, or hold what no record may.
+                               # Its fields do not agree, or hold what no record may: a cost above the most a record holds
+                               # counts that most, never the worst case alone, and one that is no number the worst case.
                                (ran(advisory_asks=0, advisory_cost_usd=5), 2), (ran(advisory_asks=1, advisory_cost_usd=-1), 2),
                                (ran(advisory_asks=1, advisory_cost_usd=float("nan")), 2),
-                               (ran(advisory_asks=1, advisory_cost_usd=float("inf")), 2),
-                               (ran(advisory_asks=1, advisory_cost_usd=10 ** 400), 2), (ran(advisory_asks=1, advisory_cost_usd=100000.01), 2),
+                               (ran(advisory_asks=1, advisory_cost_usd=float("inf")), 100000),
+                               (ran(advisory_asks=1, advisory_cost_usd=10 ** 400), 100000), (ran(advisory_asks=1, advisory_cost_usd=100000.01), 100000),
                                (ran(advisory_asks=1, advisory_cost_usd="0.93"), 2), (ran(advisory_asks=1, advisory_cost_usd=True), 2),
                                (ran(advisory_asks=True, advisory_cost_usd=0.5), 2), (ran(advisory_asks=-1, advisory_cost_usd=0.5), 2),
                                (ran(advisory_asks="1", advisory_cost_usd=0.5), 2), (ran(advisory_asks=101, advisory_cost_usd=0.5), 2),
@@ -3469,7 +3470,7 @@ class Advisory(unittest.TestCase):
                                    # One whose end cannot be read may have ended on any day since its start, today among them.
                                    ("2026-11-17T23:00:00Z", None, 7), ("2026-11-16T23:00:00Z", "2026-11-17", 7),
                                    ("2026-11-17T23:00:00Z", "2026-11-18T00:30:00Zx", 7), ("2026-11-16T23:00:00Z", "2026-11-31T00:30:00Z", 7),
-                                   ("2026-11-19T09:00:00Z", None, 0)):
+                                   ("2026-11-19T09:00:00Z", None, 0), ("2026-11-17T23:00:00Z", "2026-11-17T01:00:00Z", 7)):
             self.assertEqual(advisory.spent([ran(start, advisory_asks=1, advisory_cost_usd=7, ended_at=end)], self.NOW, 2), counts, (start, end))
         record = ran("2026-11-17T23:00:00Z", advisory_asks=1, advisory_cost_usd=7)
         self.assertEqual([advisory.spent([dict(record, ended_at=None)], d, 2) for d in ("2026-11-16T12:00:00Z", "2026-11-20T00:00:00Z")], [0, 7])
