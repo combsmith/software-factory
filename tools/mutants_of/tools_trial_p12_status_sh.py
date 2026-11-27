@@ -1,6 +1,6 @@
 """The mutants of `tools/context_eval.sh`, `tools/trial_p12_status.sh`, `tools/trial_p13_cli.sh`, `tools/trial_p13_ended.sh`, `tools/trial_p26_sandbox.sh`, `tools/trial_p39_reach.sh`, `tools/trial_p4_narrow.sh`, `tools/trial_p50_linux_sandbox.sh`, `tools/trial_p51_sandbox_writes.sh`, `tools/trial_p54_issue_lookup.sh`, `tools/trial_p56_comments.sh`, `tools/trial_p58_edits.sh`, `tools/trial_p59_read_confinement.sh`, `tools/trial_p61_timeline.sh`, `tools/trial_p8_cost.sh`, `tools/trial_p80_branch_reads.sh`, `tools/trial_p81_review_order.sh`, `tools/trial_reader_reads.sh`: tools/mutants.py runs them."""
 
-from tools.mutants_of.common import KEEP_1215, P50_TESTS, P59_TESTS
+from tools.mutants_of.common import KEEP_1215, P50_TESTS, P59_TESTS, UNPROXIED
 
 P13 = "tools/trial_p13_cli.sh"
 P13_TESTS = "tests.test_tools.TrialScript."
@@ -47,6 +47,17 @@ def run_1215(script, test):
 
 TARGETS = ("tools/context_eval.sh", "tools/trial_p12_status.sh", "tools/trial_p13_cli.sh", "tools/trial_p13_ended.sh", "tools/trial_p26_sandbox.sh", "tools/trial_p39_reach.sh", "tools/trial_p4_narrow.sh", "tools/trial_p50_linux_sandbox.sh", "tools/trial_p51_sandbox_writes.sh", "tools/trial_p54_issue_lookup.sh", "tools/trial_p56_comments.sh", "tools/trial_p58_edits.sh", "tools/trial_p59_read_confinement.sh", "tools/trial_p61_timeline.sh", "tools/trial_p8_cost.sh", "tools/trial_p80_branch_reads.sh", "tools/trial_p81_review_order.sh", "tools/trial_reader_reads.sh",)
 MUTANTS = [
+    # Issue 1281: each family's read tells a curl that failed apart from an answer whose status line cannot be read.
+    *[("%s swaps a failed curl and an unread status line" % script, "tools/" + script,
+       '        [ "$%s" = 0 ] || why=' % ok, '        [ "$%s" = 1 ] || why=' % ok,
+       run_1215(script, "test_a_curl_that_failed_is_told_apart_from_a_status_line_that_cannot_be_read"))
+      for script, ok in ((s, "call_ok" if s in ("trial_p12_status.sh", "trial_p81_review_order.sh") else "read_ok")
+                         for s in FAMILY_1215)],
+    *[("%s tells a failed curl by its status, not its exit" % script, "tools/" + script,
+       '        [ "$%s" = 0 ] || why=' % ok, '        [ -n "$status" ] || why=',
+       run_1215(script, "test_a_curl_that_failed_is_told_apart_from_a_status_line_that_cannot_be_read"))
+      for script, ok in ((s, "call_ok" if s in ("trial_p12_status.sh", "trial_p81_review_order.sh") else "read_ok")
+                         for s in FAMILY_1215)],
     # Decision 0048: a person's write access is read from the collaborator permission.
     ("the reader's token is not narrowed", "tools/trial_reader_reads.sh",
      '\\"permissions\\":{\\"$1\\":\\"read\\"}}', '\\"permissions\\":{}}',
@@ -1265,6 +1276,9 @@ MUTANTS = [
     # of every assignment, .curlrc or CDPATH, and its root is found physically.
     *[("%s takes credentials from the environment" % script, "tools/" + script,
        "unset SSLKEYLOGFILE token jwt signature minted minting\n", "",
+       (TRIALS_ENV,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in SCRIPTS_1215],
+    # Issue 1288: nor a proxy or a certificate authority the shell names.
+    *[("%s takes a proxy from the shell" % script, "tools/" + script, UNPROXIED, "",
        (TRIALS_ENV,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in SCRIPTS_1215],
     *[("%s's root follows CDPATH" % script, "tools/" + script, "root=$(CDPATH= cd -P -- ", "root=$(cd -P -- ",
        (TRIALS_ROOT,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in ROOTS_1215],
