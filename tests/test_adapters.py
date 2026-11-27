@@ -3494,8 +3494,14 @@ class Acceptance(unittest.TestCase):
                      {"totalCount": 1, "nodes": [{"number": "37", "repository": {"nameWithOwner": "o/r"}}]},
                      {"totalCount": 1, "nodes": [{"number": 37, "repository": None}]},
                      {"totalCount": 1, "nodes": [{"number": 36, "repository": {"nameWithOwner": ""}}]},
-                     {"totalCount": 1, "nodes": [{"number": 0, "repository": {"nameWithOwner": "o/r"}}]}):
+                     {"totalCount": 1, "nodes": [{"number": 0, "repository": {"nameWithOwner": "o/r"}}]},
+                     {"totalCount": 1, "nodes": [{"number": True, "repository": {"nameWithOwner": "o/r"}}]},
+                     {"totalCount": 1, "nodes": 1}, {"totalCount": True, "nodes": None}):
             self.assertIs(acceptance.another(refs, "o/r", 36), False, refs)
+        # One it cannot read does not hide the next (Carbon); an opener's pull request bound to nothing names none.
+        other = {"number": 37, "repository": {"nameWithOwner": "o/r"}}
+        self.assertIs(acceptance.another({"totalCount": 1, "nodes": [None, other]}, "o/r", 36), True)
+        self.assertEqual(self.opened(ref="factory/issue-36-1", named=True), (None, False, False, False))
 
     def test_a_branch_of_another_shape_binds_nothing_and_the_openers_pull_request_is_not_whole(self):  # issue 295
         for ref in ("factory-work/issue-036-1", "factory-work/issue-36-01", "factory-work/issue-0-1",
