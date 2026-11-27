@@ -1282,6 +1282,11 @@ MUTANTS = [
        (TRIALS_ENV,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in SCRIPTS_1215],
     # Issue 1300: nor P-61's gh, which reads with the Maintainer's own login.
     ("P-61's gh takes a proxy from the shell", "tools/trial_p61_timeline.sh", UNPROXIED, "", (TRIALS_ENV,)),
+    ("P-61's gh logs the headers it sends", "tools/trial_p61_timeline.sh", "unset GH_DEBUG DEBUG CURL_HOME GODEBUG\n", "",
+     ("tests.test_tools.TimelineTrial.test_gh_takes_nothing_of_the_shells_but_the_maintainers_login",)),
+    ("P-61's gh takes a pager or a configuration from the shell", "tools/trial_p61_timeline.sh", "unset GH_CONFIG_DIR XDG_CONFIG_HOME GH_FORCE_TTY GH_PAGER PAGER\n", "", ("tests.test_tools.TimelineTrial.test_gh_takes_nothing_of_the_shells_but_the_maintainers_login",)),
+    ("P-61's gh asks the host the shell names", "tools/trial_p61_timeline.sh", "export GH_HOST=github.com ", "export ",
+     ("tests.test_tools.TimelineTrial.test_gh_takes_nothing_of_the_shells_but_the_maintainers_login",)),
     *[("%s's root follows CDPATH" % script, "tools/" + script, "root=$(CDPATH= cd -P -- ", "root=$(cd -P -- ",
        (TRIALS_ROOT,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in ROOTS_1215],
     *[("%s's root is found logically" % script, "tools/" + script, "root=$(CDPATH= cd -P -- ", "root=$(CDPATH= cd -- ",

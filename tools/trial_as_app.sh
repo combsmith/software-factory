@@ -22,6 +22,9 @@ set +a
 unset CDPATH
 set +x
 unset GH_DEBUG DEBUG CURL_HOME GODEBUG
+# Nor does gh hand its output, GH_TOKEN with it, to a pager the shell names, or read a configuration it points at
+# (issue 1300): GH_CONFIG_DIR is set below, to a directory that does not exist.
+unset GH_CONFIG_DIR XDG_CONFIG_HOME GH_FORCE_TTY GH_PAGER PAGER
 # No credential's name is taken from the environment, where one exported would reach every child, and curl is
 # told of no file to write its TLS keys to (issue 1215).
 unset SSLKEYLOGFILE token jwt signature minted minting
@@ -66,7 +69,7 @@ out=$(cd "$made" && pwd -P)
 case "$out/" in "$root"/*) echo "the scratch directory is inside the repo" >&2; exit 2 ;; esac
 # gh reads no configuration: GH_CONFIG_DIR, XDG_CONFIG_HOME or ~/.config/gh could hold an http_unix_socket that sends
 # each request, GH_TOKEN with it, to whatever listens there. It is pointed at a directory that does not exist, in this
-# run's own, so it reads nothing and, with GH_TOKEN given, writes nothing (issue 1300).
+# run's own, so it reads nothing there and, with GH_TOKEN given, writes nothing there (issue 1300).
 export GH_CONFIG_DIR="$out/gh-reads-no-config"
 
 jwt="" token="" n=0 id="" raw="" pushed="" read_head="" minting=""

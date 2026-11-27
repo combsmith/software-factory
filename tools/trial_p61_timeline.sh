@@ -43,6 +43,12 @@ set +x
 # Nor does gh, which reads with the Maintainer's own login, go through a proxy or trust a certificate authority that
 # the shell names; the same line as the token trials' (issue 1300).
 unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR CURL_SSL_BACKEND OPENSSL_CONF OPENSSL_CONF_INCLUDE OPENSSL_ENGINES OPENSSL_MODULES
+# Nor does it log each header it sends, or hand its output, and his login with it, to a pager the shell names, or read
+# a configuration the shell points it at: it reads his own, in ~/.config/gh, where his login is, and asks github.com
+# alone. A login kept anywhere else is not found, and the first read says so (issue 1300).
+unset GH_DEBUG DEBUG CURL_HOME GODEBUG
+unset GH_CONFIG_DIR XDG_CONFIG_HOME GH_FORCE_TTY GH_PAGER PAGER
+export GH_HOST=github.com GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1
 
 if [ "$#" -ne 4 ]; then
     echo "usage: tools/trial_p61_timeline.sh OUT REPO ISSUE PULL_REQUEST" >&2

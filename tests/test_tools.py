@@ -10920,7 +10920,8 @@ here = pathlib.Path(__file__).resolve().parent
 args = sys.argv[1:]
 with open(here / "calls", "a") as calls:
     calls.write(json.dumps({"argv": args, "token": os.environ.get("GH_TOKEN"), "config": os.environ.get("GH_CONFIG_DIR"),
-                            "config_there": os.path.exists(os.environ.get("GH_CONFIG_DIR") or "/nonexistent")}) + "\n")
+                            "config_there": os.path.exists(os.environ.get("GH_CONFIG_DIR") or "/nonexistent"),
+                            "pager": [os.environ.get(k) for k in ("GH_FORCE_TTY", "GH_PAGER", "PAGER")]}) + "\n")
 state = json.loads((here / "state").read_text()) if (here / "state").exists() else {"reviews": 0, "resolved": False, "reply": False, "deleted": False}
 def answer(status, body):
     (here / "state").write_text(json.dumps(state))
@@ -11133,21 +11134,26 @@ esac
         self.assertEqual(exchanges[-1]["request"]["call"], "DELETE /installation/token")
 
     def test_gh_reads_no_configuration_of_the_shells(self):
-        # A configuration the shell names, by GH_CONFIG_DIR or XDG_CONFIG_HOME, could send each request and GH_TOKEN to a
-        # socket of its own. Every gh call is pointed at a directory that does not exist, in OUT, and none is made there
+        # A configuration the shell names, by GH_CONFIG_DIR or XDG_CONFIG_HOME, or the one in ~/.config/gh, could send
+        # each request and GH_TOKEN to a socket of its own, and a pager it names would read GH_TOKEN from its environment.
+        # Every gh call is pointed at a directory that does not exist, in OUT, none is made there, and no pager is named
         # (issue 1300).
         planted = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         (planted / "gh").mkdir()
         for where in (planted, planted / "gh"):
             (where / "config.yml").write_text("http_unix_socket: /tmp/planted.sock\n")
-        bin_, ran = self.run_threads(GH_CONFIG_DIR=str(planted), XDG_CONFIG_HOME=str(planted))
-        self.assertEqual(ran.returncode, 0, ran.stderr)
-        out = pathlib.Path(re.search(r"^trial_as_app: OUT is (.+)$", ran.stdout, re.M).group(1))
-        calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()]
-        self.assertTrue(calls)
-        self.assertEqual({c["config"] for c in calls}, {str(out / "gh-reads-no-config")})
-        self.assertFalse(any(c["config_there"] for c in calls))
-        self.assertFalse((out / "gh-reads-no-config").exists())
+        pager = {"GH_FORCE_TTY": "1", "GH_PAGER": str(planted / "pager"), "PAGER": str(planted / "pager")}
+        for shell in ({"GH_CONFIG_DIR": str(planted), "XDG_CONFIG_HOME": str(planted)}, {"XDG_CONFIG_HOME": str(planted)}, {}):
+            with self.subTest(shell=sorted(shell)):
+                bin_, ran = self.run_threads(**shell, **pager)
+                self.assertEqual(ran.returncode, 0, ran.stderr)
+                out = pathlib.Path(re.search(r"^trial_as_app: OUT is (.+)$", ran.stdout, re.M).group(1))
+                calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()]
+                self.assertTrue(calls)
+                self.assertEqual({c["config"] for c in calls}, {str(out / "gh-reads-no-config")})
+                self.assertFalse(any(c["config_there"] for c in calls))
+                self.assertEqual({tuple(c["pager"]) for c in calls}, {(None, None, None)})
+                self.assertFalse((out / "gh-reads-no-config").exists())
 
     def test_a_thread_it_cannot_find_stops_it_before_any_write_and_the_token_is_revoked(self):
         # The first thread is not the App's own trial thread, being another's words, another's comment, or given an id
@@ -16045,12 +16051,16 @@ class SignalTraps(unittest.TestCase):
         # 1300).
         p61 = (ROOT / "tools" / "trial_p61_timeline.sh").read_text().splitlines()
         reads = [n for n, line in enumerate(p61) if not line.lstrip().startswith("#") and re.search(r"(?:^|\||\$\(|&&|;)\s*gh\s", line)]
-        self.assertEqual(p61.count(unproxied), 1)
-        self.assertLess(p61.index(unproxied), reads[0])
         app = (ROOT / "tools" / "trial_as_app.sh").read_text().splitlines()
+        # Nor does either gh hand its output to a pager, or read a configuration, the shell names (issue 1300).
+        for line in (unproxied, "unset GH_DEBUG DEBUG CURL_HOME GODEBUG", GH_UNSTEERED):
+            self.assertEqual(p61.count(line), 1, line)
+            self.assertLess(p61.index(line), reads[0], line)
+        self.assertEqual(app.count(GH_UNSTEERED), 1)
         gh = [n for n, line in enumerate(app) if not line.lstrip().startswith("#") and re.search(r'GH_TOKEN="\$token" gh\s', line)]
         self.assertEqual(app.count("unset GH_DEBUG DEBUG CURL_HOME GODEBUG"), 1)
         self.assertLess(app.index("unset GH_DEBUG DEBUG CURL_HOME GODEBUG"), gh[0])
+        self.assertLess(app.index(GH_UNSTEERED), gh[0])
 
     def test_every_trial_finds_its_root_as_the_file_system_does(self):  # issue 1215
         # A plain cd looks a relative path up along CDPATH, and says where it went, and takes .. past a link logically.
@@ -16074,6 +16084,10 @@ class SignalTraps(unittest.TestCase):
             first = next(n for n, line in enumerate(lines) if line.startswith("set -e"))
             then = [line for line in lines[first + 1:] if line.strip() and not line.lstrip().startswith("#")]
             self.assertEqual(then[:2], ["set +a", "unset CDPATH"], script.name)
+
+
+# What gh reads from the environment to choose a configuration or a pager (issue 1300).
+GH_UNSTEERED = "unset GH_CONFIG_DIR XDG_CONFIG_HOME GH_FORCE_TTY GH_PAGER PAGER"
 
 
 # What curl and openssl read from the environment to choose a proxy, a certificate authority, a TLS library or a
@@ -18171,6 +18185,8 @@ import json, os, sys
 here = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(here, "calls"), "a") as kept:
     kept.write(json.dumps(sys.argv[1:]) + "\\n")
+with open(os.path.join(here, "steered"), "a") as kept:
+    kept.write(json.dumps({k: os.environ.get(k) for k in ("GH_CONFIG_DIR", "XDG_CONFIG_HOME", "GH_FORCE_TTY", "GH_PAGER", "PAGER", "GODEBUG", "GH_DEBUG", "GH_HOST", "HTTPS_PROXY")}) + "\\n")
 token = "ghs_" + "x" * 36
 refuse = os.path.join(here, "refuse")
 mode = None
@@ -18225,14 +18241,15 @@ if mode == "cut":
     sys.exit(1)
 """
 
-    def run_script(self, args, answers="\n" * 10, refuse=0, tmpdir=None):
+    def run_script(self, args, answers="\n" * 10, refuse=0, tmpdir=None, **shell):
         bin_ = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        self.bin_ = bin_
         (bin_ / "gh").write_text(self.STAND_IN)
         (bin_ / "gh").chmod(0o755)
         if refuse:
             (bin_ / "refuse").write_text("%d %s" % refuse)
         scratch = pathlib.Path(tmpdir or tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
-        env = dict(os.environ, PATH="%s:/usr/bin:/bin" % bin_, TMPDIR=str(scratch))
+        env = dict(os.environ, PATH="%s:/usr/bin:/bin" % bin_, TMPDIR=str(scratch), **shell)
         done = subprocess.run(["sh", str(self.SCRIPT)] + list(args), env=env, input=answers,
                               capture_output=True, text=True, timeout=120)
         calls = (bin_ / "calls").read_text().splitlines() if (bin_ / "calls").exists() else []
@@ -18271,6 +18288,19 @@ if mode == "cut":
         self.assertEqual(list(scratch.glob("trial-p61.*")), [])
         self.assertNotIn("ghs_", done.stdout + done.stderr)
         self.assertEqual(out.stat().st_mode & 0o077, 0)     # OUT is the Maintainer's alone
+
+    def test_gh_takes_nothing_of_the_shells_but_the_maintainers_login(self):
+        # His gh reads his own login, in ~/.config/gh: a proxy, a header log, a pager, a configuration or a host the shell
+        # names reaches no read (issue 1300).
+        planted = str(pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve())
+        shell = {"HTTPS_PROXY": "http://127.0.0.1:9", "GODEBUG": "http2debug=2", "GH_DEBUG": "api", "GH_CONFIG_DIR": planted,
+                 "XDG_CONFIG_HOME": planted, "GH_FORCE_TTY": "1", "GH_PAGER": "cat", "PAGER": "cat", "GH_HOST": "example.com"}
+        done, calls, _ = self.run_script([str(self.out()), "x/canary", "7", "8"], **shell)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        steered = [json.loads(line) for line in (self.bin_ / "steered").read_text().splitlines()]
+        self.assertEqual(len(steered), len(calls))
+        self.assertEqual({json.dumps(s, sort_keys=True) for s in steered},
+                         {json.dumps(dict({k: None for k in shell}, GH_HOST="github.com"), sort_keys=True)})
 
     def test_a_refused_read_is_said_and_offered_again_before_anything_changes(self):
         # A wrong field is refused with errors: the run says so at step 1, with gh's complaint redacted, and stops when

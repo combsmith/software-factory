@@ -117,6 +117,9 @@ MUTANTS = [
      ("tests.test_tools.AppThreads.test_gh_reads_no_configuration_of_the_shells",)),
     ("the App's gh reads a configuration in OUT", "tools/trial_as_app.sh", 'GH_CONFIG_DIR="$out/gh-reads-no-config"', 'GH_CONFIG_DIR="$out"',
      ("tests.test_tools.AppThreads.test_gh_reads_no_configuration_of_the_shells",)),
+    ("the App's gh exports no configuration directory", "tools/trial_as_app.sh", 'export GH_CONFIG_DIR="$out/', 'GH_CONFIG_DIR="$out/',
+     ("tests.test_tools.AppThreads.test_gh_reads_no_configuration_of_the_shells",)),
+    ("the App's gh takes a pager or a configuration from the shell", "tools/trial_as_app.sh", "unset GH_CONFIG_DIR XDG_CONFIG_HOME GH_FORCE_TTY GH_PAGER PAGER\n", "", ("tests.test_tools.AppThreads.test_gh_reads_no_configuration_of_the_shells",)),
     ("the App's openssl takes a relative include from the shell", "tools/trial_as_app.sh", " OPENSSL_CONF_INCLUDE", "",
      ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
 ]
