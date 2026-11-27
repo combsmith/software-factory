@@ -9592,8 +9592,8 @@ class Opening(unittest.TestCase):
 
     @staticmethod
     def pull(number=7, login=OPENER, ref=OPENED_FROM, repo=OPENED_IN, base="main", draft=True):
-        return {"number": number, "user": {"login": login}, "head": {"ref": ref, "repo": {"full_name": repo}},
-                "base": {"ref": base}, "draft": draft}
+        return {"number": number, "state": "open", "user": {"login": login},
+                "head": {"ref": ref, "repo": {"full_name": repo}}, "base": {"ref": base}, "draft": draft}
 
     def opened(self, script, title="docs: say it (#12)", body="Closes #12\n\nText.", base="main"):
         """What the port read back, through the Role's token narrowed to the opening, and what it sent."""
@@ -9673,6 +9673,7 @@ class Opening(unittest.TestCase):
                 ({self.LIST: {"status": 500, "body": None}}, "failed", "pulls_unreadable"),
                 ({self.LIST: github.Unanswered("no answer")}, "failed", "pulls_unreadable"),
                 ({self.LIST: {"status": 200, "body": [self.pull(), self.pull(8)]}}, "failed", "opened_twice"),
+                ({self.LIST: {"status": 200, "body": [dict(self.pull(), state="closed")]}}, "failed", "opened_closed"),
                 ({self.LIST: listed, self.OPEN: {"status": 422, "body": {}}}, "failed", "write_refused"),
                 ({self.LIST: listed, self.OPEN: {"status": 502, "body": None}}, "failed", "write_unanswered"),
                 ({self.LIST: listed, self.OPEN: OSError("reset")}, "failed", "write_unanswered"),
@@ -9686,6 +9687,7 @@ class Opening(unittest.TestCase):
                 for body in (self.pull(login="someone"), self.pull(ref="factory-work/issue-12-2"),
                              self.pull(repo="someone/widgets"), self.pull(base="release"),
                              self.pull(draft=False), self.pull(draft=None), self.pull(number=8),
+                             dict(self.pull(), state="closed"),
                              dict(self.pull(), base="main"), dict(self.pull(), head=None), None)) + (
                 ({self.LIST: listed, self.OPEN: made, self.READ: {"status": 404, "body": {}}}, "sent", None),
                 ({self.LIST: listed, self.OPEN: {"status": 201, "body": {"number": "7"}}}, "sent", None),

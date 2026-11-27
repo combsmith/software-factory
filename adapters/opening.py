@@ -13,9 +13,10 @@ only what `allowed` lets through.
   one by its number; nothing for a repo, a work branch or a base told wrongly.
 - `write(sender, repo, branch, base, title, body, login)`: what the opening did, read back, as `harness/apply.py`'s
   `opened` reads it, `{state, number, head, reason}`. One `login` already opened from `branch` is recovered,
-  `already_applied`, and nothing is sent: an opening `apply` that ended after its write opens no second (section 4.1).
-  Else the draft is opened once, and `applied` only when read back by its number: opened by `login`, from `branch` of
-  `repo` itself, to `base`, a draft. A 401 or a 403 is `refused`, `token_refused`; a list that cannot be read whole,
+  `already_applied`, and nothing is sent: an opening `apply` that ended after its write opens no second (section 4.1);
+  one a person closed is `opened_closed`, and none is opened beside it.
+  Else the draft is opened once, and `applied` only when read back by its number: open, opened by `login`, from
+  `branch` of `repo` itself, to `base`, a draft. A 401 or a 403 is `refused`, `token_refused`; a list that cannot be read whole,
   `pulls_unreadable`; two by `login` from the branch, `opened_twice`; a write GitHub did not answer or did not take,
   `write_unanswered` or `write_refused`; a write taken whose read-back fails is `sent`, and nothing is claimed for it.
 
@@ -139,6 +140,9 @@ def _open(sender, repo, branch, base, title, body, login) -> dict:
     mine = [p for p in listed if _ours(p, repo, branch, login)]
     if len(mine) > 1:
         return _back("failed", reason="opened_twice")
+    # One a person closed is no draft to recover, and no second is opened beside it.
+    if mine and mine[0].get("state") != "open":
+        return _back("failed", reason="opened_closed")
     state, made = ("already_applied", mine[0]) if mine else ("applied", None)
     if made is None:
         answer = _sent(sender, request("POST", _pulls(repo), body={
@@ -153,6 +157,7 @@ def _open(sender, repo, branch, base, title, body, login) -> dict:
         if type(number) is int and number > 0 else None
     base_read = back.get("base") if isinstance(back, dict) else None
     if not (_ours(back, repo, branch, login) and back.get("number") == number and isinstance(base_read, dict)
-            and base_read.get("ref") == base and (state == "already_applied" or back.get("draft") is True)):
+            and base_read.get("ref") == base and back.get("state") == "open"
+            and (state == "already_applied" or back.get("draft") is True)):
         return _back("sent")
     return _back(state, number, branch)

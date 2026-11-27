@@ -35,6 +35,8 @@ MUTANTS = [
     ("a pull request from another repo's branch is the App's", OPENING_PY, ' and isinstance(head.get("repo"), dict) and head["repo"].get("full_name") == repo', '', OPENING_BACK),
     ("an opening already made is made again", OPENING_PY, 'state, made = ("already_applied", mine[0]) if mine else ("applied", None)', 'state, made = ("applied", None)', OPENING_RECOVERED),
     ("two openings from the branch are one", OPENING_PY, 'if len(mine) > 1:', 'if len(mine) > 2:', OPENING_BACK),
+    ("a draft a person closed is recovered", OPENING_PY, 'if mine and mine[0].get("state") != "open":', 'if False:', OPENING_BACK),
+    ("a draft read back closed is claimed", OPENING_PY, ' and back.get("state") == "open"\n', '\n', OPENING_BACK),
     ("a list of 100 pull requests is read whole", OPENING_PY, 'len(listed) >= LISTED', 'len(listed) > LISTED', OPENING_BACK),
     ("an opening is claimed without its read-back", OPENING_PY, 'if not (_ours(back, repo, branch, login)', 'if False and (_ours(back, repo, branch, login)', OPENING_BACK),
     ("a read-back to another base is the opening", OPENING_PY, ' and base_read.get("ref") == base', '', OPENING_BACK),
