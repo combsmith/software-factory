@@ -232,7 +232,7 @@ minting=1
 minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- \
     -H "$ACCEPT" -H "$VERSION" -H "$JSON" --data-binary "@$scratch/mint.json" \
     "$API/app/installations/$installation/access_tokens" || true)
-jwt="" minting=""
+jwt=""
 rm -f "$scratch/mint.json"
 minted_status=$(printf '%s\n' "$minted" | tail -n 1)
 token=$(printf '%s\n' "$minted" | sed '$d' | tr -d '\r' | python3 -I -c '
@@ -246,7 +246,7 @@ token = data.pop("token", "") if isinstance(data, dict) else ""
 with open(sys.argv[1], "w") as kept:
     kept.write("HTTP/2 %s\n\n%s\n" % (sys.argv[2], json.dumps(data) if data is not None else "(an answer that is not JSON, not kept)"))
 sys.stdout.write(token)' "$scratch/raw-2" "${minted_status:-000}" 2>/dev/null || true)
-minted=""
+minted="" minting=""
 (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-2" > "$out/clean-2") 2> "$out/redacted-2"
 drop "$scratch/raw-2"
 asked="$asked{\"n\": 2, \"call\": \"POST /app/installations/$installation/access_tokens\", \"body\": {\"repositories\": [\"${repo#*/}\"], \"permissions\": {\"contents\": \"read\"}}, \"status\": \"${minted_status:-none}\"},"

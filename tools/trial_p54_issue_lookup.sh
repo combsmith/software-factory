@@ -234,7 +234,7 @@ with_token() {   # PERMISSION
     minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
         -H "$VERSION" -d "{\"repositories\":[\"$name\"],\"permissions\":{\"$1\":\"read\"}}" \
         "$API/app/installations/$installation/access_tokens" && printf '\n0' || printf '\n%s' "$?")
-    jwt="" minting=""
+    jwt=""
     minted_exit=$(printf '%s\n' "$minted" | tail -n 1)
     minted=$(printf '%s\n' "$minted" | sed '$d')
     minted_status=$(printf '%s\n' "$minted" | tail -n 1)
@@ -256,6 +256,7 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
             echo "trial_p54_issue_lookup: $slug: GitHub minted a token narrowed to $1 and its answer was cut short; the" \
                 "token may be live for up to an hour, and the Maintainer must revoke it by hand." >&2
         fi
+        minting=""
         echo "trial_p54_issue_lookup: $slug: nothing read, and nothing of the answer kept." >&2
         exit 1
     fi
@@ -270,19 +271,24 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
         exit 1
     fi
     if [ "$minted_status" != 201 ]; then
-        # No token was minted, so the answer is GitHub's error: it is redacted before it is shown, and never written
+        # No token came back, so the answer is GitHub's error: it is redacted before it is shown, and never written
         # to a file.
-        echo "trial_p54_issue_lookup: $slug: no token narrowed to $1 was minted (status ${minted_status:-none});" \
+        # A 4xx refusal minted nothing; any other answer with no token (000, a 5xx) may have (issue 1245).
+        case "$minted_status" in
+            4??) minting="" refused="no token narrowed to $1 was minted (status $minted_status)" ;;
+            *) refused="the mint answered ${minted_status:-none} with no token, and GitHub may have minted one, live for up to an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation" ;;
+        esac
+        echo "trial_p54_issue_lookup: $slug: $refused;" \
             "GitHub answered, redacted:" >&2
         if shown=$(printf '%s\n' "$minted" | sed '$d' | (cd "$root" && python3 -m tools.redact_trial) 2>/dev/null); then
             printf '%s\n' "$shown" >&2
         else
             echo "(an answer the redaction could not read, so it is not shown)" >&2
         fi
-        minted=""
+        minted="" minting=""
         exit 1
     fi
-    minted=""
+    minted="" minting=""
     read_one "$1" "repos/$repo/issues/$issue"
     revoked=$(revoke || true)
     if [ "$revoked" != 204 ]; then

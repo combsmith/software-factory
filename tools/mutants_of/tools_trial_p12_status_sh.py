@@ -44,6 +44,22 @@ ROOTS_1215 = SCRIPTS_1215 + ("trial_p13_cli.sh", "trial_p13_ended.sh", "trial_p2
 # Not P-59's: trials/P-59.json holds the canary to have run that file as it is in tools/, byte for byte.
 EVERY_1215 = ROOTS_1215 + ("trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh")
 
+MINT_MARK = "tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint"
+MINT_REFUSED = "tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused"
+
+
+def cut_1245(script):
+    """The indent of `script`'s branches after its mint."""
+    return "    " if script == "trial_p8_cost.sh" else "        "
+
+
+def mark_1245(script):
+    """The line after `script`'s mint that clears its JWT, and the one that clears its answer once read, each whole."""
+    indent = "" if script in ("trial_p8_cost.sh", "trial_p4_narrow.sh", "trial_p52_pause.sh") else "    "
+    jwt = 'jwt="" signature=""' if script in ("trial_p80_branch_reads.sh", "trial_p81_review_order.sh") else 'jwt=""'
+    return "\n%s%s\n" % (indent, jwt), '\n%sminted="" minting=""\n' % indent
+
+
 def run_1215(script, test):
     """`test` as the class of `script`'s family runs it, or nothing for a script of no family."""
     return ("tests.test_tools.%s.%s" % (FAMILY_1215[script], test),) if script in FAMILY_1215 else ()
@@ -1331,9 +1347,25 @@ MUTANTS = [
      '\\"status\\": \\"$(awk \'BEGIN { head = 1 } head && /^HTTP\\// { found = "" } ', '\\"status\\": \\"$(awk \'BEGIN { head = 1 } ', (STATUS_DIGITS,)),
     # Issue 1215: each tells the Maintainer of a token a stop mid-mint may have left live, as P-80 did first. P-80 and
     # P-81 hold their own "tells nothing" mutant.
-    *[("%s never clears its mint mark" % script, "tools/" + script, 'minting=""\n', "\n",
-       ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
-      for script in SCRIPTS_1215],
+    # Issue 1245: the mark stands until the mint's answer is read, and is cleared once the token is handed on.
+    *[("%s never clears its mint mark" % script, "tools/" + script, mark_1245(script)[1], mark_1245(script)[1].replace(' minting=""', ""),
+       (MINT_MARK,)) for script in SCRIPTS_1215],
+    *[("%s clears its mint mark when curl returns" % script, "tools/" + script, mark_1245(script)[0],
+       mark_1245(script)[0][:-1] + ' minting=""\n', (MINT_MARK,)) for script in SCRIPTS_1215],
+    # Issue 1245: and is cleared where each mint that did not end is told: a 201 cut short, and an answer with no token.
+    *[("%s keeps its mint mark past an answer cut short" % script, "tools/" + script,
+       '%sminting=""\n%secho "%s: $slug: nothing read, and nothing of the answer kept."' % (cut_1245(script), cut_1245(script), script[:-3]),
+       '%secho "%s: $slug: nothing read, and nothing of the answer kept."' % (cut_1245(script), script[:-3]), (MINT_REFUSED,))
+      for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
+    *[("%s keeps its mint mark past an answer with no token" % script, "tools/" + script,
+       '%sminted="" minting=""\n%sexit 1\n' % (cut_1245(script), cut_1245(script)), '%sminted=""\n%sexit 1\n' % (cut_1245(script), cut_1245(script)),
+       (MINT_REFUSED,) + run_1215(script, "test_a_mint_with_no_token_and_no_refusal_tells_the_maintainer_one_may_be_live"))
+      for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
+    # Issue 1245: only a 4xx says no token was minted; a 000 or a 5xx with no token may have left one live.
+    *[("%s tells a mint %s" % (script, what), "tools/" + script, '4??) minting="" refused=', wrong + ') minting="" refused=',
+       (MINT_REFUSED,) + run_1215(script, "test_a_mint_with_no_token_and_no_refusal_tells_the_maintainer_one_may_be_live"))
+      for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"
+      for what, wrong in (("with no answer as none minted", "*"), ("refused as one that may be live", "5??"))],
     *[("%s tells nothing of a stop mid-mint" % script, "tools/" + script, '    elif [ -n "${minting:-}" ]; then', '    elif false; then',
        ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
       for script in SCRIPTS_1215 if script not in ("trial_p80_branch_reads.sh", "trial_p81_review_order.sh")],

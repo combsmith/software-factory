@@ -185,7 +185,7 @@ jwt="$header.$claims.$signature"
 minting=1
 minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
     -H "$VERSION" "$API/app/installations/$installation/access_tokens" || true)
-jwt="" minting=""
+jwt=""
 minted_status=$(printf '%s\n' "$minted" | tail -n 1)
 minted=$(printf '%s\n' "$minted" | sed '$d')
 token=$(printf '%s\n' "$minted" | python3 -I -c '
@@ -206,6 +206,7 @@ if [ "$minted_status" = 201 ] && [ -z "$token" ]; then
         echo "trial_p52_pause: $slug: GitHub minted a token for installation $installation and its answer could not" \
             "be read; the token may be live for up to an hour, and the Maintainer must revoke it by hand." >&2
     fi
+    minting=""
     echo "trial_p52_pause: $slug: nothing read, and nothing of the answer kept." >&2
     exit 1
 fi
@@ -221,8 +222,14 @@ if [ "$minted_status" != 201 ] && [ -n "$token" ]; then
 fi
 if [ "$minted_status" != 201 ]; then
     minted=""
-    echo "trial_p52_pause: $slug: the mint was refused for installation $installation (status ${minted_status:-none});" \
+    # A 4xx refusal minted nothing; any other answer with no token (000, a 5xx) may have (issue 1245).
+    case "$minted_status" in
+        4??) minting="" refused="the mint was refused for installation $installation (status $minted_status)" ;;
+        *) refused="the mint answered ${minted_status:-none} with no token, and GitHub may have minted one, live for up to an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation" ;;
+    esac
+    echo "trial_p52_pause: $slug: $refused;" \
         "nothing read" >&2
+    minting=""
     exit 1
 fi
 printf '%s\n' "$minted" | python3 -I -c '
@@ -230,7 +237,7 @@ import json, sys
 answer = json.load(sys.stdin)
 json.dump({"permissions": answer.get("permissions"), "repository_selection": answer.get("repository_selection")},
           open(sys.argv[1], "w"), indent=2)' "$out/token.json"
-minted=""
+minted="" minting=""
 
 asked=""
 n=0
