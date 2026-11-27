@@ -1,5 +1,6 @@
 """The guards on a Role's own writes (issue 838). `guards/patch.py`: a Role's patch, read as git writes it and applied
-byte for byte, or not at all. `guards/push.py`: what a push is told, and the paths apply is asked about."""
+byte for byte, or not at all. `guards/push.py`: what a push is told, and the paths apply is asked about.
+`guards/opening.py`: what the draft an opening Run opens may say, the Result's own title and body."""
 from __future__ import annotations
 
 import os
@@ -10,7 +11,7 @@ import tempfile
 import unicodedata
 import unittest
 
-from guards import patch, push
+from guards import opening, patch, push
 
 FILE = "100644"
 OLD = b"a\nb\nc\nd\ne\nf\ng\nh\n"
@@ -1720,6 +1721,152 @@ class Push(unittest.TestCase):
                          (None, push.ANSWER_REFUSED))
         self.assertEqual(push.seen(made, "POST", GIT + "trees", self.TREE, {"status": "201", "body": {"sha": ROOT_TREE}}),
                          (None, push.ANSWER_REFUSED))
+
+
+class Odd(str):
+    """Text of another kind, that says it equals anything: what a port that went wrong might hand over."""
+    def __eq__(self, other):
+        return True
+
+    def __ne__(self, other):
+        return False
+
+    __hash__ = str.__hash__
+
+
+class Equal(type):
+    """A kind whose own kind says it equals any other: a comparison of kinds asks it, where `is` does not."""
+    def __eq__(cls, other):
+        return True
+
+    def __ne__(cls, other):
+        return False
+
+    __hash__ = type.__hash__
+
+
+class Sly(str, metaclass=Equal):
+    """Text of another kind, whose kind says it is `str`."""
+
+
+def draft(title: str = "Land the push guard", body: str = "What it lands, and why.") -> str | None:
+    return opening.refusal(title, body)
+
+
+class Opening(unittest.TestCase):
+    def assertEach(self, code: str, texts) -> None:
+        """Each of `texts` gives `code` as a draft's title and as its body, or as its body alone where it holds what a
+        body may and a title may not."""
+        for text in texts:
+            self.assertEqual(draft(body=text), code, repr(text))
+            if "\n" not in text and "\t" not in text:
+                self.assertEqual(draft(title=text), code, repr(text))
+
+    def assertNone(self, texts) -> None:
+        for text in texts:
+            self.assertIsNone(draft(body=text), repr(text))
+            if "\n" not in text and "\t" not in text and text.split():
+                self.assertIsNone(draft(title=text), repr(text))
+
+    def test_a_drafts_title_and_body_are_text_this_reads(self):
+        self.assertIsNone(draft())
+        # Each refusal is a code of its own, and none is the None that lets a draft open.
+        self.assertEqual((opening.UNREADABLE, opening.LINKS, opening.MENTIONS, opening.CLOSES),
+                         ("opening_unreadable", "opening_links", "opening_mentions", "opening_closes"))
+        # Every control character, between two that show, and every bidi control: a body may hold a break and a tab.
+        controls = [chr(code) for code in [*range(0x20), *range(0x7f, 0xa0), 0x2028, 0x2029, 0x061c, 0x200e, 0x200f,
+                                           *range(0x202a, 0x202f), *range(0x2066, 0x2070), *range(0xfff9, 0xfffc),
+                                           *range(0xe0000, 0xe0080)]]
+        for c in controls:
+            self.assertEqual(draft(title="a" + c + "b"), opening.UNREADABLE, repr(c))
+            self.assertEqual(draft(body="a" + c + "b"), None if c in "\t\n" else opening.UNREADABLE, repr(c))
+        # What shows nothing alone is blank: each default-ignorable character, the first and the last of each range,
+        # and the Braille blank. Inside a word, as an emoji's joiner or its variation selector is, it is text, and so
+        # are the characters either side of the tags.
+        blanks = [c for pair in patch.IGNORABLE for c in pair] + ["\u2800", "\u180f", " \u200b\u200d ", "\ufe0f\u2800"]
+        for blank in blanks:
+            self.assertEqual(draft(title=blank), opening.UNREADABLE, repr(blank))
+            self.assertEqual(draft(body=blank), opening.UNREADABLE, repr(blank))
+        self.assertNone(["a\u200db", "\U0001F468\u200d\U0001F469", "\u2764\ufe0f", "a\u2800b", "a\U000dffffb",
+                         "a\U000e0080b"])
+        # A percent-escape is `%` before any hex digit, in either case.
+        self.assertEach(opening.UNREADABLE, ["%" + h + "0" for h in "0123456789abcdefABCDEF"])
+        self.assertNone(["%g0", "100 %"])
+        self.assertNone(["## What\n\n- a\tb\n\nC# 9, 100% sure, 50% off, a < b, a <= b, <3, x & y, a && b, R & D"])
+        # No text of its exact kind: text of another kind may say it is anything.
+        for wrong in (None, b"x", Odd("x"), Sly("x"), 1, ["x"], {"x": "x"}):
+            self.assertEqual(draft(title=wrong), opening.UNREADABLE, repr(wrong))
+            self.assertEqual(draft(body=wrong), opening.UNREADABLE, repr(wrong))
+        self.assertEqual(draft(body=Odd("")), opening.UNREADABLE)
+        # A title is one line, of something; a body is of something, and holds no control character but a line break
+        # and a tab.
+        for title in ("", " ", "　", "a\nb", "a\tb", "a\rb", "a\x00", "a\x1b", "a\x7f", "a\x85", "a\x9f", "a\u2028",
+                      "a\u2029"):
+            self.assertEqual(draft(title=title), opening.UNREADABLE, repr(title))
+        for body in ("", " ", "\n", " \t\n", "a\rb", "a\r\nb", "\x00", "a\x08", "a\x0b", "a\x1f", "a\x7f", "a\x80", "a\x85", "a\u2028", "a\u2029"):
+            self.assertEqual(draft(body=body), opening.UNREADABLE, repr(body))
+        # A lone surrogate, as JSON's escape gives one, is no character: no UTF-8 carries it, so GitHub cannot be sent it.
+        # The characters either side of the surrogates are text, and so is one outside the Basic Multilingual Plane.
+        self.assertEach(opening.UNREADABLE, ["\ud800", "a\ud800b", "a\udbff", "\udc00a", "a\udfff", "\udfff\ud800"])
+        self.assertNone(["a\ud7ff", "a\ue000", "a\U0001F642", "\U00010000\U0010FFFF"])
+        # Text that reads as other text: a character reference, a percent-escape, raw HTML, and each behind a backslash.
+        self.assertEach(opening.UNREADABLE, ["&" + c + "x;" for c in opening.LETTERS + opening.UPPER]
+                        + ["<" + c for c in opening.LETTERS + opening.UPPER])
+        self.assertEach(opening.UNREADABLE, ["&#35;12", "&#x40;x", "&num;12", "&commat;x", "AT&T", "%23", "%2F", "%E2%80",
+                                             "50%a", "<!-- -->", "#<!-- -->12", "<b>", "</b>", "<?x", "<!DOCTYPE", "<A href>",
+                                             "&\\#35;", "<\\!-- -->", "%\\23"])
+        # The first refusal that holds is the one given.
+        self.assertEqual(draft("Land #12", "\x00"), opening.UNREADABLE)
+        self.assertEqual(draft("Fixes @a", "#12"), opening.LINKS)
+        self.assertEqual(draft("Fixes @a"), opening.MENTIONS)
+        self.assertEqual(draft(body="@a closes #12"), opening.LINKS)
+        self.assertEqual(draft(body="@a closes"), opening.MENTIONS)
+
+    def test_a_draft_links_mentions_and_closes_nothing(self):
+        # Each digit after a mark is a reference.
+        for d in "0123456789":
+            self.assertEach(opening.LINKS, ["#" + d, "GH-" + d, "issues/" + d, "pull/" + d])
+            self.assertEach(opening.MENTIONS, ["@" + d + "x"])
+        # A dot segment a browser takes out leads where its path without it does, a backslash read as a slash.
+        self.assertEach(opening.LINKS, ["https://github.com/o/r/issues/./12", "https://github.com/o/r/pull/x/../3",
+                                        "www.github.com/o/r/issues/./1", "issues\\.\\12", "a/./b", "a/./.github",
+                                        "x/..", "x/.. y", "x/. y", "https://example.test/a/..?view=1", "a/.?b"])
+        self.assertNone(["see ../docs", "./run.sh", "a.b/c", "e.g. a/b", "a/.../b", "a/.b", "a/..b"])
+        # A character that folds to letters joins no keyword to a longer word.
+        self.assertEach(opening.CLOSES, ["\u212afixes it", "\u00dffixes it", "\u017fclose it", "\u212aFIXES",
+                                         "\u212a\ufb01xes", "\u212aclo\\sed", "fix\u212a"])
+        self.assertNone(["pre\ufb01x", "\ufb01xture"])
+        # A path folded in case reads as its letters: two long s are `ss`; and a path's slashes are taken out.
+        self.assertEach(opening.LINKS, ["i\u017f\u017fues/12", "pu/ll2"])
+        # A mention or a keyword on a later line, and a digit before a keyword, which joins it to no word.
+        self.assertEqual(draft(body="Summary\n\ncc @reader"), opening.MENTIONS)
+        self.assertEqual(draft(body="Summary\n\nIt fixes that."), opening.CLOSES)
+        self.assertEach(opening.CLOSES, ["2fix", "_fixes"])
+        # The first of a mark's places may be harmless and a later one not.
+        self.assertEach(opening.LINKS, ["See #notes, then #12", "GH-x, GH-1", "issues/x issues/1"])
+        self.assertEach(opening.MENTIONS, ["the sign @, then @a"] + ["@" + c for c in opening.LETTERS + opening.UPPER])
+        self.assertEach(opening.LINKS, [
+            "#1", "#0", "x#1", "(#12)", "##12", "owner/repo#12", "Org_name/Repo.js#3", "GH-12", "gh-7", "Gh-1", "xGH-1",
+            "GH\\-12", "https://github.com/o/r/issues/12", "HTTPS://WWW.GITHUB.COM/O/R/PULL/3",
+            "github.com/o/r/pull/3/files", "www.github.com/o/r/issues/1#issuecomment-2", "https://github.com/o/r/issues//12",
+            "/o/r/issue/4", "https://github.com/o/r/pulls/5", "https://github.com/o/r/discussions/6",
+            "https://git.example/o/r/issues/7", "issues\\/12", "pull\\12", "[see](12)", "[see]( ./12 )", "![x](a.png)",
+            "[x][r]\n\n[r]: 12", "a[^1]\n\n[^1]: note", "[x]\\(12)"])
+        self.assertNone(["## Summary", "#abc", "# 1", "C#", "issue 12", "pull 3", "pull request 12", "gh -12", "GH-x",
+                         "https://github.com/o/r/blob/main/issues.md", "https://github.com/o/r/tree/main/pull",
+                         "https://github.com/o/r", "[x]", "a] (b", "x] : y"])
+
+        self.assertEach(opening.MENTIONS, ["@x", "@X", "@0", "@don-petry", "@org/team", "cc @a", "(@a)", "a@b.example",
+                                           "@\\user"])
+        self.assertNone(["@", "a @ b", "@-x", "@_x", "@.", "the sign @"])
+
+        for word in ("close", "closes", "closed", "fix", "fixes", "fixed", "resolve", "resolves", "resolved"):
+            self.assertEach(opening.CLOSES, [word, word.upper(), word.capitalize(), "This " + word + " it.",
+                                             word + ": the guard"])
+        self.assertEach(opening.CLOSES, ["pre-fix", "fix_up", "fix2", "(resolved)", "ﬁxes", "cloſes", "clo\\sed",
+                                         "fix\\ture"])
+        self.assertNone(["fixture", "prefix", "suffix", "fixing", "enclosed", "closely", "closing", "reclose", "resolver",
+                         "unresolved", "fixtures", "PREFIX", "FIXTURE", "Prefix", "Fixture"])
 
 
 if __name__ == "__main__":

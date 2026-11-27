@@ -2083,13 +2083,142 @@ class RemoveLabel(unittest.TestCase):
         self.assertEqual(what(decide(linked)), ("nothing", "linked_draft", None))
 
     def test_removing_a_label_is_stopped_by_the_pause_and_waits_for_a_run_in_flight(self):
-        stale = facts(label_events=[labelled(READY, OTHER_APP, 1)], acts_since_writer=LIMITS["max_acts_per_item"])
+        stale = facts(label_events=[labelled(READY, OTHER_APP, 1)], acts_since_writer=LIMITS["max_acts_per_item"] - 1)
         self.assertEqual(decide(stale).get("action"), "remove_label")
         self.assertEqual(what(decide(stale, ctx=context(paused=True))), ("defer", "paused", None))
         # A readiness Run that adds factory:ready completes after its apply: until then its label does not count.
         d = decide(facts(label_events=READIED), [run(status="in_progress")])
         self.assertEqual((what(d), d["attention"]), (("nothing", "triage", None), "working"))
 
+    def test_an_uncounted_label_waits_at_the_act_ceiling(self):  # issue 1251
+        # Removing a label that does not count stops no work: it is braked as any act. At the act ceiling, past it, or
+        # with the count unread, the removal waits, in new, triage and ready alike, and the issue reads as it will once
+        # the label is removed: it makes no act, and admits only what it admits then. One act below, it is removed.
+        top = LIMITS["max_acts_per_item"]
+        analysed = [comment(ANALYST, 3)]
+        for state, events, comments, runs in (
+                ("new", [labelled(TRIAGE, OTHER_APP, 1)], [], []),
+                ("new", [labelled(READY, OTHER_APP, 1)], [], []),
+                ("triage", ACCEPTED + [labelled(READY, OTHER_APP, 4)], [], []),
+                # The readiness App's own label, once its Run's record is gone: no verdict is asked for again.
+                ("triage", ACCEPTED + [labelled(READY, READINESS, 5)], analysed, []),
+                # An earlier add, taken off, and another App's after it; and an add that is not the last event.
+                ("triage", ACCEPTED + [labelled(READY, READINESS, 5), unlabelled(READY, OTHER_APP, 6),
+                                       labelled(READY, OTHER_APP, 7)], analysed, []),
+                ("triage", [labelled(READY, OTHER_APP, 1), labelled(TRIAGE, CONTROLLER, 2)], [], []),
+                ("ready", READIED_BY_A_PERSON + [labelled(TRIAGE, OTHER_APP, 3)], [], []),
+                # The readiness App's verdict, which counts by its Run's record, beside another App's factory:triage:
+                # the reading keeps the record.
+                ("ready", READIED + [labelled(TRIAGE, OTHER_APP, 7)], [], JUDGED)):
+            uncounted = [ev for ev in events if ev["by"] in (OTHER_APP, READINESS) and ev["action"] == "labeled"][-1]
+            gone = events + [dict(uncounted, action="unlabeled")]
+            full = context(active_runs=LIMITS["org_max_active_runs"])
+            for acts, ctx in ((top, context()), (top + 1, context()), (None, context()), (top, context(paused=True)),
+                              (None, context(paused=True)), (top, full)):
+                d = decide(facts(label_events=events, role_comments=comments, acts_since_writer=acts), runs, ctx=ctx)
+                removed = decide(facts(label_events=gone, role_comments=comments, acts_since_writer=acts), runs,
+                                 ctx=ctx)
+                if ctx["paused"] and acts is None:
+                    # Under the Pause the removal is stopped there, whether the count can be read or not.
+                    self.assertEqual(what(d), ("defer", "paused", None), state)
+                    continue
+                self.assertEqual((d["state"], what(d), d.get("admit"), d["attention"]),
+                                 (removed["state"], what(removed), removed.get("admit"), removed["attention"]),
+                                 (state, acts, ctx))
+                self.assertNotEqual(d["outcome"], "act", (state, acts))
+                self.assertNotEqual((d.get("admit") or {}).get("intent"), JUDGE, (state, acts))
+                self.assertTrue(not ctx["paused"] or d["outcome"] not in ("act", "admit"), (state, acts))
+            # Under the Pause alone the removal is stopped there, as any act that stops work, on the label.
+            d = decide(facts(label_events=events, role_comments=comments, acts_since_writer=top - 1), runs,
+                       ctx=context(paused=True))
+            self.assertEqual((what(d), d["evidence"]), (("defer", "paused", None), [uncounted["label"]]), state)
+            d = decide(facts(label_events=events, role_comments=comments, acts_since_writer=top - 1), runs)
+            self.assertEqual((d["state"], what(d)), (state, ("act", "label_not_counted", "remove_label")))
+        # In new the ceiling holds the issue, with the label or without it, past the ceiling and under the Pause.
+        for events, acts, ctx in (([labelled(READY, OTHER_APP, 1)], top, context()), ([], top, context()),
+                                  ([labelled(TRIAGE, OTHER_APP, 1)], top, context()),
+                                  # Two uncounted labels, each waiting in the one decision.
+                                  ([labelled(TRIAGE, OTHER_APP, 1), labelled(READY, OTHER_APP, 2)], top, context()),
+                                  ([labelled(READY, OTHER_APP, 1)], top + 1, context()),
+                                  ([labelled(READY, OTHER_APP, 1)], top, context(paused=True))):
+            d = decide(facts(label_events=events, acts_since_writer=acts), ctx=ctx)
+            self.assertEqual((d["state"], what(d), d["attention"]), ("held", ("hold", "act_ceiling", None), "needs_you"),
+                             (events, acts, ctx))
+        # In triage the investigation the issue wants is admitted at the ceiling, as without the label; the label's
+        # own reading, factory:ready, starts no opening.
+        d = decide(facts(label_events=ACCEPTED + [labelled(READY, OTHER_APP, 4)], acts_since_writer=top))
+        self.assertEqual((d["state"], what(d)), ("triage", ("admit", "triage", INVESTIGATE)))
+        # A removal that stops work still passes the ceiling: unmerged closes past their bound place their Hold.
+        closes = closed_links(*range(2, 3 + LIMITS["max_unmerged_closes"]))
+        d = decide(facts(label_events=[labelled(READY, OTHER_APP, 1)], acts_since_writer=top, linked=closes))
+        self.assertEqual(what(d), ("act", "unmerged_closes", "place_hold"))
+
+    def test_no_run_that_adds_a_waiting_label_is_admitted(self):  # issue 1251
+        # While another App's factory:ready waits for its removal, a readiness Run's own add would change nothing on
+        # GitHub: the issue defers on the brake that makes the removal wait. Once the label is removed, it is admitted.
+        top = LIMITS["max_acts_per_item"]
+        analysed = [comment(ANALYST, 3)]
+        waiting = ACCEPTED + [labelled(READY, OTHER_APP, 4)]
+        # The Controller removes it, once it may.
+        gone = waiting + [unlabelled(READY, CONTROLLER, 6)]
+        for acts, reason in ((top, "act_ceiling"), (top + 1, "act_ceiling"), (None, "acts_unreadable")):
+            given = facts(label_events=waiting, role_comments=analysed, acts_since_writer=acts)
+            kept = copy.deepcopy(given)
+            for _ in range(2):
+                d = decide(given)
+                self.assertEqual((d["state"], what(d), d["evidence"]), ("triage", ("defer", reason, None), [READY]),
+                                 acts)
+                self.assertNotIn("admit", d, acts)
+            # The removal read while it waits is never written into the facts given.
+            self.assertEqual(given, kept, acts)
+            d = decide(facts(label_events=gone, role_comments=analysed, acts_since_writer=acts))
+            self.assertEqual((d["state"], what(d)), ("triage", ("admit", "triage", JUDGE)), acts)
+        # One act below the ceiling the label is removed; a waiting label the Run wanted does not add stops nothing.
+        d = decide(facts(label_events=waiting, role_comments=analysed, acts_since_writer=top - 1))
+        self.assertEqual(what(d), ("act", "label_not_counted", "remove_label"))
+        d = decide(facts(label_events=READIED_BY_A_PERSON + [labelled(TRIAGE, OTHER_APP, 3)], acts_since_writer=top))
+        self.assertEqual(what(d), ("admit", "ready", OPEN))
+
+    def test_a_waiting_verdict_reads_by_time_and_as_the_controllers_removal(self):  # issue 1251
+        # The readiness App's own verdict waiting at the ceiling reads as the Controller's real removal of it does: no
+        # verdict is asked for again. And the adds are read by their time, never by their order in the list.
+        top = LIMITS["max_acts_per_item"]
+        analysed = [comment(ANALYST, 3)]
+        waiting = ACCEPTED + [labelled(READY, READINESS, 5)]
+        removed = waiting + [unlabelled(READY, CONTROLLER, 6)]
+        for acts in (top, None):
+            d = decide(facts(label_events=waiting, role_comments=analysed, acts_since_writer=acts))
+            self.assertEqual(what(d), what(decide(facts(label_events=removed, role_comments=analysed))), acts)
+            self.assertEqual(what(d), ("nothing", "judged", None), acts)
+        tail = [labelled(READY, READINESS, 5), unlabelled(READY, OTHER_APP, 6), labelled(READY, OTHER_APP, 7)]
+        for acts in (top, None, top - 1):
+            ordered = decide(facts(label_events=ACCEPTED + tail, role_comments=analysed, acts_since_writer=acts))
+            shuffled = decide(facts(label_events=ACCEPTED + tail[::-1], role_comments=analysed, acts_since_writer=acts))
+            self.assertEqual(what(shuffled), what(ordered), acts)
+
+    def test_a_waiting_label_with_the_writers_time_unread_defers(self):  # issue 1251
+        # The acts since a writer acted cannot be counted while the writer's time cannot be read: the removal waits, and
+        # the issue defers on that time, beside a completed Run as without one, below the ceiling as at it.
+        top = LIMITS["max_acts_per_item"]
+        waiting = ACCEPTED + [labelled(READY, OTHER_APP, 4)]
+        for mark in (3, "today", [at(2)]):
+            for acts in (top - 1, top, None):
+                for runs in ([], [investigated()]):
+                    f = facts(label_events=waiting, last_writer_action_at=mark, acts_since_writer=acts)
+                    try:
+                        d = decide(f, runs)
+                    except Exception as e:
+                        self.fail("a writer's time of %r raised %r" % (mark, e))
+                    self.assertEqual((d["state"], what(d)), ("triage", ("defer", "writer_unreadable", None)),
+                                     (mark, acts, runs))
+        # A writer's time left out is unread too, never read as none.
+        left_out = facts(label_events=waiting, acts_since_writer=top - 1)
+        del left_out["last_writer_action_at"]
+        self.assertEqual(what(decide(left_out)), ("defer", "writer_unreadable", None))
+        # The other side: with the writer's time read, one act below the ceiling, the label is removed.
+        d = decide(facts(label_events=waiting, last_writer_action_at=at(2), acts_since_writer=top - 1),
+                   [investigated()])
+        self.assertEqual(what(d), ("act", "label_not_counted", "remove_label"))
 
 class UnmergedCloses(unittest.TestCase):
     """The Controller places factory:hold when unmerged closes pass max_unmerged_closes (I-43)."""
