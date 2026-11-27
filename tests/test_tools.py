@@ -7994,12 +7994,17 @@ class Trials(unittest.TestCase):
                  "P-99.md": (good % "99").replace("Is it asked?", "```hidden"), "P-41.md": page,
                  "P-88.md": (good % "88").replace("Is it asked?", "Is A | B asked?"), "P-87.md": (good % "87").replace("Yes", " "),
                  "P-85.md": (good % "85").replace("Is it asked?", " "),
+                 "P-84.md": (good % "84").replace("Is it asked?", "[it]: https://example.com Is it asked?"),
+                 "P-83.md": (good % "83").replace("Yes", "  [Yes]: <x>"),
                  "P-86.md\n": good % "86"}
         planted = clone({check_trials.PAGES + "/" + k: v for k, v in files.items()})
         (planted / check_trials.PAGES / "P-89.md").symlink_to(planted / check_trials.PAGES / "P-90.md")
         problems = check_trials.run(planted)
         for name in ("P-98.md", "P-99.md"):
             self.assertTrue(caught(problems, "%s/%s: holds a fence or an HTML comment" % (check_trials.PAGES, name)), name)
+        # So does a link reference definition, which shows as nothing (issue 1179).
+        for name in ("P-84.md", "P-83.md"):
+            self.assertTrue(caught(problems, "%s/%s: holds a link reference definition" % (check_trials.PAGES, name)), name)
         for name in ("README.md", "P-095.md", "deep/P-96.md", "P-89.md", "P-86.md\n"):
             self.assertTrue(caught(problems, "%s/%s: only a trial's page" % (check_trials.PAGES, name)), name)
         self.assertTrue(caught(problems, "P-90.md: is headed P-91"), problems)
