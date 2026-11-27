@@ -875,7 +875,7 @@ ISSUE = [
     ("a role comment's App is not read", ISSUE_PY,
      'isinstance(c.get("by"), str) and c["by"] != "" and ', "", ISSUE_TESTS),
     ("a writer's times that cannot be read are trusted", ISSUE_PY,
-     "    if not readable_writer(facts):\n", "    if False:\n", ISSUE_TESTS),
+     "    if not readable_writer(facts):\n        return", "    if False:\n        return", ISSUE_TESTS),
     ("a writer's time left out is read as none", ISSUE_PY,
      'facts.get(name, "") is None', "facts.get(name) is None", ISSUE_TESTS),
     # Acceptance, at row 10.
