@@ -1678,27 +1678,27 @@ class Records(unittest.TestCase):
             got, _ = self.read(rows, *stored(canary(), github_id, zipped))
             self.assertEqual((got["runs"][0]["outcome"], got["runs"][0]["engine_started"], got["complete"]),
                              ("environment", said, True), said)
-            self.assertEqual(records.engines([{"runs": got["runs"]}]), {key: said})
+            self.assertEqual(records.engines([{"runs": got["runs"]}]), {key: {"engine_started": said}})
         got, _ = self.read(rows, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "environment"))))
         self.assertNotIn("engine_started", got["runs"][0])
         self.assertEqual(records.engines([{"runs": got["runs"]}]), {})
         # An outcome kept from the records before is not read again, and what they said of the Engine is kept with it.
         kept = {key: "environment"}
-        for engines, want in (({key: False}, False), ({key: True}, True)):
+        for engines, want in (({key: {"engine_started": False}}, False), ({key: {"engine_started": True}}, True)):
             got, _ = self.read(rows, kept=kept, engines=engines)
             self.assertEqual((got["runs"][0]["outcome"], got["runs"][0]["engine_started"]), ("environment", want))
         got, _ = self.read(rows, kept=kept, engines={})
         self.assertNotIn("engine_started", got["runs"][0])
         # What was said of another Run, or of another attempt of this one, says nothing of this one.
         for other in (("r_01JA70", key[1]), (key[0], "2026-10-11T12:06:00Z")):
-            got, _ = self.read(rows, kept=kept, engines={other: False})
+            got, _ = self.read(rows, kept=kept, engines={other: {"engine_started": False}})
             self.assertNotIn("engine_started", got["runs"][0], other)
         got, _ = self.read(rows, kept=kept)
         self.assertNotIn("engine_started", got["runs"][0])
         # A Run that succeeded, or is not done, has no outcome read, and nothing of the Engine.
         for change in ({"name": NAME, "status": "completed", "conclusion": "success"},
                        {"name": NAME, "status": "in_progress", "conclusion": None}):
-            got, _ = self.read(listing("P-17", 3, rows=change), engines={key: False})
+            got, _ = self.read(listing("P-17", 3, rows=change), engines={key: {"engine_started": False}})
             self.assertNotIn("engine_started", got["runs"][0], change)
         # What the last record before said, and no earlier record's word: a true or a false alone, and nothing for a Run
         # it lists twice.
@@ -1706,7 +1706,7 @@ class Records(unittest.TestCase):
                "outcome": "environment"}
         other = dict(run, run="r_01JA70")
         later = {"runs": [dict(run, engine_started=True)]}
-        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, later]), {key: True})
+        self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, later]), {key: {"engine_started": True}})
         self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False)]}, {"runs": [other]}]), {})
         self.assertEqual(records.engines([later, {"runs": [run]}]), {})
         for said in (None, "false", 0, 1):
@@ -1716,6 +1716,45 @@ class Records(unittest.TestCase):
             self.assertEqual(records.engines([{"runs": [dict(run, engine_started=False, **change)]}]), {}, change)
         self.assertEqual((records.engines(None), records.engines({"runs": [run]}), records.engines([{"runs": None}]),
                           records.engines([{"runs": ["x"]}]), records.engines([])), ({}, {}, {}, {}, {}))
+
+    def test_githubs_reset_is_read_with_the_outcome_and_kept_and_a_completed_run_says_when_it_ended(self):  # issue 838
+        done = {"name": NAME, "status": "completed", "conclusion": "failure", "updated_at": "2026-10-18T01:39:00Z"}
+        rows = listing("P-17", 3, rows=done)
+        github_id = rows["response"]["body"]["workflow_runs"][0]["id"]
+        key = ("r_01JA6Z", rows["response"]["body"]["workflow_runs"][0]["run_started_at"])
+        zipped = outcome_zip(dict(outcome_of("r_01JA6Z", "github_capacity", "push_rate_limited"), github_reset=1760187600))
+        got, _ = self.read(rows, *stored(canary(), github_id, zipped))
+        r = got["runs"][0]
+        self.assertEqual((r["outcome"], r["github_reset"], r["ended_at"], got["complete"]),
+                         ("github_capacity", 1760187600, "2026-10-18T01:39:00Z", True))
+        self.assertEqual(records.engines([{"runs": got["runs"]}]), {key: {"github_reset": 1760187600}})
+        self.assertEqual(records.known([{"runs": got["runs"], "context": {"active_runs": 0}}]), {key: "github_capacity"})
+        got, _ = self.read(rows, kept={key: "github_capacity"}, engines={key: {"github_reset": 1760187600}})
+        self.assertEqual((got["runs"][0]["outcome"], got["runs"][0]["github_reset"]), ("github_capacity", 1760187600))
+        for said in ("1760187600", True, 1.5, None):
+            self.assertEqual(records.engines([{"runs": [dict(got["runs"][0], github_reset=said)]}]), {}, said)
+        # A reset in words is no outcome/1; a Run in progress, or a time GitHub gives that cannot be read, ends nowhere.
+        zipped = outcome_zip(dict(outcome_of("r_01JA6Z", "github_capacity"), github_reset="1760187600"))
+        self.assertEqual(self.read(rows, *stored(canary(), github_id, zipped))[0]["complete"], False)
+        for change in ({"status": "in_progress", "conclusion": None}, {"updated_at": "2026-10-18T01:39"},
+                       {"updated_at": "2026-02-30T12:09:00Z"}, {"updated_at": "2026-10-18T01:29:06Z"}):
+            got, _ = self.read(listing("P-17", 3, rows=dict(done, **change)), kept={key: "github_capacity"})
+            self.assertNotIn("ended_at", got["runs"][0], change)
+        # A Run that succeeded ends too, and one that ended in the second it started.
+        for change in ({"conclusion": "success"}, {"updated_at": key[1]}):
+            got, _ = self.read(listing("P-17", 3, rows=dict(done, **change)), kept={key: "github_capacity"})
+            self.assertEqual(got["runs"][0]["ended_at"], change.get("updated_at", done["updated_at"]), change)
+        # Both said together are read and kept together; a reset beside any other fault is not kept.
+        both = dict(outcome_of("r_01JA6Z", "github_capacity"), engine_started=False, github_reset=1760187600)
+        got, _ = self.read(rows, *stored(canary(), github_id, outcome_zip(both)))
+        said = {"engine_started": False, "github_reset": 1760187600}
+        self.assertEqual({k: got["runs"][0][k] for k in said}, said)
+        self.assertEqual(records.engines([{"runs": got["runs"]}]), {key: said})
+        again, _ = self.read(rows, kept={key: "github_capacity"}, engines=records.engines([{"runs": got["runs"]}]))
+        self.assertEqual({k: again["runs"][0][k] for k in said}, said)
+        other = dict(outcome_of("r_01JA6Z", "environment"), github_reset=1760187600)
+        got, _ = self.read(rows, *stored(canary(), github_id, outcome_zip(other)))
+        self.assertEqual((got["runs"][0]["outcome"], "github_reset" in got["runs"][0]), ("environment", False))
 
     def began(self, status, *jobs, **kw):
         """`(the one record, whether the list was whole)` of a Run GitHub lists with `status`, its jobs read as given."""
@@ -2171,6 +2210,15 @@ class Artifacts(unittest.TestCase):
         self.assertEqual(artifacts.outcome(github.Replay(stored("o/r", 7, outcome_zip(outcome_of(self.RUN, "item")))),
                                            "o/r", 7, self.RUN, started=told), ("item", True))
         self.assertEqual(told, [])
+        # When GitHub's limit resets is handed to `reset`, where it says, as a whole number (issue 838).
+        for said, want in ((1760187600, [1760187600]), (None, [])):
+            told = []
+            body = dict(outcome_of(self.RUN, "github_capacity"), **({} if said is None else {"github_reset": said}))
+            self.assertEqual(artifacts.outcome(github.Replay(stored("o/r", 7, outcome_zip(body))), "o/r", 7, self.RUN,
+                                               reset=told), ("github_capacity", True))
+            self.assertEqual(told, want, said)
+            # A caller that does not ask is told nothing, and the outcome is read all the same.
+            self.assertEqual(self.read(outcome_zip(body)), ("github_capacity", True), said)
         self.assertEqual(self.read(outcome_zip(dict(outcome_of(self.RUN, "item"), engine_started="no"))), (None, False))
         # A caller that does not ask is told nothing, and the outcome is read all the same.
         self.assertEqual(self.read(outcome_zip(dict(outcome_of(self.RUN, "environment"), engine_started=False))),
@@ -9243,9 +9291,11 @@ class Push(unittest.TestCase):
         self.assertEqual(tree, {"README.md": "100644", "bin/link": "120000", "bin/run.sh": "100755",
                                 "docs/notes.md": "100644", "gone.txt": "100644"})
         self.assertEqual(blobs["bin/run.sh"], ("85ba14df52f8c72688537de6e7555fb402217b1e", 19))
-        # No answer, or one the port reads as none, is the port's; GitHub's answer of any other kind is a person's.
-        for status in ("500", "502", "401", "403", "429"):
+        # No answer, or one the port reads as none, is the port's; GitHub's limit on the token, a code of its own; GitHub's answer
+        # of any other kind is a person's.
+        for status in ("500", "502", "401", "403"):
             self.assertEqual(push.listed(dict(answer, status=status), sha), (None, push.TREE_UNFETCHED), status)
+        self.assertEqual(push.listed(dict(answer, status="429"), sha), (None, guard.RATE_LIMITED))
         self.assertEqual(push.listed(None, sha), (None, push.TREE_UNFETCHED))
         for status in (200, None):      # a status that is not text, as `send` writes it, is no answer
             self.assertEqual(push.listed(dict(answer, status=status), sha), (None, push.TREE_UNFETCHED), status)
@@ -9368,9 +9418,11 @@ class Push(unittest.TestCase):
         self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": one, "b": other}.get), ({"a": b"one\n", "b": b"two\n"}, None))
         # The first file that gives no bytes ends the read: the port's where it was not read, a person's where GitHub
         # refused it or gave other bytes.
-        for gone in (None, {"status": "502", "body": None}, {"status": "429", "body": {}}, {"status": "401", "body": {}}, "no answer"):
+        for gone in (None, {"status": "502", "body": None}, {"status": "401", "body": {}}, "no answer"):
             self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": one, "b": gone}.get), (None, push.TREE_UNFETCHED))
             self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": gone, "b": wrong}.get), (None, push.TREE_UNFETCHED))
+        self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": one, "b": {"status": "429", "body": {}}}.get),
+                         (None, guard.RATE_LIMITED))
         self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": one}.get), (None, push.TREE_UNFETCHED))
         self.assertEqual(push.read_whole(listing, ["a", "b"], {"a": one, "b": other}), (None, push.TREE_UNFETCHED))
         for refused in ({"status": "404", "body": {}}, {"status": "422", "body": {"message": "not a blob"}}, wrong,
@@ -9378,7 +9430,7 @@ class Push(unittest.TestCase):
             for answers in ({"a": one, "b": refused}, {"a": refused, "b": None}):
                 self.assertEqual(push.read_whole(listing, ["a", "b"], answers.get), (None, patch.TREE_UNREAD), answers)
         # Each file is asked for in order, and none after the first that gives a code.
-        for first_answer in (wrong, None):
+        for first_answer in (wrong, None, {"status": "429", "body": {}}):
             asked = []
             push.read_whole(listing, ["a", "b"], lambda path: asked.append(path) or {"a": first_answer, "b": other}[path])
             self.assertEqual(asked, ["a"])
@@ -9398,16 +9450,20 @@ class Push(unittest.TestCase):
             def send(self, req):
                 return self.answer
         blob = push.read_blob(PUSHED, NAMED)
-        # A 403 with no request left or a time to wait is a rate limit's, no answer (decision 1138); `send` gives none.
+        # A 403 with no request left or a time to wait is a rate limit's (decision 1138): `send` gives it as GitHub's
+        # other answer of a limit, a 429, so that the guard and the port tell it from a refusal.
+        made = push.make_blob(PUSHED, "QQo=")
         for headers in ({"x-ratelimit-remaining": "0"}, {"x-ratelimit-remaining": 0}, {"retry-after": "60"}):
-            self.assertIsNone(sent(Answering(403, headers), blob), headers)
+            for req in (blob, made):
+                self.assertEqual(sent(Answering(403, headers), req), {"status": "429", "body": {"message": "limited"}}, headers)
         # Any other 403, and another status with a time to wait, is an answer.
         for status, headers in ((403, {}), (403, {"x-ratelimit-remaining": "5"}), (404, {"retry-after": "60"}),
-                                (200, {"retry-after": "60"}), (403, None), (403, ["retry-after"])):
+                                (200, {"retry-after": "60"}), (403, None), (403, ["retry-after"]),
+                                (201, {"x-ratelimit-remaining": "0"})):
             self.assertEqual(sent(Answering(status, headers), blob), {"status": str(status), "body": {"message": "limited"}},
                              (status, headers))
         # A listing's 403 is the port's; a blob's, read after the listing by the same token, a person's; a blob's rate
-        # limit, no answer, the port's.
+        # limit, a code of its own.
         one, first = self.blob(b"one\n")
         listing = marked({"a": FILE_MODE}, {"a": (first, 4)})
         answer, sha = self.listing()
@@ -9415,7 +9471,7 @@ class Push(unittest.TestCase):
         self.assertEqual(push.listed(dict(answer, status="403"), sha), (None, push.TREE_UNFETCHED))
         self.assertEqual(push.read_whole(listing, ["a"], {"a": refused}.get), (None, patch.TREE_UNREAD))
         limited = sent(Answering(403, {"retry-after": "60"}), blob)
-        self.assertEqual(push.read_whole(listing, ["a"], {"a": limited}.get), (None, push.TREE_UNFETCHED))
+        self.assertEqual(push.read_whole(listing, ["a"], {"a": limited}.get), (None, guard.RATE_LIMITED))
         self.assertEqual((push.WHOSE[patch.TREE_UNREAD], push.WHOSE[push.TREE_UNFETCHED]), (push.PERSON, push.PORT))
 
     def test_every_code_of_the_patch_guard_and_the_port_names_whose_it_is(self):
@@ -9437,7 +9493,8 @@ class Push(unittest.TestCase):
                                       "push_path_collision": "role", "push_reads_too_large": "role",
                                       "push_tree_unreadable": "person", "push_tree_unfetched": "port",
                                       "push_not_permitted": "person", "push_branch_moved": "superseded",
-                                      "push_answer_refused": "person", "push_unanswered": "port"})
+                                      "push_answer_refused": "person", "push_unanswered": "port",
+                                      "push_rate_limited": "port"})
         self.assertEqual((push.READS_TOO_LARGE, push.TREE_UNFETCHED), ("push_reads_too_large", "push_tree_unfetched"))
         # A person's code is the Kernel's `person` fault, which holds the item for a person (decision 1224).
         self.assertEqual(push.PERSON, terms.ENDED_PERSON)
