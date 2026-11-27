@@ -768,6 +768,10 @@ class Context(unittest.TestCase):
         self.assertEqual(decisions(passed(reads(runs=[limited()])))[0]["outcome"], "admit")
         short = passed(reads(runs=[limited()], complete=False), cfg=cfg)["record"]["context"]
         self.assertEqual((short["github_deferred"], short["active_runs"]), (None, None))
+        # The pass example's wait is the one its own Runs derive.
+        example = json.loads((ROOT / "examples" / "pass.json").read_text())
+        self.assertEqual(pass_.github_deferred(example["runs"], example["now"], rule),
+                         example["context"]["github_deferred"])
         empty = passed(reads(runs=[]), cfg=cfg)
         self.assertEqual((empty["record"]["context"]["github_deferred"], decisions(empty)[0]["outcome"]), ([], "admit"))
 
