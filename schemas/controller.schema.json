@@ -11,6 +11,7 @@
     "max_status_writes",
     "max_issue_requests",
     "capacity_window_seconds",
+    "github_capacity",
     "automatic_pause",
     "thresholds",
     "home",
@@ -313,6 +314,28 @@
     "capacity_window_seconds": {
       "type": "integer",
       "minimum": 1
+    },
+    "github_capacity": {
+      "description": "How long a Role that pushes waits once GitHub limited its Run: until the reset GitHub gave, held to between least_seconds and most_seconds after the Run ended; most_seconds where it gave none (decision 1269)",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "least_seconds",
+        "most_seconds"
+      ],
+      "properties": {
+        "least_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "most_seconds": {
+          "description": "Read as least_seconds where it is the smaller",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        }
+      }
     },
     "automatic_pause": {
       "type": "object",

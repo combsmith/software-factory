@@ -24,6 +24,8 @@ CONFIG["author_role"] = json.loads((ROOT / "config" / "authority.json").read_tex
 CONFIG["model_lens_inputs"] = protected.model_lens_inputs(CONFIG["required_lenses"]["model"])
 # Which of them only a person decides and no model Lens reads, by which the wait is named, as the Controller gives them.
 CONFIG["person_only_paths"] = configuration.person_only(protected.load(), CONFIG["required_lenses"]["model"])
+# The Roles that push, as the Controller gives them from roles/: none until a Role is granted the push.
+CONFIG["pushers"] = configuration.pushers(ROOT)
 ITEM = {"repo": "combsmith/software-factory", "type": "pull_request", "number": 42}
 NOW = "2026-10-11T13:00:00Z"
 # Every required check passing, each under its check run's name as GitHub gives it, from its Lens's own App.
@@ -307,7 +309,7 @@ def run(role="pr-review", intent="review-change", content="sha256:aaaa", status=
 def context(**over) -> dict:
     """What the Controller knows beside the facts. The chain of passes starts at NOW, so no wait here is stale."""
     c = {"paused": False, "active_runs": 0, "model_deferred_until": None, "passes_since": NOW,
-         "unidentified_runs": []}
+         "unidentified_runs": [], "github_deferred": []}
     c.update(over)
     return c
 

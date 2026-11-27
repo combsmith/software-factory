@@ -501,6 +501,8 @@
     "facts_incomplete": "Some facts about it could not be read whole; the Factory reads again.",
     "findings_open": "A reviewer's finding is open; the author addresses it.",
     "gate_open": "An open review thread takes it out of the merge queue; it is addressed first.",
+    "github_capacity": "GitHub limited the pushes of the Role it waits for; it tries again after GitHub's reset.",
+    "github_capacity_unreadable": "Which Roles push, or whether GitHub's limit on one still holds, could not be read; it reads again.",
     "hands_off": "A person marked it hands-off; the Factory leaves it alone.",
     "human_finding": "A person's review thread is open; the author addresses it.",
     "human_hold": "A hold label is on it; it waits until a person removes the label.",

@@ -12,6 +12,7 @@ import json
 import pathlib
 import random
 
+from controller import configuration
 from kernel import issue
 from kernel import terms as t
 from sim.world import (COLLEAGUE, MAINTAINER, PERMISSIONS, STRANGER, WRITE_ACCESS, Broken, World, ended_person,
@@ -41,7 +42,8 @@ SERVED = {"served_from": "2026-01-01T00:00:00Z", "left_out_labels": ["epic", "id
           "intents": {issue.INVESTIGATE: {"role": "business-analyst", "app": ANALYST["name"]},
                       issue.JUDGE_READINESS: {"role": "readiness", "app": READINESS["name"]},
                       issue.OPENING: {"role": "dev-lead", "app": AUTHOR_APP["name"]}}}
-CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()), lifecycle=LIFECYCLE, issues=SERVED)
+CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()), lifecycle=LIFECYCLE, issues=SERVED,
+              pushers=configuration.pushers(ROOT))
 LIMITS = CONFIG["limits"]
 # Each person's permission on the repo, and the permissions that are write access, are the pull request's world's
 # (issue 222, decision 0048, issue 299): every actor's write access is built from the one with the other, by `told`.
@@ -260,7 +262,7 @@ class IssueWorld:
     def context(self) -> dict:
         active = len([r for r in self.runs if r["status"] != "completed"])
         ctx = {"paused": False, "active_runs": active, "model_deferred_until": None,
-               "passes_since": World.at(self.chain), "unidentified_runs": []}
+               "passes_since": World.at(self.chain), "unidentified_runs": [], "github_deferred": []}
         if self.pausing():
             if self.pause_reading is None:
                 del ctx["paused"]

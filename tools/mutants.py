@@ -77,6 +77,7 @@ CEILING_LABEL = ('tests.test_issue.RemoveLabel.test_an_uncounted_label_waits_at_
 STANDS_UNREAD = ('tests.test_issue.Stands.test_what_cannot_be_read_gives_none',)
 F849_KERNEL = ("tests.test_issue.Unreadable.test_a_timeline_past_the_ports_bound_defers_on_its_own_code_and_calls_a_person",)
 STALE = "tests.test_decide.Staleness."
+GITHUB = "tests.test_decide.GitHubsLimit."
 
 # Where the boundary cases of decision 0029 are.
 REPORTED = "tests.test_decide.AReviewThatReported."
@@ -90,7 +91,7 @@ ACT_BRAKES = ('    brake = brakes.on_act(_decision, facts, state, evidence, cont
 # The deferral for an unidentified Run in decide.py's _act, the first after the brakes it follows; and the call that
 # reads every deferral of a Run, the first after the brakes in decide.py's _decide and in issue.py's decide.
 UNIDENTIFIED_DEFERS = '        return _decision(facts, state, "run_unidentified", evidence, t.DEFER)\n'
-DEFERRAL_CALL = ("    stop = run_deferral(_decision, facts, state, evidence, context, now, limits)\n"
+DEFERRAL_CALL = ('    stop = run_deferral(_decision, facts, state, evidence, context, now, limits, role, config.get("pushers"))\n'
                  "    if stop:\n        return stop\n")
 COVERAGE = "tests.test_coverage.Coverage."
 
@@ -2417,6 +2418,50 @@ MUTANTS = ISSUE + OUTSIDE + [
      '    if unnamed_within(context, now, limits) != []:\n', '    if unnamed_within(context, now, limits):\n',
      (UNIDENTIFIED + "test_a_list_of_unidentified_runs_that_cannot_be_read_defers",
       "tests.test_issue.UnidentifiedRuns.test_an_unidentified_run_defers_an_issues_run")),
+    # A Role that pushes waits, in its App's installation alone, until GitHub's limit resets (issue 838).
+    ("a Run GitHub limited does not wait", "kernel/derive.py",
+     '    if waiting:\n        return _decision(facts, state, "github_capacity", evidence, t.DEFER)\n', "",
+     (GITHUB + "test_a_pushing_roles_run_waits_in_its_installation_until_the_reset",) + ISSUE_TESTS),
+    ("a wait for GitHub that cannot be read admits", "kernel/derive.py",
+     '    if waiting is None:\n        return _decision(facts, state, "github_capacity_unreadable", evidence, t.DEFER)\n',
+     "", (GITHUB + "test_a_wait_or_a_list_of_pushers_that_cannot_be_read_defers_a_pushing_role_alone",)),
+    ("a Role that does not push waits for GitHub too", "kernel/derive.py",
+     "    if role not in pushers:\n        return False\n", "",
+     (GITHUB + "test_a_wait_or_a_list_of_pushers_that_cannot_be_read_defers_a_pushing_role_alone",)),
+    ("a list of the Roles that push holding no name is read", "kernel/derive.py",
+     "isinstance(pushers, list) and all(isinstance(name, str) for name in pushers)", "isinstance(pushers, list)",
+     (GITHUB + "test_a_wait_or_a_list_of_pushers_that_cannot_be_read_defers_a_pushing_role_alone",)),
+    ("a wait for GitHub whose time is no moment is compared", "kernel/derive.py",
+     ' and is_time(w.get("until")) for w in waits):', ' for w in waits):',
+     (GITHUB + "test_a_wait_or_a_list_of_pushers_that_cannot_be_read_defers_a_pushing_role_alone",)),
+    ("a wait for GitHub at its reset still holds", "kernel/derive.py",
+     'w["until"] > now for w in waits)', 'w["until"] >= now for w in waits)',
+     (GITHUB + "test_a_pushing_roles_run_waits_in_its_installation_until_the_reset",)),
+    ("another installation's wait for GitHub holds", "kernel/derive.py",
+     'w["role"] == role and w["owner"].casefold() == owner and ', 'w["role"] == role and ',
+     (GITHUB + "test_a_pushing_roles_run_waits_in_its_installation_until_the_reset",)),
+    ("an owner is read as any owner its name begins", "kernel/derive.py",
+     'w["owner"].casefold() == owner and w["until"]', 'owner.startswith(w["owner"].casefold()) and w["until"]',
+     (GITHUB + "test_a_pushing_roles_run_waits_in_its_installation_until_the_reset",)),
+    ("another Role's wait for GitHub holds", "kernel/derive.py",
+     'w["role"] == role and w["owner"].casefold() == owner', 'w["owner"].casefold() == owner',
+     (GITHUB + "test_a_pushing_roles_run_waits_in_its_installation_until_the_reset",)),
+    ("an owner is told apart by its case", "kernel/derive.py",
+     'w["owner"].casefold() == owner and', 'w["owner"] == owner and', (GITHUB + "test_a_pushing_roles_run_waits_in_its_installation_until_the_reset",)),
+    ("the item's owner is taken as one owner", "kernel/derive.py",
+     '    owner = repo.partition("/")[0].casefold()\n', '    owner = "combsmith"\n', (GITHUB + "test_a_pushing_roles_run_waits_in_its_installation_until_the_reset",)),
+    ("an empty owner is read as an owner", "kernel/derive.py",
+     ' and w["owner"] != "" and', ' and', (GITHUB + "test_a_wait_or_a_list_of_pushers_that_cannot_be_read_defers_a_pushing_role_alone",)),
+    ("an item's repo that names no owner is read", "kernel/derive.py",
+     ' and "/" in repo\n', '\n', (GITHUB + "test_a_wait_or_a_list_of_pushers_that_cannot_be_read_defers_a_pushing_role_alone",)),
+    ("a now that is no moment is compared with GitHub's waits", "kernel/derive.py",
+     '            and is_time(now)):\n', '            ):\n', (GITHUB + "test_a_wait_or_a_list_of_pushers_that_cannot_be_read_defers_a_pushing_role_alone",)),
+    ("a pull request's Run is given no Role that pushes", "kernel/decide.py",
+     'limits, role, config.get("pushers"))', "limits, role, [])",
+     (GITHUB + "test_a_pushing_roles_run_waits_in_its_installation_until_the_reset",)),
+    ("an issue's Run is given no Role that pushes", ISSUE_PY,
+     'limits, role, config.get("pushers"))', "limits, role, [])",
+     ("tests.test_issue.Investigation.test_the_pause_capacity_and_concurrency_defer_a_run",)),
     ("a Lifecycle not the pull request's is read", "kernel/derive.py",
      '    if not (isinstance(lifecycle, dict) and lifecycle.get("work_item") == work_item):\n', "    if False:\n",
      (STALE + "test_a_lifecycle_whose_limit_cannot_be_read_shows_the_wait_as_stale",)),
@@ -2838,6 +2883,12 @@ MUTANTS = ISSUE + OUTSIDE + [
      "    brake = brakes.on_run(", "    brake = None and brakes.on_run(", ("tests.test_decide.Readability",)),
     ("the brakes are not asked about an act", "kernel/decide.py",
      "    brake = brakes.on_act(", "    brake = None and brakes.on_act(", ("tests.test_decide.Readability",)),
+    ("a Run GitHub limited is an attempt", "kernel/brakes.py",
+     'and (r.get("outcome") == "item" or', 'and (r.get("outcome") in ("item", "github_capacity") or',
+     (GITHUB + "test_a_run_github_limited_is_no_attempt",)),
+    ("a Run GitHub limited spends no Run", "kernel/brakes.py",
+     ' and r not in apart]', ' and r not in apart and r.get("outcome") != "github_capacity"]',
+     (GITHUB + "test_a_run_github_limited_is_no_attempt",)),
     ("capacity faults count as attempts", "kernel/brakes.py",
      '            and (r.get("outcome") == "item" or (r.get("outcome") is None and r["conclusion"] in t.RAN_AND_DIED))]',
      "            ]", ("tests.test_decide.AReviewThatReported",)),
