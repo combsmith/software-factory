@@ -104,6 +104,8 @@ MUTANTS = [
      "    if len(found) > 1:\n", "    if len(found) > 2:\n", ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
     ("a number under 1000 is written without its zero", "tools/commits_are_the_maintainers.py",
      'allowed = {"%04d" % own} |', "allowed = {str(own)} |", ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
+    ("the records added are read from the base, not the merge base", "tools/commits_are_the_maintainers.py",
+     '"%s...%s" % (base, head)', '"%s..%s" % (base, head)', ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
     ("a rename is not read as a record added", "tools/commits_are_the_maintainers.py",
      '"diff", "--no-renames", "--diff-filter=A"', '"diff", "--diff-filter=A"', ("tests.test_tools.Workflows.test_each_record_a_pull_request_adds_is_numbered_by_it",)),
     ("a file below the records' folder is counted", "tools/commits_are_the_maintainers.py",
