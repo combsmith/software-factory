@@ -13843,19 +13843,26 @@ class Writes(unittest.TestCase):
         named = {"name": "__path__.append('adapters')\n", "attribute": "import harness\n\nharness.__path__.append('a')\n",
                  "spec": "__spec__.submodule_search_locations.append('a')\n", "imported": "from harness import __path__ as p\n",
                  "keyword": "globals().update(__path__=['a'])\n", "key": "globals()['__path__'] = ['a']\n",
-                 "text": "import harness\n\np = getattr(harness, f'__path__')\n"}
+                 "text": "import harness\n\np = getattr(harness, f'__path__')\n", "renamed": "from os import sep as __path__\n"}
         files = {"harness/path%s.py" % why: text for why, text in named.items()}
         files.update({"harness/__init__.py": "__path__.append('adapters')\n",
                       "harness/viapath.py": "import harness.github as github" + write,
                       "harness/frompath.py": "from harness.github import request" + write.replace("github.request", "request"),
                       "harness/relpath.py": "from .github import request" + write.replace("github.request", "request"),
+                      "harness/plain.py": "import json.decoder, harness.not_held\n",
                       "harness/held.py": "import harness.steps as github\nimport json.decoder\nfrom . import steps\n"})
+        # This check's own table names the path, and nothing else in it may.
+        files["tools/check_writes.py"] = (ROOT / "tools/check_writes.py").read_text() + "\n\ndef roots(pkg):\n    return pkg.__path__\n"
         problems = check_writes.run(clone(files))
+        self.assertEqual([p for p in problems if p.startswith("tools/check_writes.py")],
+                         ["tools/check_writes.py:%d names where a package finds its modules, so what it imports may be a file "
+                          "of another folder under its name and what it reaches cannot be read; import the module by its own "
+                          "name" % (files["tools/check_writes.py"].count("\n"))])
         self.assertTrue(caught(problems, "harness/__init__.py:1 names where a package finds its modules"), problems)
         for why in named:
             line = named[why].count("\n")
             self.assertTrue(caught(problems, "harness/path%s.py:%d names where" % (why, line)), (why, problems))
-        for rel in ("harness/viapath.py", "harness/frompath.py", "harness/relpath.py"):
+        for rel in ("harness/viapath.py", "harness/frompath.py", "harness/relpath.py", "harness/plain.py"):
             self.assertTrue(caught(problems, "%s:1 imports a module that no file of the repo is" % rel), (rel, problems))
         # A module the repo holds, one outside it, and a module named from a package, are read as before.
         self.assertFalse([p for p in problems if p.startswith("harness/held.py")], problems)

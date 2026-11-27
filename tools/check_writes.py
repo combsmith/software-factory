@@ -7,7 +7,8 @@ names a module constant that names it, or names a class one of whose methods, it
 through any number of calls, modules and re-exports. Outside `adapters/` and the tests, only the callers in CALLERS
 reach a writer, each exactly the writers it lists: a new caller, or a caller reaching a new writer, fails until
 CALLERS names it in the same change, and a listing no longer true fails too. What the syntax cannot read is a problem,
-never a pass: a method or a query that is not a literal, a name a module does not define, an import of a module a package of the repo's does not hold, a package's path named, a module that reaches a write
+never a pass: a method or a query that is not a literal, a name a module does not define, an import of a module a
+package of the repo's does not hold, a package's path named, a module that reaches a write
 handed on as a value, a request built by hand, an adapter loaded by name or taken from `sys.modules` by any way the
 syntax names, a class's attribute set by `setattr` or from outside the class's own module's top level by any name for
 the class, an attribute or a key set from another module on what a module of the repo's defines, or `gh` or `git` run
@@ -638,7 +639,7 @@ def _unheld(mods: dict, mod: Module) -> list:
     """Each line that imports a module below a package of the repo's that the repo does not hold, `import harness.github`
     with no harness/github.py: Python loads it only where something has changed how the package finds its modules, and
     then it is a file this check reads under another name, if at all (issue 1323)."""
-    return sorted({line for line, name in mod.imports if name and _package(mods, name.split(".")[0])
+    return sorted({line for line, name in mod.imports if _package(mods, name.split(".")[0])
                    and not _package(mods, name)})
 
 
@@ -646,12 +647,17 @@ def _paths(mod: Module) -> list:
     """Each line that names a package's `__path__` or its spec's `submodule_search_locations`, as a name, an attribute,
     an import, a keyword or a literal text: a package whose path is changed loads a file of another folder under its own
     name, so a write through it is read under a name the syntax does not know (issue 1323). This file's own table aside.
-    Its limits: a name built at run time, and a change to `sys.path`, `sys.meta_path` or `sys.path_hooks`."""
-    return sorted({n.lineno for n in mod.nodes if isinstance(n, ast.Name) and n.id in PACKAGE_PATHS
+    Its limits: a name built at run time, a pattern's attribute, and a change to `sys.path`, `sys.meta_path` or
+    `sys.path_hooks`."""
+    table = {id(n) for node in mod.tree.body if mod.rel == "tools/check_writes.py" and isinstance(node, ast.Assign)
+             and [getattr(t, "id", None) for t in node.targets] == ["PACKAGE_PATHS"] for n in ast.walk(node.value)}
+    return sorted({n.lineno for n in mod.nodes if id(n) not in table and (
+                   isinstance(n, ast.Name) and n.id in PACKAGE_PATHS
                    or isinstance(n, ast.Attribute) and n.attr in PACKAGE_PATHS
                    or isinstance(n, (ast.Import, ast.ImportFrom)) and any(a.name in PACKAGE_PATHS for a in n.names)
+                   or isinstance(n, (ast.Import, ast.ImportFrom)) and any(a.asname in PACKAGE_PATHS for a in n.names)
                    or isinstance(n, ast.keyword) and n.arg in PACKAGE_PATHS
-                   or _literal(n) in PACKAGE_PATHS})
+                   or _literal(n) in PACKAGE_PATHS)})
 
 
 def _runs_text(mod: Module) -> list:
@@ -1136,10 +1142,9 @@ def run(root: pathlib.Path = ROOT) -> list:
         problems += ["%s:%d runs code from text, so what it reaches cannot be read" % (mod.rel, line) for line in _runs_text(mod)]
         problems += ["%s:%d imports a module that no file of the repo is, below a package of the repo's, so what it reaches "
                      "cannot be read; import a module the repo holds" % (mod.rel, line) for line in _unheld(mods, mod)]
-        if mod.rel != "tools/check_writes.py":
-            problems += ["%s:%d names where a package finds its modules, so what it imports may be a file of another folder "
-                         "under its name and what it reaches cannot be read; import the module by its own name"
-                         % (mod.rel, line) for line in _paths(mod)]
+        problems += ["%s:%d names where a package finds its modules, so what it imports may be a file of another folder "
+                     "under its name and what it reaches cannot be read; import the module by its own name"
+                     % (mod.rel, line) for line in _paths(mod)]
         sets, patched = _class_set(mods, mod)
         problems += sets + [problem for what, problem in patched if what not in PATCHERS.get(mod.rel, ())]
         patching |= {(mod.rel, what) for what, _ in patched}
