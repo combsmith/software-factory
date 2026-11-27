@@ -14020,6 +14020,33 @@ class Writes(unittest.TestCase):
         with mock.patch.object(check_writes, "NAME_LOADERS", check_writes.NAME_LOADERS + ("controller/takes.py",)):
             self.assertTrue(caught(check_writes.run(clone(files)), "controller/takes.py:1 " + taken))
 
+    def test_a_bare_import_of_a_file_of_its_own_folder_fails(self):  # issue 1276
+        # Run as a script, a file has its own folder first on its path: a bare name of a file or a package there loads
+        # it, under a name this check does not read. From the root, or by a name the folder does not hold, it passes.
+        files = {"tools/bare.py": "import mutants\n", "tools/from_bare.py": "from mutants_of import common\n",
+                 "tools/dotted.py": "import mutants_of.common as c\n", "tools/hooks/near.py": "import os\nimport protected\n",
+                 "tools/space/inside.py": "X = 1\n", "tools/to_space.py": "import space.inside\n",
+                 "tools/probe.py": "def probe():\n    import os, mutants\n", "tools/hooks/init.py": "from __init__ import x\n",
+                 "tools/ci.jobs/report.py": "import calendar\n", "tools/ci/jobs/calendar.py": "X = 1\n",
+                 "harness/json.py": "X = 1\n", "harness/uses.py": "import json\n",
+                 "tools/rooted.py": "from tools import walk\nimport os, json\n", "tools/hooks/up.py": "from .. import walk\n",
+                 "tools/hooks/beside.py": "from .shell import words\n", "rootfile.py": "import tools\n",
+                 "controller/other.py": "import walk\n"}
+        problems = check_writes.run(clone(files))
+        said = "imports %s by its bare name, which run as a script may load %s beside it in its place"
+        for rel, line, name, near in (("tools/bare.py", 1, "mutants", "tools/mutants"),
+                                      ("tools/from_bare.py", 1, "mutants_of", "tools/mutants_of"),
+                                      ("tools/dotted.py", 1, "mutants_of.common", "tools/mutants_of"),
+                                      ("tools/hooks/near.py", 2, "protected", "tools/hooks/protected"),
+                                      ("tools/to_space.py", 1, "space.inside", "tools/space"),
+                                      ("tools/probe.py", 2, "mutants", "tools/mutants"),
+                                      ("tools/hooks/init.py", 1, "__init__", "tools/hooks/__init__"),
+                                      ("harness/uses.py", 1, "json", "harness/json")):
+            self.assertTrue(caught(problems, "%s:%d %s" % (rel, line, said % (name, near))), (rel, problems))
+        for rel in ("tools/rooted.py:", "tools/hooks/up.py:", "tools/hooks/beside.py:", "rootfile.py:", "tools/ci.jobs/report.py:",
+                    "controller/other.py:", "tools/hooks/near.py:1"):
+            self.assertFalse(caught(problems, rel), (rel, problems))
+
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
             "    return effects.role_write(transport, item, 'review', req, 'me')\n"
