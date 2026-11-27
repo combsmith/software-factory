@@ -15796,8 +15796,11 @@ class SignalTraps(unittest.TestCase):
         # A name a script holds a credential in, exported, reaches every child; SSLKEYLOGFILE has curl write the TLS keys
         # that read a token off the wire; a .curlrc can print the Authorization header. Each script that mints unsets the
         # first two before its first curl, and every curl reads no .curlrc. A curl is one that starts a command: on its
-        # line, after a pipe or in a substitution, wherever the line breaks.
+        # line, after a pipe or in a substitution, wherever the line breaks. Nor does curl take a proxy or a certificate
+        # authority the shell names, which would carry the JWT and each token through it (issue 1288).
         unset = "unset SSLKEYLOGFILE token jwt signature minted minting"
+        unproxied = ("unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY"
+                     " CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR")
         minting = 0
         for script in sorted((ROOT / "tools").glob("trial_*.sh")):
             lines = script.read_text().splitlines()
@@ -15809,6 +15812,8 @@ class SignalTraps(unittest.TestCase):
                 minting += 1
                 self.assertEqual(lines.count(unset), 1, script.name)
                 self.assertLess(lines.index(unset), calls[0], script.name)
+                self.assertEqual(lines.count(unproxied), 1, script.name)
+                self.assertLess(lines.index(unproxied), calls[0], script.name)
         self.assertEqual(minting, 12)
 
     def test_every_trial_finds_its_root_as_the_file_system_does(self):  # issue 1215
@@ -15851,7 +15856,8 @@ class ReaderTrialScript(unittest.TestCase):
     CURL = r'''#!/usr/bin/env python3
 import json, os, sys
 here = os.path.dirname(os.path.abspath(__file__))
-ENV_NAMES = ("token", "jwt", "signature", "minted", "minting", "SSLKEYLOGFILE")
+ENV_NAMES = ("token", "jwt", "signature", "minted", "minting", "SSLKEYLOGFILE", "https_proxy", "HTTPS_PROXY", "ALL_PROXY",
+             "CURL_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR")
 args = sys.argv[1:]
 url = [a for a in args if a.startswith("https://")][-1]
 method = args[args.index("-X") + 1] if "-X" in args else "GET"
@@ -16175,12 +16181,14 @@ esac
 
     def test_the_maintainers_environment_steers_nothing(self):  # issue 1215
         # Run by a path relative to the repo, under a CDPATH that holds a tools/ of its own, with SSLKEYLOGFILE and each
-        # name a credential is held in exported, and the shell started exporting every assignment: the script finds its
-        # own root, and curl is handed none of them.
+        # name a credential is held in exported, a proxy and a certificate authority named (issue 1288), and the shell
+        # started exporting every assignment: the script finds its own root, and curl is handed none of them.
         decoy = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         (decoy / "tools").mkdir()
         env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
                "CDPATH": str(decoy), "SSLKEYLOGFILE": str(decoy / "keys"),
+               **{name: "http://127.0.0.1:9" for name in ("https_proxy", "HTTPS_PROXY", "ALL_PROXY")},
+               **{name: str(decoy / "ca.pem") for name in ("CURL_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR")},
                **{name: self.TOKEN for name in ("token", "jwt", "signature", "minted", "minting")}}
         ran = subprocess.run(["sh", "-a", str(self.SCRIPT.relative_to(ROOT)), str(self.out), str(self.key), *self.GIVEN],
                              cwd=str(ROOT), capture_output=True, text=True, env=env, timeout=120)

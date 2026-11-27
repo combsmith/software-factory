@@ -25,6 +25,8 @@ unset GH_DEBUG DEBUG CURL_HOME
 # No credential's name is taken from the environment, where one exported would reach every child, and curl is
 # told of no file to write its TLS keys to (issue 1215).
 unset SSLKEYLOGFILE token jwt signature minted minting
+# Nor does curl go through a proxy, or trust a certificate authority, that the shell names (issue 1288).
+unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR
 # gh sends GH_TOKEN to the host GH_HOST names, or its configured default: pin it to the host the curl calls use.
 export GH_HOST=github.com GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1
 
