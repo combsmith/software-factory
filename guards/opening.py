@@ -22,7 +22,8 @@ the draft, and the Result's text links nothing, mentions no one and closes nothi
     `discussions` is followed by a digit, whatever its host or scheme; a dot segment, `.` or `..` after a slash and
     before a space, a slash or a query, which a browser takes out of a path, so `issues/x/../12` leads to issue 12; a
     Markdown link or image, inline (`](`) or by a reference or a footnote (`]:`), whose target may be relative: on a
-    pull request's page, `[see](12)` is a link to pull request 12.
+    pull request's page, `[see](12)` is a link to pull request 12; or a TeX command `\\href` or `\\url`, which GitHub's
+    math may render as a link whose target the text names.
   - `MENTIONS`: `@` before a character a GitHub login may begin with, a letter or a digit.
   - `CLOSES`: a closing keyword as a word of its own: close, closes, closed, fix, fixes, fixed, resolve, resolves or
     resolved, in any case.
@@ -57,6 +58,8 @@ Its stated limits:
   split, and the text shows one only to the eye.
 - A mark is read only as ASCII writes it: GitHub reads no other `#`, `@`, digit or hyphen in a reference or a
   mention, so a full-width number sign before a digit is let through.
+- `\\href` and `\\url` are refused in any case and wherever they stand, in math or not, as a precaution: it is not
+  known, and no trial asked, whether GitHub's math renders either as a link.
 - That `apply`'s own line reads as written is `apply`'s, and not this guard's: written after the Result's text, an
   unclosed code fence there would make it code; written before, nothing that follows changes how it reads.
 - Blank is read of characters, not of what Markdown renders: a body of its marks alone, `#`, `**` or `-`, with or
@@ -110,6 +113,8 @@ REFERENCE = "abcdefghijklmnopqrstuvwxyz#"
 TAG = "abcdefghijklmnopqrstuvwxyz/!?"
 # The parts of a path to an issue, a pull request or a discussion that a number follows.
 SEGMENTS = ("issue", "issues", "pull", "pulls", "discussions")
+# The TeX commands that make a link of their argument, as math may render them.
+COMMANDS = ("\\href", "\\url")
 KEYWORDS = ("close", "closes", "closed", "fix", "fixes", "fixed", "resolve", "resolves", "resolved")
 
 
@@ -138,6 +143,7 @@ def _links(text: str) -> bool:
     bare = "".join(text.split("/"))
     path = "/".join(text.split("\\"))
     return (_follows(text, "#", DIGITS) or _follows(text, "gh-", DIGITS) or "](" in text or "]:" in text
+            or any(command in text for command in COMMANDS)
             or any(_follows(bare, segment, DIGITS) for segment in SEGMENTS)
             or any(part.split("?")[0].split()[:1] in ([".."], ["."]) for part in path.split("/")[1:]))
 
