@@ -23,8 +23,9 @@ reads each line as written (a team it cannot see makes a line no owner's) is no 
 No ruleset names an advisory Lens (decision 0224). Each one in `config/harness.json` is shown by a check run that is
 always neutral, and a ruleset counts a neutral check as met (decision 0118): one that required it would hold nothing
 and look as if it held something. So no ruleset, of a branch or of tags, active or not, requires a check or names a
-code-scanning tool that is an advisory Lens's name or its check's, in any case; and no required Lens of
-`config/defaults.json` is one, by its name or its check, so that none is made required by another road.
+code-scanning tool that is an advisory Lens's name or its check's, in any case and beside spaces; and no required Lens
+of `config/defaults.json` is one, by its name or its check, so that none is made required by another road. A ruleset
+or a configuration in a shape this check does not read is a problem, never one that names none.
 """
 from __future__ import annotations
 
@@ -112,19 +113,23 @@ def _advisory(rulesets: dict, root: pathlib.Path) -> list:
         required = json.loads((root / "config" / "defaults.json").read_text())["required_lenses"]
         if not isinstance(advisory, list) or not all(isinstance(name, str) for name in advisory):
             raise TypeError("advisory is not a list of names")
-        lenses = [lens for lens in required["deterministic"] if isinstance(lens, dict)]
-        models = [name for name in required["model"] if isinstance(name, str)]
+        lenses, models = required["deterministic"], required["model"]
+        if not isinstance(lenses, list) or not all(isinstance(lens, dict) for lens in lenses):
+            raise TypeError("the deterministic Lenses are not a list of Lenses")
+        if not isinstance(models, list) or not all(isinstance(name, str) for name in models):
+            raise TypeError("the model Lenses are not a list of names")
     except (OSError, ValueError, KeyError, TypeError) as err:
         return ["config/harness.json or config/defaults.json cannot be read for the advisory Lenses, so no ruleset can "
                 "be shown to leave them out: %s" % err]
-    barred = {form.casefold(): name for name in advisory for form in (name, CHECK % name)}
+    barred = {form.strip().casefold(): name for name in advisory for form in (name, CHECK % name.strip())}
     problems = []
     for title, ruleset in sorted(rulesets.items()):
         rules = ruleset.get("rules") if isinstance(ruleset, dict) else None
-        status, scanning = (rules.get(kind) or {} for kind in ("required_status_checks", "code_scanning")) \
+        # A rule of either kind that is present is read whole: only one that is absent names nothing.
+        status, scanning = (rules.get(kind, {}) for kind in ("required_status_checks", "code_scanning")) \
             if isinstance(rules, dict) else (None, None)
-        checks = status.get("required_status_checks") or [] if isinstance(status, dict) else None
-        tools = scanning.get("code_scanning_tools") or [] if isinstance(scanning, dict) else None
+        checks = status.get("required_status_checks", [] if not status else None) if isinstance(status, dict) else None
+        tools = scanning.get("code_scanning_tools", [] if not scanning else None) if isinstance(scanning, dict) else None
         if not isinstance(checks, list) or not isinstance(tools, list) \
                 or not all(isinstance(item, dict) and isinstance(item.get(name), str)
                            for items, name in ((checks, "context"), (tools, "tool")) for item in items):
