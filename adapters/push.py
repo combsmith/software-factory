@@ -32,7 +32,8 @@ guard, and held to the name asked, never the answer's own.
 the bytes of each file the patch reads, one by one, whole or not at all, within `MOST_FILES` files and `MOST_BYTES`
 bytes. Each gives a code where it gives nothing, and `WHOSE` names whose each code of the guards and of this port is: the
 Role's, counted as its attempt; a person's, a Hold; the port's, an environment fault, for no answer or GitHub's own
-failure, or GitHub's limit on the token; or none's, `superseded`, where someone else wrote the work branch.
+failure; GitHub's limit on the token, `github_capacity`, which defers the Runs that push; or none's, `superseded`,
+where someone else wrote the work branch.
 
 `harness/push.py`, by hand, owes this port: every request sent by `transport`'s sender; its writers in
 `tools/check_writes.py`'s CALLERS; one request given unchanged to `permits` and `send`; `content` asked for the name
@@ -94,17 +95,17 @@ SURROGATES = ("\ud800", "\udfff")
 # The port's codes. A read cut short or of no shape is `guards/patch.py`'s `TREE_UNREAD`.
 READS_TOO_LARGE = "push_reads_too_large"
 TREE_UNFETCHED = "push_tree_unfetched"
-ROLE, PERSON, PORT, SUPERSEDED = "role", "person", "port", "superseded"
+ROLE, PERSON, PORT, SUPERSEDED, GITHUB = "role", "person", "port", "superseded", "github_capacity"
 # Whose each code of the patch guard, the push guard and this port is: the Role's, counted as its attempt; a person's, a Hold on
 # the item, since the same commit reads the same way again; the port's, an environment fault; or none's, the Run
-# overtaken, `superseded`, where someone else wrote the work branch. GitHub's limit on the token has its own code, the
-# port's until a fault of its own defers the Runs that push (decision 1252). Every code is here,
+# overtaken, `superseded`, where someone else wrote the work branch. GitHub's limit on the token has its own code and
+# its own fault, `github_capacity`, which defers the Runs that push (decision 1269). Every code is here,
 # and none is read with a default: `WHOSE[code]`. A code's letters begin `push_`, `patch_` or `bundle_`: a test finds
 # every code of the three modules by them.
 WHOSE = {patch.UNREADABLE: ROLE, patch.NOT_APPLIED: ROLE, patch.NOT_A_FILE: ROLE, patch.PATH_TWIN: ROLE,
          patch.TREE_UNREAD: PERSON, READS_TOO_LARGE: ROLE, TREE_UNFETCHED: PORT, guard.NOT_PERMITTED: PERSON,
          guard.BRANCH_MOVED: SUPERSEDED, guard.ANSWER_REFUSED: PERSON, guard.UNANSWERED: PORT,
-         guard.RATE_LIMITED: PORT}
+         guard.RATE_LIMITED: GITHUB}
 
 
 def _plain(value) -> bool:
