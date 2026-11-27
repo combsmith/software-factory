@@ -2681,7 +2681,7 @@ class Entry(unittest.TestCase):
         held, handed, probes = {"runs": [], "passes": [], "keys": [], "items": [], "dispatched": [], "owed": []}, [], []
 
         def entry_with(before, short=(), wrote=(), recorded=True, serving="2026-10-01T00:00:00Z", listing=(5,), tracked=(),
-                       unanswered=(), ended=(), repo=True, whole=True):
+                       unanswered=(), ended=(), repo=True, whole=True, older=()):
             del spied[:], handed[:], probes[:]
             answers = list(repo) if isinstance(repo, tuple) else None
 
@@ -2712,7 +2712,7 @@ class Entry(unittest.TestCase):
                     unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
                     unittest.mock.patch.object(entry.items, "open_issues", lambda transport, repo, after, **k: ([n for n in listing if n not in k.get("apart", ())] if after else [], whole)), \
                     unittest.mock.patch.object(entry.issues_, "read", issue_read), \
-                    unittest.mock.patch.object(entry.passes, "records", lambda *a: [before]), \
+                    unittest.mock.patch.object(entry.passes, "records", lambda *a: list(older) + [before]), \
                     unittest.mock.patch.object(entry.seen_, "read", read), \
                     unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)), \
                     unittest.mock.patch.object(entry.applied, "effects",
@@ -2738,6 +2738,12 @@ class Entry(unittest.TestCase):
         # One a pass before left out unread is served by it, and is read as left too.
         unread = dict(before, issues=[issue(5)], left_out=[{"item": issue(41)["facts"]["item"], "code": "facts_unanswered"}])
         entry_with(unread)
+        self.assertIn(("issue", 41, entry.seen_.LEFT), spied)
+        # The last pass's record says what it served and left out, never an older one's (pull request 1124).
+        earlier = dict(before, now="2026-10-12T10:57:00Z", issues=[issue(5)], left_out=[])
+        entry_with(before, older=(earlier,))
+        self.assertIn(("issue", 41, entry.seen_.LEFT), spied)
+        entry_with(unread, older=(earlier,))
         self.assertIn(("issue", 41, entry.seen_.LEFT), spied)
         # Read short, it is owed as well as kept as left, as a pull request is, and reconciliation is short; the next pass
         # reads it again, as gone while the window holds its stamp, or as left where only owed.
