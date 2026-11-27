@@ -28,8 +28,10 @@ set +a
 unset CDPATH
 set +x
 
+keep=""  # --keep-raw, first, keeps the raw answers for a person to read (issue 1215)
+[ "${1:-}" != --keep-raw ] || { keep=1; shift; }
 if [ "$#" -lt 2 ]; then
-    echo "usage: tools/trial_p39_reach.sh OUT APP=KEY [APP=KEY ...]" >&2
+    echo "usage: tools/trial_p39_reach.sh [--keep-raw] OUT APP=KEY [APP=KEY ...]" >&2
     exit 2
 fi
 root=$(CDPATH= cd -P -- "$(dirname -- "$0")/.." && pwd -P)
@@ -94,7 +96,16 @@ done
 API=https://api.github.com
 VERSION="X-GitHub-Api-Version: 2022-11-28"
 ACCEPT="Accept: application/vnd.github+json"
-scratch=$(mktemp -d)
+# The raw answers are kept outside the repo, in a directory as tools/trial_p54_issue_lookup.sh makes it.
+made=$(mktemp -d "${TMPDIR:-/tmp}/trial-p39.XXXXXX")
+scratch=$(cd "$made" && pwd -P)
+case "$scratch/" in "$root"/*)
+    rmdir "$made"
+    echo "trial_p39_reach: the scratch directory $scratch is inside the repo; set TMPDIR outside it" >&2
+    exit 2 ;;
+esac
+# The exit trap deletes it however the run ends, and drop each raw answer once redacted; --keep-raw keeps both.
+drop() { [ -n "$keep" ] || rm -f -- "$@"; }
 # No credential's name is taken from the environment, where one exported would reach every child, and curl is
 # told of no file to write its TLS keys to (issue 1215).
 unset SSLKEYLOGFILE token jwt signature minted minting
@@ -134,7 +145,8 @@ finish() {
         [ "$last" = 204 ] || unrevoked "the token live when the script stopped" "$last"
         token=""
     fi
-    rm -rf "$scratch"
+    [ -n "$keep" ] || rm -rf "$scratch"
+    [ -z "$keep" ] || printf '%s: the raw answers are kept in %s, as --keep-raw asked; delete it once read\n' trial_p39_reach "$scratch" >&2
 }
 trap finish EXIT
 trap "trap '' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM QUIT PIPE
@@ -239,13 +251,13 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
     fi
     token=""
     if [ "$read_ok" = 0 ] || [ "$status" != 200 ]; then
-        rm -f "$scratch/raw-$n"
+        drop "$scratch/raw-$n"
         echo "trial_p39_reach: $slug: GET /installation/repositories failed (curl ok: $read_ok, status: ${status:-none});" \
-            "its token is revoked, and nothing of it is kept. Run the trial again." >&2
+            "its token is revoked, and nothing of it reaches OUT. Run the trial again." >&2
         exit 1
     fi
     (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
-    rm -f "$scratch/raw-$n"
+    drop "$scratch/raw-$n"
     asked="$asked{\"n\": $n, \"app\": \"$app\", \"as\": \"$slug\", \"app_id\": $app_id, \"installation\": $installation,"
     asked="$asked \"call\": \"GET /installation/repositories?per_page=100\", \"revoked\": \"$revoked\"},"
     echo "$slug: read, and its token revoked with status $revoked"
