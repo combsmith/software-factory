@@ -2377,17 +2377,27 @@ class Artifacts(unittest.TestCase):
         # The same requests and the same bounds as an outcome's, with another name and another file inside: the list,
         # the download's redirect, the storage's answer. Only what the file holds differs, so this rests on the form
         # `stored` gives an outcome's exchange, which is GitHub's reference's until a trial records one.
-        good = {"schema": "advice-cost/1", "run": self.RUN, "release": "factory/v0.3.1", "asks": 2, "cost_usd": 1.42}
+        good = {"schema": "advice-cost/1", "run": self.RUN, "attempt": 1, "release": "factory/v0.3.1", "asks": 2, "cost_usd": 1.42}
 
         def kept(zipped, **listed) -> list:
             found = stored("o/r", 7, zipped, **dict({"name": artifacts.ADVICE_COST}, **listed))
             found[0]["request"]["call"] = found[0]["request"]["call"].replace("name=outcome", "name=advice-cost")
             return found
 
-        def read(record, member: str = "advice-cost.json", **listed) -> tuple:     # the file's name as the step writes it
+        def read(record, member: str = "advice-cost.json", attempt: int = 1, **listed) -> tuple:     # the file's name as the step writes it
             zipped = record if isinstance(record, bytes) or record is None else outcome_zip(record, member=member)
-            return artifacts.advice_cost(github.Replay(kept(zipped, **listed)), "o/r", 7, self.RUN)
+            return artifacts.advice_cost(github.Replay(kept(zipped, **listed)), "o/r", 7, self.RUN, attempt)
         self.assertEqual(read(good), ({"asks": 2, "cost_usd": 1.42}, True))
+        # A re-run keeps its run's id, so a file is its attempt's alone: another attempt's, as a re-run may list, is
+        # none for this one, which then counts the worst case (the Solution Architect, 2026-11-27).
+        self.assertEqual(read(dict(good, attempt=3), attempt=3), ({"asks": 2, "cost_usd": 1.42}, True))
+        for written, asked in ((1, 2), (2, 1), (100, 1)):
+            self.assertEqual(read(dict(good, attempt=written), attempt=asked), (None, False), (written, asked))
+        for attempt in (0, 101, True, "1", 1.0, None):
+            self.assertEqual(read(dict(good, attempt=attempt)), (None, False), attempt)
+        self.assertEqual(read({k: v for k, v in good.items() if k != "attempt"}), (None, False))
+        self.assertEqual(read(dict(good, attempt=0), attempt=0), (None, False))
+        self.assertEqual(read(dict(good, attempt=101), attempt=101), (None, False))
         self.assertEqual(read(dict(good, asks=1, cost_usd=None)), ({"asks": 1, "cost_usd": None}, True))
         self.assertEqual(read(dict(good, asks=0, cost_usd=0)), ({"asks": 0, "cost_usd": 0}, True))
         # A file nested past what the decoder parses is no cost, and never an error that ends the pass.
@@ -2417,15 +2427,15 @@ class Artifacts(unittest.TestCase):
         self.assertEqual(read(json.dumps(good) + " " * 100), ({"asks": 2, "cost_usd": 1.42}, True))
         self.assertEqual(read(padded), (None, False))
         over = kept(outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER), size_in_bytes=artifacts.ZIPPED + 1)[:1]
-        self.assertEqual(artifacts.advice_cost(github.Replay(over), "o/r", 7, self.RUN), (None, False))
+        self.assertEqual(artifacts.advice_cost(github.Replay(over), "o/r", 7, self.RUN, 1), (None, False))
         # What the list answered is handed to the caller, which stamps the read; a list not answered is raised, as an
         # outcome's is, for the caller to catch.
         answered = []
-        artifacts.advice_cost(github.Replay(kept(outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER))), "o/r", 7, self.RUN,
+        artifacts.advice_cost(github.Replay(kept(outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER))), "o/r", 7, self.RUN, 1,
                               answered.append)
         self.assertEqual([a["status"] for a in answered], [200])
         with self.assertRaises(github.Unanswered):
-            artifacts.advice_cost(github.Replay([]), "o/r", 7, self.RUN)
+            artifacts.advice_cost(github.Replay([]), "o/r", 7, self.RUN, 1)
 
     def test_an_outcome_that_cannot_be_read_whole_is_not_whole(self):
         good = outcome_of(self.RUN, "item")

@@ -3427,8 +3427,20 @@ class Advisory(unittest.TestCase):
                                (ran(advisory_asks=1, advisory_cost_usd="0.93"), 2), (ran(advisory_asks=1, advisory_cost_usd=True), 2),
                                (ran(advisory_asks=True, advisory_cost_usd=0.5), 2), (ran(advisory_asks=-1, advisory_cost_usd=0.5), 2),
                                (ran(advisory_asks="1", advisory_cost_usd=0.5), 2), (ran(advisory_asks=101, advisory_cost_usd=0.5), 2),
-                               (ran(advisory_asks=0, advisory_cost_usd=float("nan")), 2), (None, 2), ("a run", 2), ([], 2)):
+                               (ran(advisory_asks=0, advisory_cost_usd=float("nan")), 2), (None, 2), ("a run", 2), ([], 2),
+                               (ran(advisory_asks=0, advisory_cost_usd=True), 2), (ran(advisory_asks=0, advisory_cost_usd=False), 2),
+                               (ran(advisory_asks=0, advisory_cost_usd=-1), 2), (ran(advisory_asks=0, advisory_cost_usd="0"), 2)):
             self.assertEqual(advisory.counted(record, 2), counts, record)
+        # A re-run's record is of its latest attempt: each attempt before it counts the worst case, and one whose attempt
+        # cannot be read counts as many as a Run may have, a hundred (the Solution Architect, 2026-11-27).
+        for record, counts in ((ran(advisory_asks=1, advisory_cost_usd=0.5, advisory_attempt=2), 2.5),
+                               (ran(advisory_asks=1, advisory_cost_usd=0.5, advisory_attempt=3), 4.5),
+                               (ran(advisory_asks=0, advisory_attempt=100), 198), (ran(status="in_progress", advisory_attempt=2), 4),
+                               (ran(advisory_asks=1, advisory_cost_usd=0.5, advisory_attempt=None), 198.5),
+                               (ran(status="in_progress", advisory_attempt=None), 200)):
+            self.assertEqual(advisory.counted(record, 2), counts, record)
+        for attempt in (1, 0, -2, 101, True, "2", 2.0, [2]):
+            self.assertEqual(advisory.counted(ran(advisory_asks=1, advisory_cost_usd=0.5, advisory_attempt=attempt), 2), 198.5, attempt)
         # The day is the UTC date of the pass's now. A review Run that started on another day counts nothing, and so does
         # a Run of another Intent; one whose start cannot be read is not shown to be another day's, and counts.
         records = [ran(advisory_asks=1, advisory_cost_usd=1.5), ran("2026-11-18T00:00:00Z", advisory_asks=1, advisory_cost_usd=0.25),
@@ -3436,6 +3448,17 @@ class Advisory(unittest.TestCase):
                    ran("2026-11-19T00:00:00Z", advisory_asks=1, advisory_cost_usd=100),
                    ran(intent="fix-findings", advisory_asks=1, advisory_cost_usd=100), ran("2026-11-18T23:59:59Z")]
         self.assertEqual(advisory.spent(records, self.NOW, 2), 3.75)
+        # A finished Run counts on every day it touched, from its start to its end, read as its start where it gives none
+        # that can be read: one that ran across midnight counts on both days (the Solution Architect, 2026-11-27).
+        for start, end, counts in (("2026-11-17T23:00:00Z", "2026-11-18T00:30:00Z", 7), ("2026-11-18T23:00:00Z", "2026-11-19T00:30:00Z", 7),
+                                   ("2026-11-16T23:00:00Z", "2026-11-19T00:30:00Z", 7), ("2026-11-16T23:00:00Z", "2026-11-17T23:59:59Z", 0),
+                                   ("2026-11-19T00:00:00Z", "2026-11-19T00:30:00Z", 0), ("2026-11-17T23:00:00Z", None, 0),
+                                   ("2026-11-17T23:00:00Z", "2026-11-18", 0), ("2026-11-17T23:00:00Z", "2026-11-18T00:30:00Zx", 0),
+                                   ("2026-11-17T23:00:00Z", "2026-11-31T00:30:00Z", 0), ("2026-11-18T09:00:00Z", "2026-11-17T00:00:00Z", 7),
+                                   ("2026-11-19T09:00:00Z", "2026-11-17T00:00:00Z", 0)):
+            self.assertEqual(advisory.spent([ran(start, advisory_asks=1, advisory_cost_usd=7, ended_at=end)], self.NOW, 2), counts, (start, end))
+        self.assertEqual(advisory.spent([ran("2026-11-17T23:00:00Z", advisory_asks=1, advisory_cost_usd=7, advisory_attempt=2,
+                                             ended_at="2026-11-18T00:30:00Z")], self.NOW, 2), 9)
         # A Run still in flight counts on today's sum whatever day it started: what runs across midnight is carried.
         for start in ("2026-11-17T23:59:59Z", "2026-11-10T00:00:00Z", "2026-11-19T00:00:00Z"):
             for status in ("in_progress", "queued", None):
@@ -3443,7 +3466,8 @@ class Advisory(unittest.TestCase):
                                  (start, status))
         self.assertEqual(advisory.spent([ran("2026-11-17T23:59:59Z", intent="fix-findings", status="in_progress")], self.NOW, 2), 0)
         for start in (None, "", 1795000000, "20261118T090000Z", " 2026-11-18T09:00:00Z", "2026-11-17", "2026-11-17T23:59:59+00:00",
-                      "2026-99-99T00:00:00Z", "2026-02-30T12:00:00Z", "2026-11-17T25:00:00Z", "2026-11-17T23:60:00Z"):
+                      "2026-99-99T00:00:00Z", "2026-02-30T12:00:00Z", "2026-11-17T25:00:00Z", "2026-11-17T23:60:00Z",
+                      "2026-11-17T23:59:59Zx", "2026-11-17T23:59:59Z\n"):
             self.assertEqual(advisory.spent([ran(start, advisory_asks=1, advisory_cost_usd=7)], self.NOW, 2), 7, start)
         self.assertEqual(advisory.spent([{"intent": "review-change"}, None, "x"], self.NOW, 2), 6)
         # One whose Intent cannot be read is not shown to be another Intent's either, and counts.
@@ -3499,7 +3523,8 @@ class Advisory(unittest.TestCase):
         # names no day, and a configuration or run records that are none.
         spent_ = [ran(advisory_asks=1, advisory_cost_usd=100)]
         for when in ("20261118T130000Z", "1795006800", " 2026-11-18T13:00:00Z", "2026-11-19T01:00:00+02:00", "", "2026-11",
-                     "2026-02-30T12:00:00Z", "2026-11-18T24:00:00Z", "2026-13-01T00:00:00Z",
+                     "2026-02-30T12:00:00Z", "2026-11-18T24:00:00Z", "2026-13-01T00:00:00Z", "2026-11-18T13:00:00Zx",
+                     "2026-11-18T13:00:00Z\n", "2026-11-18T13:00:00.5Z",
                      None, 1795006800, b"2026-11-18T13:00:00Z"):
             self.assertIs(advisory.admits([], True, when, harness), False, when)
             self.assertIs(advisory.admits(spent_, True, when, harness), False, when)
@@ -3521,8 +3546,14 @@ class Advisory(unittest.TestCase):
         self.assertEqual(validate(dict(example, advisory_asks=2, advisory_cost_usd=1.42), record, schemas=held.SCHEMAS), [])
         self.assertEqual(validate(dict(example, advisory_asks=1, advisory_cost_usd=None), record, schemas=held.SCHEMAS), [])
         for change in ({"advisory_asks": -1}, {"advisory_asks": 1.5}, {"advisory_asks": None}, {"advisory_cost_usd": -1},
-                       {"advisory_cost_usd": "1"}, {"advisory_cost_usd": float("inf")}, {"advisory_asks": 101}):
+                       {"advisory_cost_usd": "1"}, {"advisory_cost_usd": float("inf")}, {"advisory_asks": 101},
+                       {"advisory_cost_usd": 100000.01}, {"advisory_asks": "1"}, {"advisory_attempt": 1}, {"advisory_attempt": 101},
+                       {"advisory_attempt": 2.5}, {"advisory_attempt": "2"}):
             self.assertTrue(validate(dict(example, **change), record, schemas=held.SCHEMAS), change)
+        for attempt in (2, 100, None):
+            self.assertEqual(validate(dict(example, advisory_attempt=attempt), record, schemas=held.SCHEMAS), [], attempt)
+        for edge in ({"advisory_asks": 0}, {"advisory_asks": 100}, {"advisory_cost_usd": 0}, {"advisory_cost_usd": 100000}):
+            self.assertEqual(validate(dict(example, **edge), record, schemas=held.SCHEMAS), [], edge)
         self.assertEqual(entry["properties"]["advisory_ask"], {"type": "boolean"})
         self.assertNotIn("advisory_ask", entry["required"])
 

@@ -118,11 +118,11 @@ ADVICE_COST = "advice-cost"                 # the artifact the advise step's cos
 ADVICE_COST_MEMBER = "advice-cost.json"     # its one file, read in the outcome's own bounds
 
 
-def advice_cost(transport, repo: str, github_id: int, run: str, seen=None) -> tuple:
-    """`(cost, whole)` of the review Run GitHub numbers `github_id` and the Factory names `run`: its `advice-cost/1`
+def advice_cost(transport, repo: str, github_id: int, run: str, attempt: int, seen=None) -> tuple:
+    """`(cost, whole)` of the review Run GitHub numbers `github_id` and the Factory names `run`, at its `attempt`: its `advice-cost/1`
     as `{asks, cost_usd}`, or None. It is read as an outcome is, one small file in the same bounds, through the same
     requests, and never a Lens's Result. None for a Run that left none, one past its retention, and one that cannot be
-    read, is over the bounds, breaks its schema or is another Run's: whatever the reason, the pass counts a cost it
+    read, is over the bounds, breaks its schema or is another Run's or another attempt's, as a re-run may list: whatever the reason, the pass counts a cost it
     does not hold at the worst case, so None is never nought. `whole` says only whether there was nothing to read
     (true) or something that could not be read (false); it says nothing of the run records, and is never a reason to
     defer. A list GitHub does not answer raises
@@ -139,7 +139,8 @@ def advice_cost(transport, repo: str, github_id: int, run: str, seen=None) -> tu
         record = json.loads(held.decode("utf-8"), object_pairs_hook=once)
     except (ValueError, RecursionError):
         record = None
-    if not isinstance(record, dict) or validate(record, SCHEMAS["advice-cost"]) or record["run"] != run:
+    if not isinstance(record, dict) or validate(record, SCHEMAS["advice-cost"]) or record["run"] != run \
+            or record["attempt"] != attempt:
         return None, False      # the validator refuses NaN and the infinities as no finite number
     return {"asks": record["asks"], "cost_usd": record["cost_usd"]}, True
 

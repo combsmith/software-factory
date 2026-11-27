@@ -121,8 +121,8 @@ MUTANTS = [
      'ADVICE_COST_MEMBER = "advice-cost.json" ',
      'ADVICE_COST_MEMBER = "advice.astra.json"', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
     ("an advisory cost of another Run's is read", 'adapters/artifacts.py',
-     ' or validate(record, SCHEMAS["advice-cost"]) or record["run"] != run:\n',
-     ' or validate(record, SCHEMAS["advice-cost"]):\n', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
+     ' or validate(record, SCHEMAS["advice-cost"]) or record["run"] != run \\\n            or record["attempt"]',
+     ' or validate(record, SCHEMAS["advice-cost"]) or False \\\n            or record["attempt"]', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
     ('an advisory cost that breaks its schema is read', 'adapters/artifacts.py',
      'if not isinstance(record, dict) or validate(record, SCHEMAS["advice-cost"]) or record',
      'if not isinstance(record, dict) or record', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
@@ -147,4 +147,8 @@ MUTANTS = [
     ("an advisory cost's read is not handed to its caller", 'adapters/artifacts.py',
      'held, whole = read(transport, repo, github_id, seen, ADVICE_COST, ADVICE_COST_MEMBER)',
      'held, whole = read(transport, repo, github_id, None, ADVICE_COST, ADVICE_COST_MEMBER)', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
+    # The Solution Architect, 2026-11-27: a re-run keeps its run's id, so a cost is its attempt's alone.
+    ("an advisory cost of another attempt is read", 'adapters/artifacts.py',
+     ' \\\n            or record["attempt"] != attempt:',
+     ':', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
 ]
