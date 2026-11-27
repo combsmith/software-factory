@@ -470,8 +470,9 @@ def _holds(state, after) -> bool:
     it, and no file removed. A submodule is held by its mode: the listing names no commit of one, and the tree written
     holds no submodule."""
     before, changes, made = state["before"], state["push"]["changes"], state["made"]
-    tree = {path: mode for path, mode in before["tree"].items() if path not in changes["removed"]}
-    blobs = {path: held for path, held in before["blobs"].items() if path not in changes["removed"]}
+    removed = set(changes["removed"])
+    tree = {path: mode for path, mode in before["tree"].items() if path not in removed}
+    blobs = {path: held for path, held in before["blobs"].items() if path not in removed}
     tree.update({path: to[0] for path, to in changes["written"].items()})
     blobs.update({path: (made[path], len(to[1])) for path, to in changes["written"].items()})
     return after["tree"] == tree and after["blobs"] == blobs
