@@ -224,7 +224,7 @@ read_one() {   # NARROWED PATH STATE BRANCH
     status=$(awk 'BEGIN { head = 1 } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
     if [ "$read_ok" = 0 ] || [ -z "$status" ]; then
         drop "$scratch/raw-$n"
-        # A curl that failed, or an answer whose status line cannot be read (a proxy's odd answer, a cut head).
+        # A curl that failed, or a whole answer whose status line cannot be read, as a proxy's odd answer may be.
         why="curl failed"
         [ "$read_ok" = 0 ] || why="curl answered, but its status line could not be read"
         echo "trial_p80_branch_reads: GET /$2 with a token narrowed to $1: $why; nothing of it reaches OUT" >&2

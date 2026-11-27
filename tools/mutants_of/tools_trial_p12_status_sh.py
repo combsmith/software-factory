@@ -53,6 +53,11 @@ MUTANTS = [
        run_1215(script, "test_a_curl_that_failed_is_told_apart_from_a_status_line_that_cannot_be_read"))
       for script, ok in ((s, "call_ok" if s in ("trial_p12_status.sh", "trial_p81_review_order.sh") else "read_ok")
                          for s in FAMILY_1215)],
+    *[("%s tells a failed curl by its status, not its exit" % script, "tools/" + script,
+       '        [ "$%s" = 0 ] || why=' % ok, '        [ -n "$status" ] || why=',
+       run_1215(script, "test_a_curl_that_failed_is_told_apart_from_a_status_line_that_cannot_be_read"))
+      for script, ok in ((s, "call_ok" if s in ("trial_p12_status.sh", "trial_p81_review_order.sh") else "read_ok")
+                         for s in FAMILY_1215)],
     # Decision 0048: a person's write access is read from the collaborator permission.
     ("the reader's token is not narrowed", "tools/trial_reader_reads.sh",
      '\\"permissions\\":{\\"$1\\":\\"read\\"}}', '\\"permissions\\":{}}',
