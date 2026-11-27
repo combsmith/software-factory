@@ -38,8 +38,10 @@ set +a
 unset CDPATH
 set +x
 
+keep=""  # --keep-raw, first, keeps the raw answers for a person to read (issue 1215)
+[ "${1:-}" != --keep-raw ] || { keep=1; shift; }
 if [ "$#" -ne 4 ]; then
-    echo "usage: tools/trial_p54_issue_lookup.sh OUT CONTROLLER_KEY REPO ISSUE" >&2
+    echo "usage: tools/trial_p54_issue_lookup.sh [--keep-raw] OUT CONTROLLER_KEY REPO ISSUE" >&2
     exit 2
 fi
 root=$(CDPATH= cd -P -- "$(dirname -- "$0")/.." && pwd -P)
@@ -106,10 +108,12 @@ ACCEPT="Accept: application/vnd.github+json"
 made=$(mktemp -d "${TMPDIR:-/tmp}/trial-p54.XXXXXX")
 scratch=$(cd "$made" && pwd -P)
 case "$scratch/" in "$root"/*)
-    rm -rf "$scratch"
+    rmdir "$made"
     echo "trial_p54_issue_lookup: the scratch directory $scratch is inside the repo; set TMPDIR outside it" >&2
     exit 2 ;;
 esac
+# The exit trap deletes it however the run ends, and drop each raw answer once redacted; --keep-raw keeps both.
+drop() { [ -n "$keep" ] || rm -f -- "$@"; }
 # No credential's name is taken from the environment, where one exported would reach every child, and curl is
 # told of no file to write its TLS keys to (issue 1215).
 unset SSLKEYLOGFILE token jwt signature minted minting
@@ -149,7 +153,8 @@ finish() {
         [ "$last" = 204 ] || unrevoked "the token live when the script stopped" "$last"
         token=""
     fi
-    rm -rf "$scratch"
+    [ -n "$keep" ] || rm -rf "$scratch"
+    [ -z "$keep" ] || printf '%s: the raw answers are kept in %s, as --keep-raw asked; delete it once read\n' trial_p54_issue_lookup "$scratch" >&2
 }
 trap finish EXIT
 trap "trap '' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM QUIT PIPE
@@ -194,12 +199,12 @@ read_one() {   # NARROWED PATH
     # The last head's status: a proxy's block, or an interim answer, comes first and is no answer to this read.
     status=$(awk 'BEGIN { head = 1 } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
     if [ "$read_ok" = 0 ] || [ -z "$status" ]; then
-        rm -f "$scratch/raw-$n"
-        echo "trial_p54_issue_lookup: GET /$2 with a token narrowed to $1: curl failed; nothing of it is kept" >&2
+        drop "$scratch/raw-$n"
+        echo "trial_p54_issue_lookup: GET /$2 with a token narrowed to $1: curl failed; nothing of it reaches OUT" >&2
         exit 1
     fi
     (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
-    rm -f "$scratch/raw-$n"
+    drop "$scratch/raw-$n"
     asked="$asked{\"n\": $n, \"as\": \"${slug}[bot]\", \"narrowed_to\": \"$1: read\", \"call\": \"GET /$2\","
     asked="$asked \"status\": $status},"
     echo "GET /$2, narrowed to $1: $status"

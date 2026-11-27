@@ -21,5 +21,6 @@ The simulator found it on seed 290. The issue was held on a planted branch, anot
 | Boundary | Check |
 |---|---|
 | Each Hold the Run wanted places stands over an uncounted label; without the Hold the label is removed | `tests/test_issue.py::test_an_issues_hold_is_read_before_an_uncounted_label_is_removed`, `kernel/issue.py`, mutant: "an uncounted label is removed before an issue's Hold" |
-| The act ceiling still lets an uncounted label go | `tests/test_issue.py::test_removing_a_label_is_stopped_by_the_pause_and_waits_for_a_run_in_flight`, `kernel/issue.py`, mutant: "the act ceiling keeps an uncounted label" |
+| The act ceiling still lets an uncounted label go | Reversed by decision 1255: `tests/test_issue.py::test_an_uncounted_label_waits_at_the_act_ceiling`, `kernel/issue.py`, mutant: "an uncounted label is removed at the act ceiling" |
 | The issue world plants a branch, holds on it, and never opens from it | `tests/test_issue_simulator.py::test_the_seeds_plant_a_branch_the_factory_never_pushed`, `sim/issues.py`, mutant: "a planted branch is told as pushed" |
+| At the act ceiling the label waits too (decision 1255) | `tests/test_issue.py::test_an_uncounted_label_waits_at_the_act_ceiling`, `kernel/issue.py`, mutant: "an uncounted label is removed at the act ceiling" |
