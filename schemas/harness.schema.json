@@ -171,6 +171,113 @@
           "type": "boolean"
         }
       }
+    },
+    "readers": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "host",
+          "deployment",
+          "model",
+          "api",
+          "effort",
+          "output_tokens",
+          "prompt_characters",
+          "seconds",
+          "usd_per_million"
+        ],
+        "properties": {
+          "host": {
+            "type": "string",
+            "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.(openai\\.azure\\.com|services\\.ai\\.azure\\.com|cognitiveservices\\.azure\\.com)$"
+          },
+          "deployment": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+          },
+          "model": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$"
+          },
+          "api": {
+            "enum": [
+              "responses",
+              "chat"
+            ]
+          },
+          "effort": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "critical",
+              "elsewhere"
+            ],
+            "properties": {
+              "critical": {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              },
+              "elsewhere": {
+                "enum": [
+                  "low",
+                  "medium",
+                  "high",
+                  "xhigh",
+                  "max"
+                ]
+              }
+            }
+          },
+          "output_tokens": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "prompt_characters": {
+            "description": "The most the reader's prompt may hold, counted in its UTF-8 bytes, not its characters; the worst case prices the prompt at a token a byte (decision 0224).",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000000
+          },
+          "seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1200
+          },
+          "usd_per_million": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "input",
+              "output"
+            ],
+            "properties": {
+              "input": {
+                "type": "number",
+                "minimum": 1e-06,
+                "maximum": 10000
+              },
+              "output": {
+                "type": "number",
+                "minimum": 1e-06,
+                "maximum": 10000
+              }
+            }
+          }
+        }
+      }
+    },
+    "advisory_ceiling_usd_per_day": {
+      "type": "number",
+      "minimum": 0.01,
+      "maximum": 10000
     }
   }
 }

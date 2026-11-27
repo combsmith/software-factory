@@ -1,7 +1,7 @@
 """The mutants of `tools/trial_p52_pause.sh`: tools/mutants.py runs them."""
 
 TARGETS = ("tools/trial_p52_pause.sh",)
-from tools.mutants_of.common import KEEP_1215  # noqa: E402
+from tools.mutants_of.common import KEEP_1215, UNPROXIED  # noqa: E402
 MINT_REFUSED = "tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused"
 KEEP = "tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_in_a_private_directory_it_deletes"
 MUTANTS = [
@@ -96,6 +96,8 @@ MUTANTS = [
     ("P-52 hears a second signal before its clean-up", "tools/trial_p52_pause.sh",
      "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM QUIT PIPE\n", "trap 'exit 1' HUP INT TERM\n", ("tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit",)),
     ("P-52 takes credentials from the environment", "tools/trial_p52_pause.sh", "unset SSLKEYLOGFILE token jwt signature minted minting\n", "",
+     ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
+    ("P-52 takes a proxy from the shell", "tools/trial_p52_pause.sh", UNPROXIED, "",
      ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
     ("P-52's read reads a .curlrc", "tools/trial_p52_pause.sh", '"$token" | curl -q -sS -i -H @-', '"$token" | curl -sS -i -H @-',
      ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
