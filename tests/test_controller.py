@@ -1793,7 +1793,7 @@ class Entry(unittest.TestCase):
             code, _, files, _ = self.run_entry(Hub(table))
         self.assertEqual(code, 0)
         run_ = kept["runs"][0]
-        self.assertEqual(asked, [(files["pass.json"]["now"][:10], {(run_["run"], run_["started_at"]): {"advisory_asks": 1, "advisory_cost_usd": 0.5}})])
+        self.assertEqual(asked, [(files["pass.json"]["now"][:10], {(run_["run"], run_["started_at"], 1): {"advisory_asks": 1, "advisory_cost_usd": 0.5}})])
         self.assertEqual(configuration.load(ROOT, "factory/v0.3.1", "controller")["harness"],
                          json.loads((ROOT / "config" / "harness.json").read_text()))
         real = configuration._json
