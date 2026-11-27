@@ -13724,6 +13724,52 @@ class Writes(unittest.TestCase):
                     "tools/shared.py", "tools/untested.py"):
             self.assertFalse(caught(problems, rel + ":"), (rel, problems))
 
+    def test_only_a_runner_imports_the_mutants_loader(self):
+        # Issue 1176 (a Muse read of pull request 1118): tools/mutants.py loads every file of the mutants' data by its
+        # name and hands their text on through names read as attributes, so a file that imports it is a runner: by any
+        # import, plain, of the module, of a name, relative, or inside a function; and so is one that imports a module
+        # that imports it when imported, which sets it on `tools` and may hand it on, a runner's among them. A file of
+        # the data imported, a module that imports it only inside a function, and the runners, pass.
+        files = {"tools/takes.py": "from tools import mutants\n",
+                 "tools/renamed.py": "import tools.mutants as m\n",
+                 "tools/among.py": "from tools import walk, mutants\n",
+                 "tools/hooks/up.py": "from .. import mutants\n",
+                 "tools/via_runner_m.py": "from tools.untested import mutants\n",
+                 "tools/on_package.py": "import tools.untested\nX = tools.mutants.OUTSIDE\n",
+                 "tools/after_takes.py": "from tools.takes import mutants\n",
+                 "tools/calls_later.py": "from tools.check_decisions import base\n",
+                 "controller/takes.py": "from tools import mutants\n",
+                 "tools/hands_on.py": "import tools.takes\n",
+                 "controller/after_hands.py": "import tools.hands_on\n",
+                 "tools/eager.py": "class Catalogue:\n    from tools import mutants\n",
+                 "tools/after_eager.py": "import tools.eager\n",
+                 "tools/takes_name.py": "import os\nfrom tools.mutants import OUTSIDE\n",
+                 "tools/plain.py": "import tools.mutants\n",
+                 "tools/near.py": "from .mutants import AREAS\n",
+                 "tools/lazy.py": "def listed():\n    from tools import mutants\n    return mutants.MUTANTS\n",
+                 "tools/beside.py": "from tools.mutants_of import common\n"}
+        problems = check_writes.run(clone(files))
+        taken = "imports tools/mutants.py, or a module that imports it when imported, which hands on the text"
+        for rel, line in (("tools/takes.py", 1), ("tools/takes_name.py", 2), ("tools/plain.py", 1), ("tools/near.py", 1),
+                          ("tools/lazy.py", 2), ("tools/renamed.py", 1), ("tools/among.py", 1), ("tools/hooks/up.py", 1),
+                          ("tools/via_runner_m.py", 1), ("tools/on_package.py", 1), ("tools/after_takes.py", 1),
+                          ("controller/takes.py", 1), ("tools/hands_on.py", 1), ("controller/after_hands.py", 1),
+                          ("tools/eager.py", 2), ("tools/after_eager.py", 1)):
+            self.assertTrue(caught(problems, "%s:%d %s" % (rel, line, taken)), (rel, problems))
+        for rel in ("tools/beside.py", "tools/untested.py", "tools/check_decisions.py", "tools/calls_later.py"):
+            self.assertFalse(caught(problems, rel + ":"), (rel, problems))
+        # Two runners, the second importing the first, still hand it on to a file that imports the second. A runner may
+        # import it; a file that may load a module by its name may not, for that alone, nor does it hand anything on.
+        with mock.patch.object(check_writes, "RUNNERS", check_writes.RUNNERS + ("tools/takes.py", "tools/hands_on.py")):
+            self.assertTrue(caught(check_writes.run(clone(files)), "controller/after_hands.py:1 " + taken))
+        plain = dict(files, **{"controller/plain.py": "VALUE = 1\n", "controller/client.py": "from controller.plain import VALUE\n"})
+        with mock.patch.object(check_writes, "NAME_LOADERS", check_writes.NAME_LOADERS + ("controller/plain.py",)):
+            self.assertFalse(caught(check_writes.run(clone(plain)), "controller/client.py:"))
+        with mock.patch.object(check_writes, "RUNNERS", check_writes.RUNNERS + ("tools/takes.py",)):
+            self.assertFalse(caught(check_writes.run(clone(files)), "tools/takes.py:1 " + taken))
+        with mock.patch.object(check_writes, "NAME_LOADERS", check_writes.NAME_LOADERS + ("controller/takes.py",)):
+            self.assertTrue(caught(check_writes.run(clone(files)), "controller/takes.py:1 " + taken))
+
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
             "    return effects.role_write(transport, item, 'review', req, 'me')\n"
