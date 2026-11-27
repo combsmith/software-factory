@@ -3487,7 +3487,7 @@ class Repo(unittest.TestCase):
         # A reader is a second family: one of the Engine's own family, by its model or its deployment, is refused, its
         # family named anywhere in either.
         for pin in ("model", "deployment"):
-            for engines in ("claude-" + "opus-5-5", "Claude-Reader", "anthropic.claude-" + "opus-5-5", "prod-claude", "prod-CLAUDE-1"):
+            for engines in ("claude-" + "opus-5-5", "Claude-Reader", "anthropic.claude-" + "opus-5-5", "prod-claude", "prod-CLAUDE-1", "prodclaude1"):
                 own = dict(named, readers={"astra": dict(block, **{pin: engines})})
                 self.assertTrue(caught(check_examples._readers(own), "the reader astra is of the Engine's own family"), (pin, engines))
 
