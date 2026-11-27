@@ -67,7 +67,8 @@ RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.p
 # by its name, the one way past, held by NAME_LOADERS, and reads the text as a patch to make, never a command to run.
 # It hands the text on through its names (MUTANTS, OUTSIDE, AREAS), read as attributes, which no model of imported
 # names could follow; so each file that imports it is a runner (the Solution Architect, 2026-11-21), and one RUNNERS
-# does not name fails (issue 1176). Its limit: what a runner takes from it and hands on is not followed.
+# does not name fails, as does one that imports a module that imports it when imported, which sets it on `tools` and
+# may hand it on (issue 1176). Its limit: an import inside a function, which runs only when called, is not followed.
 # It is read in good faith, as the rest of this check is: every other rule here still reads it.
 MUTANT_DATA = "tools/mutants_of/"
 # A command's name as a string, in any case, by a path or not, `.exe` or not: gh or git alone or opening a command line;
@@ -1014,12 +1015,12 @@ def _mutant_data(mod, mods: dict, known: dict = None) -> set:
             for line in range(node.lineno, node.end_lineno + 1)}
 
 
-def _imported(mod) -> list:
-    """(the line, each module an import there may load) for each import in `mod`: each package above the module it
-    names, which Python runs first, and a name from a module, which may be one."""
+def _imported(mod, nodes=None) -> list:
+    """(the line, each module an import there may load) for each import in `mod`, or in `nodes` of it: each package
+    above the module it names, which Python runs first, and a name from a module, which may be one."""
     package = mod.name if mod.rel.rpartition("/")[2] == "__init__.py" else mod.name.rpartition(".")[0]
     out = []
-    for node in mod.nodes:
+    for node in mod.nodes if nodes is None else nodes:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             if isinstance(node, ast.Import):
                 named = [alias.name for alias in node.names]
@@ -1030,6 +1031,33 @@ def _imported(mod) -> list:
             out.append((node.lineno, sorted({".".join(name.split(".")[:n]) for name in named
                                              for n in range(1, name.count(".") + 2)})))
     return out
+
+
+def _run_on_import(tree) -> list:
+    """The nodes of `tree` that run when it is imported: all but what a function or a lambda holds."""
+    out, todo = [], [tree]
+    while todo:
+        node = todo.pop()
+        out.append(node)
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            todo.extend(ast.iter_child_nodes(node))
+    return out
+
+
+def _loading(mods: dict) -> set:
+    """The names of the modules that import tools/mutants.py: the loader, and each module that imports one of them
+    when it is itself imported, which sets the loader on the package as an attribute and may hand it on, to a fixed
+    point (issue 1176)."""
+    found = {_name(rel) for rel in NAME_LOADERS}
+    grown = True
+    while grown:
+        grown = False
+        for mod in mods.values():
+            if mod.name not in found and any(n in found for _, names in _imported(mod, _run_on_import(mod.tree))
+                                             for n in names):
+                found.add(mod.name)
+                grown = True
+    return found
 
 
 def _texting(mods: dict, known: dict) -> set:
@@ -1070,7 +1098,7 @@ def run(root: pathlib.Path = ROOT) -> list:
     problems += reading.problems
     inert = {}      # each file of the mutants read once in a run, whichever file names from it
     texting = _texting(mods, inert)
-    loaders = {_name(rel) for rel in NAME_LOADERS}
+    loaders = _loading(mods)
     writers, commanding, patching = set(), set(), set()
     for mod in mods.values():
         if mod.name != GITHUB:
@@ -1093,8 +1121,9 @@ def run(root: pathlib.Path = ROOT) -> list:
                          "another such file, or one tools/check_writes.py's RUNNERS names, may do" % (mod.rel, line)
                          for line, names in _imported(mod) if texting.intersection(names)]
         if mod.rel not in RUNNERS:
-            problems += ["%s:%d imports tools/mutants.py, which hands on the text of every file of the mutants' data; "
-                         "only a file tools/check_writes.py's RUNNERS names may" % (mod.rel, line)
+            problems += ["%s:%d imports tools/mutants.py, or a module that imports it when imported, which hands on the "
+                         "text of every file of the mutants' data; only a file tools/check_writes.py's RUNNERS names may"
+                         % (mod.rel, line)
                          for line, names in _imported(mod) if loaders.intersection(names)]
         if mod.rel not in RUNNERS:
             data = _mutant_data(mod, mods, inert)
