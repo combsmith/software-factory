@@ -18203,6 +18203,39 @@ class Desk(unittest.TestCase):
         git(root, "update-ref", "-d", "refs/remotes/origin/main")
         self.assertEqual(desk.size(root), "no base to compare: origin/main cannot be read here")
 
+    def test_the_desks_git_runs_no_program_the_clone_names_and_reads_no_git_variable_of_its_caller(self):
+        # A clone's configuration may name a program for git to run: a file system monitor, or an external diff. Each
+        # read pins them off, and a GIT_ variable of whatever runs the desk, such as GIT_DIR, reaches no read (issue 1179).
+        root = self.merging()
+        marker = root.parent / (root.name + "-ran")
+        program = root.parent / (root.name + "-program.sh")
+        program.write_text("#!/bin/sh\ntouch '%s'\nexit 1\n" % marker)
+        program.chmod(0o755)
+        git(root, "config", "core.fsmonitor", str(program))
+        git(root, "config", "diff.external", str(program))
+        (root / "g.py").write_text("g3\n")         # a change in the working tree, which a monitor would be asked of
+        ran, real = [], subprocess.run
+
+        def run(argv, **kwargs):
+            ran.append(kwargs["env"])
+            return real(argv, **kwargs)
+
+        told = {"GIT_DIR": str(marker), "GIT_INDEX_FILE": str(marker), "GIT_EXTERNAL_DIFF": str(program)}
+        with mock.patch.dict(os.environ, told), mock.patch.object(desk, "subprocess", mock.NonCallableMock(
+                run=run, DEVNULL=subprocess.DEVNULL, TimeoutExpired=subprocess.TimeoutExpired)):
+            sized, merged = desk.size(root), desk.merged(root)
+        self.assertFalse(marker.exists(), (sized, merged))
+        self.assertIn("characters", sized)
+        self.assertTrue(ran and all(set(told).isdisjoint(env) for env in ran))
+        self.assertEqual({k for env in ran for k in env if k.startswith("GIT_")},
+                         {"GIT_CONFIG_NOSYSTEM", "GIT_OPTIONAL_LOCKS", "GIT_NO_LAZY_FETCH", "GIT_TERMINAL_PROMPT"})
+        # Each pin stands as written, those a read's own flags shadow today among them: --no-ext-diff, -z, and the
+        # submodule flags of FORM and merged() (issue 1179).
+        self.assertEqual(desk.SAFE, ("--no-replace-objects", "--literal-pathspecs", "-c", "core.commitGraph=false",
+                                     "-c", "core.fsmonitor=false", "-c", "diff.external=", "-c", "diff.ignoreSubmodules=none",
+                                     "-c", "core.quotePath=true", "-c", "diff.suppressBlankEmpty=false",
+                                     "-c", "diff.submodule=short"))
+
     def test_make_checks_note_fails_nothing(self):
         # The note is printed after the checks have answered, and nothing it does, an error or an exit, changes the
         # answer. CI's legs never run it.
