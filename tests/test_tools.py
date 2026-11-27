@@ -13835,6 +13835,31 @@ class Writes(unittest.TestCase):
         # Nor can what an import of all of such a package binds (issue 640).
         self.assertTrue(caught(problems, "harness/nsstar.py:2 imports * from adapters"), problems)
 
+    def test_a_package_path_named_or_a_module_no_file_is_fails(self):  # issue 1323
+        # A package's __init__.py that adds a folder to its __path__ makes `import harness.github` load adapters/github.py,
+        # whose writes this check reads under its own name alone. So naming the path, any way the syntax shows it, fails,
+        # and so does an import of a module below a package of the repo's that no file of the repo is.
+        write = "\n\ndef go(t):\n    return github.request('POST', '/repos/x/y/issues')\n"
+        named = {"name": "__path__.append('adapters')\n", "attribute": "import harness\n\nharness.__path__.append('a')\n",
+                 "spec": "__spec__.submodule_search_locations.append('a')\n", "imported": "from harness import __path__ as p\n",
+                 "keyword": "globals().update(__path__=['a'])\n", "key": "globals()['__path__'] = ['a']\n",
+                 "text": "import harness\n\np = getattr(harness, f'__path__')\n"}
+        files = {"harness/path%s.py" % why: text for why, text in named.items()}
+        files.update({"harness/__init__.py": "__path__.append('adapters')\n",
+                      "harness/viapath.py": "import harness.github as github" + write,
+                      "harness/frompath.py": "from harness.github import request" + write.replace("github.request", "request"),
+                      "harness/relpath.py": "from .github import request" + write.replace("github.request", "request"),
+                      "harness/held.py": "import harness.steps as github\nimport json.decoder\nfrom . import steps\n"})
+        problems = check_writes.run(clone(files))
+        self.assertTrue(caught(problems, "harness/__init__.py:1 names where a package finds its modules"), problems)
+        for why in named:
+            line = named[why].count("\n")
+            self.assertTrue(caught(problems, "harness/path%s.py:%d names where" % (why, line)), (why, problems))
+        for rel in ("harness/viapath.py", "harness/frompath.py", "harness/relpath.py"):
+            self.assertTrue(caught(problems, "%s:1 imports a module that no file of the repo is" % rel), (rel, problems))
+        # A module the repo holds, one outside it, and a module named from a package, are read as before.
+        self.assertFalse([p for p in problems if p.startswith("harness/held.py")], problems)
+
     def test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one(self):
         # Issue 1101: the mutants of a file outside kernel/ live in tools/mutants_of/, and a mutant of a script or a
         # hook names gh or git as the text it finds. Such a file imports no module, and names only from another file

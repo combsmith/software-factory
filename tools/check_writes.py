@@ -7,7 +7,7 @@ names a module constant that names it, or names a class one of whose methods, it
 through any number of calls, modules and re-exports. Outside `adapters/` and the tests, only the callers in CALLERS
 reach a writer, each exactly the writers it lists: a new caller, or a caller reaching a new writer, fails until
 CALLERS names it in the same change, and a listing no longer true fails too. What the syntax cannot read is a problem,
-never a pass: a method or a query that is not a literal, a name a module does not define, a module that reaches a write
+never a pass: a method or a query that is not a literal, a name a module does not define, an import of a module a package of the repo's does not hold, a package's path named, a module that reaches a write
 handed on as a value, a request built by hand, an adapter loaded by name or taken from `sys.modules` by any way the
 syntax names, a class's attribute set by `setattr` or from outside the class's own module's top level by any name for
 the class, an attribute or a key set from another module on what a module of the repo's defines, or `gh` or `git` run
@@ -93,6 +93,8 @@ NAMESPACES = ("__dict__", "__getattribute__", "__getattr__")
 # literal key, `getattr` or `get` argument, each is a load by name (issues 640, 655).
 LOADER_MODULES = ("importlib", "builtins", "pkgutil", "runpy")
 BY_NAME = ("sys", "modules", "__builtins__", "__import__") + LOADER_MODULES
+# Where a package finds its modules: changed, it loads a file under a name the syntax reads as another (issue 1323).
+PACKAGE_PATHS = ("__path__", "submodule_search_locations")
 # The calls that read a key of a mapping by its name, bound or unbound, `dict.get(d, k)` (Muse's reads of issue 655's
 # change): `_keys` gives the argument each reads as its key.
 ACCESSORS = ("get", "pop", "setdefault", "__getitem__", "__delitem__")
@@ -144,15 +146,18 @@ class Module:
         self.bindings, self.texts, self.functions, self.classes, self.values, self.stored = {}, {}, {}, {}, {}, set()
         self.conflicts, self.formatted, self.stars = set(), set(), []     # names bound two ways; `%` formats; import *
         self.nodes = list(ast.walk(tree))
+        self.imports = []       # (line, module) for each module an import names, `import a.b` and `from .b import c`
         for node in self.nodes:     # an import anywhere, for one made inside a function binds as well
             bound = []
             if isinstance(node, ast.Import):
                 for alias in node.names:
+                    self.imports.append((node.lineno, alias.name))
                     local = alias.asname or alias.name.split(".")[0]
                     bound.append((local, ("module", alias.name if alias.asname else local)))
             elif isinstance(node, ast.ImportFrom):
                 base = package.split(".")[:len(package.split(".")) - node.level + 1] if node.level else []
                 source = ".".join(base + ([node.module] if node.module else [])) if node.level else node.module
+                self.imports.append((node.lineno, source))
                 for alias in node.names:
                     if alias.name == "*":
                         self.stars.append((node.lineno, source))
@@ -627,6 +632,26 @@ def _loaded(mods: dict, mod: Module) -> list:
                    or isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr in ACCESSORS
                    and any(_literal(a) in BY_NAME for a in _keys(n))
                    or isinstance(n, ast.Attribute) and n.attr == "__builtins__"})
+
+
+def _unheld(mods: dict, mod: Module) -> list:
+    """Each line that imports a module below a package of the repo's that the repo does not hold, `import harness.github`
+    with no harness/github.py: Python loads it only where something has changed how the package finds its modules, and
+    then it is a file this check reads under another name, if at all (issue 1323)."""
+    return sorted({line for line, name in mod.imports if name and _package(mods, name.split(".")[0])
+                   and not _package(mods, name)})
+
+
+def _paths(mod: Module) -> list:
+    """Each line that names a package's `__path__` or its spec's `submodule_search_locations`, as a name, an attribute,
+    an import, a keyword or a literal text: a package whose path is changed loads a file of another folder under its own
+    name, so a write through it is read under a name the syntax does not know (issue 1323). This file's own table aside.
+    Its limits: a name built at run time, and a change to `sys.path`, `sys.meta_path` or `sys.path_hooks`."""
+    return sorted({n.lineno for n in mod.nodes if isinstance(n, ast.Name) and n.id in PACKAGE_PATHS
+                   or isinstance(n, ast.Attribute) and n.attr in PACKAGE_PATHS
+                   or isinstance(n, (ast.Import, ast.ImportFrom)) and any(a.name in PACKAGE_PATHS for a in n.names)
+                   or isinstance(n, ast.keyword) and n.arg in PACKAGE_PATHS
+                   or _literal(n) in PACKAGE_PATHS})
 
 
 def _runs_text(mod: Module) -> list:
@@ -1109,6 +1134,12 @@ def run(root: pathlib.Path = ROOT) -> list:
             problems += ["%s:%d loads a module by its name, or may, so what it reaches cannot be read; import it" % (mod.rel, line)
                          for line in _loaded(mods, mod)]
         problems += ["%s:%d runs code from text, so what it reaches cannot be read" % (mod.rel, line) for line in _runs_text(mod)]
+        problems += ["%s:%d imports a module that no file of the repo is, below a package of the repo's, so what it reaches "
+                     "cannot be read; import a module the repo holds" % (mod.rel, line) for line in _unheld(mods, mod)]
+        if mod.rel != "tools/check_writes.py":
+            problems += ["%s:%d names where a package finds its modules, so what it imports may be a file of another folder "
+                         "under its name and what it reaches cannot be read; import the module by its own name"
+                         % (mod.rel, line) for line in _paths(mod)]
         sets, patched = _class_set(mods, mod)
         problems += sets + [problem for what, problem in patched if what not in PATCHERS.get(mod.rel, ())]
         patching |= {(mod.rel, what) for what, _ in patched}
