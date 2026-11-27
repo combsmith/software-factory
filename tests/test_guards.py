@@ -1855,7 +1855,7 @@ class Opening(unittest.TestCase):
         # A TeX command that may make a link, in math or not, in any case, and as part of a longer one or a path.
         self.assertEach(opening.LINKS, ["$\\href{12}{see}$", "\\href{https://example.test}{x}", "$\\url{12}$",
                                         "\\url{x}", "\\HREF{x}{y}", "\\Url{x}", "a\\\\href{x}{y}", "$$\n\\url{x}\n$$",
-                                        "$\\mmlToken{mi}[href=\"12\"]{see}$", "\\MMLTOKEN", "\\urlstyle", "C:\\urls"])
+                                        "$\\href {12}{see}$", "$\\mmlToken{mi}[href=\"12\"]{see}$", "\\MMLTOKEN", "\\urlstyle", "C:\\urls"])
         self.assertNone(["href", "url", "a \\ b", "\\hre f", "\\ur l", "$x^2$", "$\\frac{1}{2}$"])
         self.assertNone(["## Summary", "#abc", "# 1", "C#", "issue 12", "pull 3", "pull request 12", "gh -12", "GH-x",
                          "https://github.com/o/r/blob/main/issues.md", "https://github.com/o/r/tree/main/pull",
