@@ -2380,7 +2380,7 @@ class Artifacts(unittest.TestCase):
             found[0]["request"]["call"] = found[0]["request"]["call"].replace("name=outcome", "name=advice-cost")
             return found
 
-        def read(record, member: str = artifacts.ADVICE_COST_MEMBER, **listed) -> tuple:
+        def read(record, member: str = "advice-cost.json", **listed) -> tuple:     # the file's name as the step writes it
             zipped = record if isinstance(record, bytes) or record is None else outcome_zip(record, member=member)
             return artifacts.advice_cost(github.Replay(kept(zipped, **listed)), "o/r", 7, self.RUN)
         self.assertEqual(read(good), ({"asks": 2, "cost_usd": 1.42}, True))
@@ -2394,8 +2394,11 @@ class Artifacts(unittest.TestCase):
         self.assertEqual(read(good, expired=True), (None, True))
         # What cannot be read whole, breaks advice-cost/1, or is another Run's is no cost, and never a part of one.
         twice = json.dumps(good)[:-1] + ', "asks": 0, "cost_usd": 0}'
+        # Each key given twice on its own, and each figure just past its bound, at which it is still one.
+        self.assertEqual(read(dict(good, asks=100, cost_usd=100000)), ({"asks": 100, "cost_usd": 100000}, True))
         for record in (dict(good, run="r_OTHER1"), dict(good, cost_usd=-1), dict(good, cost_usd="1.42"), dict(good, asks=-1),
-                       twice, json.dumps(good).replace("1.42", "NaN"),
+                       twice, json.dumps(good)[:-1] + ', "asks": 0}', json.dumps(good)[:-1] + ', "cost_usd": 0}',
+                       dict(good, asks=101), dict(good, cost_usd=100000.01), json.dumps(good).replace("1.42", "NaN"),
                        dict(good, asks=1.5), dict(good, findings=0), dict(good, schema="advice-cost/2"),
                        {k: v for k, v in good.items() if k != "asks"}, {k: v for k, v in good.items() if k != "cost_usd"},
                        "[]", "not json", b"PK\x03\x04 not a zip", outcome_zip(" " * (artifacts.HELD + 1), member=artifacts.ADVICE_COST_MEMBER),
