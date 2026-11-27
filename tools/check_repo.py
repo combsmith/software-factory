@@ -309,7 +309,7 @@ def _pinned(root: pathlib.Path):
     """The model the Engine is pinned to, by its full id, or None where the pin cannot be read."""
     try:
         model = json.loads((root / PIN).read_text())["engine"]["model"]
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, RecursionError):
         return None
     return model if isinstance(model, str) and PIN_FORM.fullmatch(model) else None
 
@@ -319,7 +319,7 @@ def _reader_pins(root: pathlib.Path) -> set:
     try:
         readers = json.loads((root / PIN).read_text()).get(READERS, {})
         return {block[name] for block in readers.values() for name in READER_PINS if isinstance(block[name], str)}
-    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError):
         return set()
 
 
@@ -340,15 +340,14 @@ def _named_at(value, path: tuple = ()):
 def _misplaced(text: str, readers: set, pinned) -> bool:
     """Whether a pin's file, or a copy, names a model anywhere but at the three paths, or names there, as the file is
     read and not as it is written, one that is no pin: an escape in a string is read here, where the text is not. One
-    that cannot be read as JSON has no paths, so it may copy no reader's pin at all."""
+    that cannot be read as JSON, or is nested too deep to walk, has no paths, so it may copy no reader's pin at all."""
     try:
-        data = json.loads(text)
+        return any(not (path == ("engine", "model") and value == pinned)
+                   and not (len(path) == 3 and path[0] == READERS and type(path[1]) is str and path[2] in READER_PINS
+                            and value in readers)
+                   for path, value in _named_at(json.loads(text)))
     except (ValueError, RecursionError):
         return bool(models_named(text) & readers)
-    return any(not (path == ("engine", "model") and value == pinned)
-               and not (len(path) == 3 and path[0] == READERS and type(path[1]) is str and path[2] in READER_PINS
-                        and value in readers)
-               for path, value in _named_at(data))
 
 
 def run(root: pathlib.Path = ROOT) -> list:
