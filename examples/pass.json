@@ -33,6 +33,23 @@
       "conclusion": "success",
       "outcome": null,
       "started_at": "2026-10-11T12:05:00Z"
+    },
+    {
+      "run": "r_01JA70",
+      "item": {
+        "repo": "combsmith/software-factory",
+        "type": "pull_request",
+        "number": 43
+      },
+      "role": "pr-review",
+      "intent": "review-change",
+      "content_id": "sha256:5d0d",
+      "status": "completed",
+      "conclusion": "failure",
+      "outcome": "github_capacity",
+      "started_at": "2026-10-11T12:50:00Z",
+      "ended_at": "2026-10-11T12:55:00Z",
+      "github_reset": 1791725400
     }
   ],
   "reads": [

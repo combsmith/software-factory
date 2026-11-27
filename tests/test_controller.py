@@ -1960,7 +1960,8 @@ class Entry(unittest.TestCase):
         self.assertEqual([s[0] for s in slept[-3:]], [0.5, 1.5, 2.5])
         self.assertEqual(efforts["began"], {("r_01JA6Z", "2026-10-11T12:05:00Z"): "2026-10-11T12:05:04Z",
                                             ("r_01JA5Y", "2026-10-11T12:05:00Z"): "2026-10-11T12:05:09Z"})
-        self.assertEqual(efforts["engines"], {("r_01JA6Z", "2026-10-11T12:05:00Z"): {"engine_started": False}})
+        self.assertEqual(efforts["engines"], {("r_01JA6Z", "2026-10-11T12:05:00Z"): {"engine_started": False},
+                                              ("r_01JA70", "2026-10-11T12:50:00Z"): {"github_reset": 1791725400}})
         # The port asks when a Run began only of the open pull requests' Runs, which are listed first (decision 0196).
         self.assertEqual(efforts["of"], [{"repo": self.HOME, "type": "pull_request", "number": n} for n in (7, 8)])
         since = "2026-10-11T06:00:00Z"
