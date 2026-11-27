@@ -649,7 +649,8 @@ class Examples(unittest.TestCase):
     def test_the_pass_record_holds_the_kernels_whole_context(self):  # decision 0039
         context = json.loads((ROOT / "schemas" / "pass.schema.json").read_text())["$defs"]["context"]
         self.assertEqual(set(context["properties"]), set(support.context()))
-        self.assertEqual(set(context["required"]), set(support.context()))
+        # A record written before the waits for GitHub holds none, and is read still: no Role pushes then (issue 838).
+        self.assertEqual(set(context["required"]), set(support.context()) - {"github_deferred"})
         self.assertIs(context["additionalProperties"], False)
 
     def test_the_feed_shows_only_what_a_decision_can_say(self):  # decision 0039
@@ -13723,6 +13724,52 @@ class Writes(unittest.TestCase):
                     "tools/shared.py", "tools/untested.py"):
             self.assertFalse(caught(problems, rel + ":"), (rel, problems))
 
+    def test_only_a_runner_imports_the_mutants_loader(self):
+        # Issue 1176 (a Muse read of pull request 1118): tools/mutants.py loads every file of the mutants' data by its
+        # name and hands their text on through names read as attributes, so a file that imports it is a runner: by any
+        # import, plain, of the module, of a name, relative, or inside a function; and so is one that imports a module
+        # that imports it when imported, which sets it on `tools` and may hand it on, a runner's among them. A file of
+        # the data imported, a module that imports it only inside a function, and the runners, pass.
+        files = {"tools/takes.py": "from tools import mutants\n",
+                 "tools/renamed.py": "import tools.mutants as m\n",
+                 "tools/among.py": "from tools import walk, mutants\n",
+                 "tools/hooks/up.py": "from .. import mutants\n",
+                 "tools/via_runner_m.py": "from tools.untested import mutants\n",
+                 "tools/on_package.py": "import tools.untested\nX = tools.mutants.OUTSIDE\n",
+                 "tools/after_takes.py": "from tools.takes import mutants\n",
+                 "tools/calls_later.py": "from tools.check_decisions import base\n",
+                 "controller/takes.py": "from tools import mutants\n",
+                 "tools/hands_on.py": "import tools.takes\n",
+                 "controller/after_hands.py": "import tools.hands_on\n",
+                 "tools/eager.py": "class Catalogue:\n    from tools import mutants\n",
+                 "tools/after_eager.py": "import tools.eager\n",
+                 "tools/takes_name.py": "import os\nfrom tools.mutants import OUTSIDE\n",
+                 "tools/plain.py": "import tools.mutants\n",
+                 "tools/near.py": "from .mutants import AREAS\n",
+                 "tools/lazy.py": "def listed():\n    from tools import mutants\n    return mutants.MUTANTS\n",
+                 "tools/beside.py": "from tools.mutants_of import common\n"}
+        problems = check_writes.run(clone(files))
+        taken = "imports tools/mutants.py, or a module that imports it when imported, which hands on the text"
+        for rel, line in (("tools/takes.py", 1), ("tools/takes_name.py", 2), ("tools/plain.py", 1), ("tools/near.py", 1),
+                          ("tools/lazy.py", 2), ("tools/renamed.py", 1), ("tools/among.py", 1), ("tools/hooks/up.py", 1),
+                          ("tools/via_runner_m.py", 1), ("tools/on_package.py", 1), ("tools/after_takes.py", 1),
+                          ("controller/takes.py", 1), ("tools/hands_on.py", 1), ("controller/after_hands.py", 1),
+                          ("tools/eager.py", 2), ("tools/after_eager.py", 1)):
+            self.assertTrue(caught(problems, "%s:%d %s" % (rel, line, taken)), (rel, problems))
+        for rel in ("tools/beside.py", "tools/untested.py", "tools/check_decisions.py", "tools/calls_later.py"):
+            self.assertFalse(caught(problems, rel + ":"), (rel, problems))
+        # Two runners, the second importing the first, still hand it on to a file that imports the second. A runner may
+        # import it; a file that may load a module by its name may not, for that alone, nor does it hand anything on.
+        with mock.patch.object(check_writes, "RUNNERS", check_writes.RUNNERS + ("tools/takes.py", "tools/hands_on.py")):
+            self.assertTrue(caught(check_writes.run(clone(files)), "controller/after_hands.py:1 " + taken))
+        plain = dict(files, **{"controller/plain.py": "VALUE = 1\n", "controller/client.py": "from controller.plain import VALUE\n"})
+        with mock.patch.object(check_writes, "NAME_LOADERS", check_writes.NAME_LOADERS + ("controller/plain.py",)):
+            self.assertFalse(caught(check_writes.run(clone(plain)), "controller/client.py:"))
+        with mock.patch.object(check_writes, "RUNNERS", check_writes.RUNNERS + ("tools/takes.py",)):
+            self.assertFalse(caught(check_writes.run(clone(files)), "tools/takes.py:1 " + taken))
+        with mock.patch.object(check_writes, "NAME_LOADERS", check_writes.NAME_LOADERS + ("controller/takes.py",)):
+            self.assertTrue(caught(check_writes.run(clone(files)), "controller/takes.py:1 " + taken))
+
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
             "    return effects.role_write(transport, item, 'review', req, 'me')\n"
@@ -15774,6 +15821,23 @@ class SignalTraps(unittest.TestCase):
                 raw = re.search(r'< "(\$scratch/raw-[^"]*)"', lines[n]).group(1)
                 self.assertEqual(lines[n + 1].strip(), 'drop "%s"' % raw, (name, n))
 
+    def test_every_token_script_tells_of_a_stop_mid_mint(self):  # issue 1215
+        # A stop while the mint is asked leaves no answer to find a token in, and GitHub may have minted one: each sh script
+        # that mints marks the ask, and its clean-up tells the Maintainer the token may be live.
+        scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
+                   if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
+        self.assertEqual(len(scripts), 11)
+        for script in scripts:
+            lines = [line.strip() for line in script.read_text().splitlines()]
+            mint = next(n for n, line in enumerate(lines) if line.startswith("minted=$(") and '"$jwt" | curl' in line)
+            self.assertEqual(lines[mint - 1], "minting=1", script.name)
+            self.assertIn('minting=""', next(line for line in lines[mint:] if line.startswith('jwt=""')), script.name)
+            finish = lines.index("finish() {")
+            told = lines.index('elif [ -n "${minting:-}" ]; then', finish)
+            said = [line for line in lines[told + 1:lines.index("}", finish)] if not line.startswith("#")][:2]
+            self.assertTrue(said[0].startswith('echo "%s: stopped while a token was being minted;' % script.name[:-3]), script.name)
+            self.assertTrue(said[1].endswith('suspends the App\'s installation." >&2'), script.name)
+
     def test_every_trial_takes_nothing_of_the_maintainers_environment(self):  # issue 1215
         # A name a script holds a credential in, exported, reaches every child; SSLKEYLOGFILE has curl write the TLS keys
         # that read a token off the wire; a .curlrc can print the Authorization header. Each script that mints unsets the
@@ -15843,6 +15907,11 @@ grant = open(os.path.join(here, "grant")).read().strip() if os.path.exists(os.pa
 with open(os.path.join(here, "log"), "a") as log:
     log.write(json.dumps({"method": method, "url": url, "body": body, "credential": "Bearer " in said,
                           "grant": grant, "env": [n for n in ENV_NAMES if n in os.environ]}) + "\n")
+if url.endswith("/access_tokens") and os.path.exists(os.path.join(here, "mint.slow")):
+    told, held = (int(n) for n in open(os.path.join(here, "mint.slow")).read().split())
+    os.write(told, b"m")
+    os.read(held, 1)
+    sys.exit(28)
 if url.endswith("/access_tokens"):
     status = open(os.path.join(here, "mint.status")).read().strip()
     if os.path.exists(os.path.join(here, "cut")):
@@ -16090,6 +16159,32 @@ esac
         self.assertIn("DELETE", [c["method"] for c in self.calls()])
         self.assertIn("stopped with a token live; revoking it returned 204", err)
         self.assertNotIn(self.TOKEN, out + err)
+
+    def test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live(self):
+        # Stopped while the mint is asked, the answer never comes back, and GitHub may have minted a token all the same
+        # (issue 1215: each script of the family says so, as P-80's did first).
+        told_r, told_w = os.pipe()
+        held_r, held_w = os.pipe()
+        (self.stand_in / "mint.slow").write_text("%d %d\n" % (told_w, held_r))
+        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C"}
+        running = subprocess.Popen([SIGNAL_SHELL, str(self.SCRIPT), str(self.out), str(self.key), *self.GIVEN],
+                                   cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+                                   pass_fds=(told_w, held_r))
+        os.close(told_w)
+        os.close(held_r)
+        try:
+            begun = os.read(told_r, 1)
+            running.terminate()
+        finally:
+            os.close(told_r)
+            os.close(held_w)
+        out, err = running.communicate(timeout=60)
+        self.assertEqual(begun, b"m", err)
+        self.assertNotEqual(running.returncode, 0)
+        self.assertIn("%s: stopped while a token was being minted; GitHub may have minted one, live for up to an hour; no one "
+                      "holds it to revoke, so to end it sooner the Maintainer suspends the App's installation.\n" % self.SCRIPT.stem, err)
+        self.assertNotIn("gh" + "s_", out + err)
+        self.assertNotIn("DELETE", [c["method"] for c in self.calls()])
 
     def test_a_second_signal_does_not_cut_the_revocation_short(self):  # issue 1215, cubic on pull request 1212
         # Stopped mid-read, the script revokes its live token on the way out. A second signal then, as a closed terminal
@@ -16482,13 +16577,7 @@ class BranchReadsTrial(IssueLookupTrial):
     # The stand-in answers the list by the branch its head filter names and the ref by its path, each by that branch's
     # issue, as the docstring says; the control token, narrowed to pull_requests alone, is answered 404 on a ref unless
     # a file beside it says the repo is public.
-    CURL = IssueLookupTrial.CURL.replace('if url.endswith("/access_tokens"):\n', """if url.endswith("/access_tokens") and os.path.exists(os.path.join(here, "mint.slow")):
-    told, held = (int(n) for n in open(os.path.join(here, "mint.slow")).read().split())
-    os.write(told, b"m")
-    os.read(held, 1)
-    sys.exit(28)
-if url.endswith("/access_tokens"):
-""", 1).replace('elif "/issues/" in url:', """elif "/pulls?" in url or "/git/ref/heads/" in url:
+    CURL = IssueLookupTrial.CURL.replace('elif "/issues/" in url:', """elif "/pulls?" in url or "/git/ref/heads/" in url:
     if os.path.exists(os.path.join(here, "read.broke")):
         sys.stdout.write("HTTP/2 200\\r\\n\\r\\n{")
         sys.exit(18)
@@ -16595,29 +16684,6 @@ elif "/issues/" in url:""", 1)
         ran = self.run_script(*(self.GIVEN[:-1] + ("factory-work/issue-8005-12",)))
         self.assertEqual(ran.returncode, 0, ran.stderr)
         self.assertEqual(sum("issue-8005-12" in c["url"] for c in self.calls()), 2)
-
-    def test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live(self):
-        # Stopped while the mint is asked, the answer never comes back, and GitHub may have minted a token all the same.
-        told_r, told_w = os.pipe()
-        held_r, held_w = os.pipe()
-        (self.stand_in / "mint.slow").write_text("%d %d\n" % (told_w, held_r))
-        env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C"}
-        running = subprocess.Popen([SIGNAL_SHELL, str(self.SCRIPT), str(self.out), str(self.key), *self.GIVEN],
-                                   cwd=SCRATCH.name, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
-                                   pass_fds=(told_w, held_r))
-        os.close(told_w)
-        os.close(held_r)
-        try:
-            begun = os.read(told_r, 1)
-            running.terminate()
-        finally:
-            os.close(told_r)
-            os.close(held_w)
-        out, err = running.communicate(timeout=60)
-        self.assertEqual(begun, b"m", err)
-        self.assertNotEqual(running.returncode, 0)
-        self.assertIn("stopped while a token was being minted", err)
-        self.assertNotIn("DELETE", [c["method"] for c in self.calls()])
 
     def test_an_inherited_mint_answer_is_never_revoked(self):
         # A token-shaped answer in the environment is no mint of this run's: a refusal sends nothing at all.
@@ -17116,7 +17182,7 @@ class Rulesets(unittest.TestCase):
         self.harness["advisory"] = ["coderabbit", "astra", "kimi"]
         self.assertEqual(self.run_on(), [])
         self.assertEqual(check_rulesets.CHECK % "astra", "advisory-astra")
-        for name in ("advisory-astra", "astra", "kimi", "advisory-kimi", "coderabbit", "Advisory-Astra", "KIMI", " astra "):
+        for name in ("advisory-astra", "astra", "kimi", "advisory-kimi", "coderabbit", "Advisory-Astra", "KIMI", " astra ", " AdViSoRy-AsTrA "):
             checks = self.main["required_status_checks"]["required_status_checks"]
             lens = name.strip().lower().replace("advisory-", "")
             for at in (0, len(checks)):         # wherever it stands among the checks required
@@ -17141,7 +17207,8 @@ class Rulesets(unittest.TestCase):
         self.assertEqual(self.run_on(), [])
         # Nor is one made required by another road: a required Lens of that name, or with that check.
         lenses = self.defaults["required_lenses"]
-        for change in ({"lens": "astra"}, {"check": "advisory-astra"}, {"check": "Kimi"}, {"check": " advisory-kimi "}, {"lens": "ASTRA"}):
+        for change in ({"lens": "astra"}, {"check": "advisory-astra"}, {"check": "Kimi"}, {"check": " advisory-kimi "}, {"lens": "ASTRA"},
+                       {"lens": "advisory-astra"}, {"lens": " astra "}, {"check": " AdViSoRy-AsTrA "}):
             lenses["deterministic"].append(dict({"lens": "lint", "check": "lint", "app_id": 15368, "workflow": None}, **change))
             self.assertTrue(caught(self.run_on(), "a required Lens is named %r, the advisory Lens" % list(change.values())[0]), change)
             lenses["deterministic"].pop()
@@ -17154,11 +17221,15 @@ class Rulesets(unittest.TestCase):
         for odd in ([{"type": "required_status_checks"}], None, "rules"):
             self.rulesets["rulesets"]["another ruleset"] = {"target": "branch", "enforcement": "disabled", "rules": odd}
             self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"), odd)
-        for odd in ("astra", ["advisory-astra"], [{"name": "advisory-astra"}], [{"context": 7}], {"advisory-astra": {}}):
+        for odd in ("astra", ["advisory-astra"], [{"name": "advisory-astra"}], [{"context": 7}], {"advisory-astra": {}},
+                    [{"context": "lint"}, {"context": 7}]):
             self.rulesets["rulesets"]["another ruleset"] = {"rules": {"required_status_checks": {"required_status_checks": odd}}}
             self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"), odd)
             self.rulesets["rulesets"]["another ruleset"] = {"rules": {"code_scanning": {"code_scanning_tools": odd}}}
             self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"), odd)
+        # One tool unread among tools read is still a ruleset this check cannot read.
+        self.rulesets["rulesets"]["another ruleset"] = {"rules": {"code_scanning": {"code_scanning_tools": [{"tool": "CodeQL"}, {"tool": 7}]}}}
+        self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"))
         self.rulesets = kept
         self.main = self.rulesets["rulesets"]["main"]["rules"]
         self.assertEqual(self.run_on(), [])
@@ -17207,9 +17278,16 @@ class Rulesets(unittest.TestCase):
         models = lenses.pop("model")
         self.assertTrue(caught(self.run_on(), "cannot be read for the advisory Lenses"))
         lenses["model"] = models
+        deterministic = lenses.pop("deterministic")     # the Lenses' own check refuses this one first
+        self.assertTrue(caught(self.run_on(), "cannot be read as rulesets and Lenses"))
+        lenses["deterministic"] = deterministic
+        kept_lenses = lenses["deterministic"]
+        lenses["deterministic"] = kept_lenses + ["astra"]       # one Lens unread among those read
+        self.assertTrue(caught(self.run_on(), "cannot be read for the advisory Lenses"))
+        lenses["deterministic"] = kept_lenses
         self.assertEqual(self.run_on(), [])
         # With no list of the advisory Lenses to read, nothing is shown, and the check says so.
-        for unreadable in ({}, {"advisory": "astra"}, {"advisory": [7]}, {"advisory": ["astra", 7]}, {"advisory": None}):
+        for unreadable in ({}, {"advisory": "astra"}, {"advisory": [7]}, {"advisory": ["astra", 7]}, {"advisory": None}, ["astra"], {"advisory": {}}):
             self.harness = unreadable
             self.assertTrue(caught(self.run_on(), "cannot be read for the advisory Lenses"), unreadable)
 
