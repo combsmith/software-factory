@@ -12,4 +12,7 @@ MUTANTS = [
     ('the pass answers for the day without the configuration', 'controller/pass_.py',
      'whole, now, config.get("harness") or {})',
      'whole, now, {})', ('tests.test_controller.Record.test_an_admitted_review_is_told_beside_its_decision_whether_the_day_admits_its_readers',)),
+    ('an admission of any Intent is told whether the day admits its readers', 'controller/pass_.py',
+     '        if d["outcome"] == t.ADMIT and d["admit"]["intent"] == advisory_.REVIEWING:\n',
+     '        if d["outcome"] == t.ADMIT:\n', ('tests.test_controller.Record.test_an_admitted_review_is_told_beside_its_decision_whether_the_day_admits_its_readers',)),
 ]

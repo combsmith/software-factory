@@ -124,8 +124,8 @@ def advice_cost(transport, repo: str, github_id: int, run: str, seen=None) -> tu
     requests, and never a Lens's Result. None for a Run that left none, one past its retention, and one that cannot be
     read, is over the bounds, breaks its schema or is another Run's: whatever the reason, the pass counts a cost it
     does not hold at the worst case, so None is never nought. `whole` says only whether there was nothing to read
-    (true) or something that could not be read (false), for a caller that keeps the first and asks again for the
-    second; it says nothing of the run records, and is never a reason to defer. A list GitHub does not answer raises
+    (true) or something that could not be read (false); it says nothing of the run records, and is never a reason to
+    defer. A list GitHub does not answer raises
     `Unanswered`, as an outcome's does."""
     held, whole = read(transport, repo, github_id, seen, ADVICE_COST, ADVICE_COST_MEMBER)
     if held is None:
