@@ -139,9 +139,8 @@ def advice_cost(transport, repo: str, github_id: int, run: str, seen=None) -> tu
         record = json.loads(held.decode("utf-8"), object_pairs_hook=once)
     except (ValueError, RecursionError):
         record = None
-    if not isinstance(record, dict) or validate(record, SCHEMAS["advice-cost"]) or record["run"] != run \
-            or record["cost_usd"] != record["cost_usd"]:        # no number at all, which is within every bound
-        return None, False
+    if not isinstance(record, dict) or validate(record, SCHEMAS["advice-cost"]) or record["run"] != run:
+        return None, False      # the validator refuses NaN and the infinities as no finite number
     return {"asks": record["asks"], "cost_usd": record["cost_usd"]}, True
 
 
