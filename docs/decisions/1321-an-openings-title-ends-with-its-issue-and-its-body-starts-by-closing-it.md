@@ -1,4 +1,4 @@
-# 0000. An opening's title ends with its issue and its body starts by closing it
+# 1321. An opening's title ends with its issue and its body starts by closing it
 
 Status: accepted. 2026-11-27, the Solution Architect; issue 838. Narrows decision 0238's "appends the one closing line": the line goes before the model's text. Extends 0238's bounds with the title's rule, `tools/pr_title.py`.
 

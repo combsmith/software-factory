@@ -1,5 +1,4 @@
-"""The draft an opening Run opens: its title and body as `apply` writes them (issue 838; decision 0238, and the record
-that adds this module).
+"""The draft an opening Run opens: its title and body as `apply` writes them (issue 838; decisions 0238 and 1321).
 
 `draft(opening, issue)` is what `apply` writes of a Result's `open_pull_request`, `(None, (title, body))`, or why it
 writes nothing, `(code, None)`. The title and the body are the model's (decision 0238). What is added is `apply`'s, read
