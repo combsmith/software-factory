@@ -14513,10 +14513,11 @@ class Mutants(unittest.TestCase):
 
     def test_every_mutant_is_in_exactly_one_shard(self):
         # CI runs the mutants in shards, one job each. A mutant in no shard is a rule nobody checks; one in two is run
-        # twice. Each is told apart by its name, so no name is used twice.
+        # twice. Each is told apart by its name, so no name is used twice. The counts run to twelve, then the workflow's
+        # sixteen and forty (issue 1314).
         names = [mutant[0] for mutant in mutants.MUTANTS]
         self.assertEqual(len(names), len(set(names)))
-        for count in range(1, 13):
+        for count in list(range(1, 13)) + [16, 40]:
             placed = [mutant[0] for index in range(count) for mutant in mutants.shard(mutants.MUTANTS, index, count)]
             self.assertEqual(sorted(placed), sorted(names), count)
 
