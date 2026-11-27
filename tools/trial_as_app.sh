@@ -22,12 +22,15 @@ set +a
 unset CDPATH
 set +x
 unset GH_DEBUG DEBUG CURL_HOME GODEBUG
+# Nor does gh hand its output, GH_TOKEN with it, to a pager the shell names, or read a configuration it points at
+# (issue 1300): GH_CONFIG_DIR is set below, to a directory that does not exist.
+unset GH_CONFIG_DIR XDG_CONFIG_HOME GH_FORCE_TTY GH_PAGER PAGER
 # No credential's name is taken from the environment, where one exported would reach every child, and curl is
 # told of no file to write its TLS keys to (issue 1215).
 unset SSLKEYLOGFILE token jwt signature minted minting
 # Nor does curl go through a proxy, or trust a certificate authority or TLS library, that the shell names, nor does
 # openssl, which signs with the App's key, load a configuration or a module the shell names (issue 1288).
-unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR CURL_SSL_BACKEND OPENSSL_CONF OPENSSL_ENGINES OPENSSL_MODULES
+unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR CURL_SSL_BACKEND OPENSSL_CONF OPENSSL_CONF_INCLUDE OPENSSL_ENGINES OPENSSL_MODULES
 # gh sends GH_TOKEN to the host GH_HOST names, or its configured default: pin it to the host the curl calls use.
 export GH_HOST=github.com GH_NO_UPDATE_NOTIFIER=1 GH_PROMPT_DISABLED=1
 
@@ -64,6 +67,10 @@ root=$(CDPATH= cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
 made=$(mktemp -d)
 out=$(cd "$made" && pwd -P)
 case "$out/" in "$root"/*) echo "the scratch directory is inside the repo" >&2; exit 2 ;; esac
+# gh reads no configuration: GH_CONFIG_DIR, XDG_CONFIG_HOME or ~/.config/gh could hold an http_unix_socket that sends
+# each request, GH_TOKEN with it, to whatever listens there. It is pointed at a directory that does not exist, in this
+# run's own, so it reads nothing there and, with GH_TOKEN given, writes nothing there (issue 1300).
+export GH_CONFIG_DIR="$out/gh-reads-no-config"
 
 jwt="" token="" n=0 id="" raw="" pushed="" read_head="" minting=""
 echo "trial_as_app: OUT is $out"
