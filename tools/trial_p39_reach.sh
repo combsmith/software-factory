@@ -1,7 +1,8 @@
 #!/bin/sh
 # Trial P-39, its third read: which repos each Factory App's installation reaches (issue 26, decision 0035).
 #
-#   tools/trial_p39_reach.sh OUT APP=KEY [APP=KEY ...]
+#   tools/trial_p39_reach.sh [--keep-raw] OUT APP=KEY [APP=KEY ...]
+#   --keep-raw, given first, keeps the raw answers in a private scratch directory and says where; delete it once read.
 #
 # The Maintainer runs it at his own terminal, from anywhere; no session runs it, since it mints a credential.
 # OUT is a directory that does not exist yet, outside this repo. Each APP is controller, pr-review, reader, queue or
@@ -144,6 +145,10 @@ finish() {
         echo "trial_p39_reach: stopped with a token live; revoking it returned $last" >&2
         [ "$last" = 204 ] || unrevoked "the token live when the script stopped" "$last"
         token=""
+    elif [ -n "${minting:-}" ]; then
+        # Stopped while the mint was asked: its answer never came back here, and GitHub may have minted one (issue 1215).
+        echo "trial_p39_reach: stopped while a token was being minted; GitHub may have minted one, live for up to" \
+            "an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation." >&2
     fi
     [ -n "$keep" ] || rm -rf "$scratch"
     [ -z "$keep" ] || printf '%s: the raw answers are kept in %s, as --keep-raw asked; delete it once read\n' trial_p39_reach "$scratch" >&2
@@ -185,10 +190,11 @@ reach() {
     signature=$(printf '%s.%s' "$header" "$claims" | openssl dgst -sha256 -sign "$key" -binary | b64url)
     jwt="$header.$claims.$signature"
     # GitHub's answer and its status are held in a variable, never a file, since a minted token is in the answer.
+    minting=1
     minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
         -H "$VERSION" -d '{"permissions":{"metadata":"read"}}' \
         "$API/app/installations/$installation/access_tokens" || true)
-    jwt=""
+    jwt="" minting=""
     minted_status=$(printf '%s\n' "$minted" | tail -n 1)
     minted=$(printf '%s\n' "$minted" | sed '$d')
     token=$(printf '%s\n' "$minted" | python3 -I -c '

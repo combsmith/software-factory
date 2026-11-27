@@ -1,6 +1,6 @@
 """The mutants of `tools/context_eval.sh`, `tools/trial_p12_status.sh`, `tools/trial_p13_cli.sh`, `tools/trial_p13_ended.sh`, `tools/trial_p26_sandbox.sh`, `tools/trial_p39_reach.sh`, `tools/trial_p4_narrow.sh`, `tools/trial_p50_linux_sandbox.sh`, `tools/trial_p51_sandbox_writes.sh`, `tools/trial_p54_issue_lookup.sh`, `tools/trial_p56_comments.sh`, `tools/trial_p58_edits.sh`, `tools/trial_p59_read_confinement.sh`, `tools/trial_p61_timeline.sh`, `tools/trial_p8_cost.sh`, `tools/trial_p80_branch_reads.sh`, `tools/trial_p81_review_order.sh`, `tools/trial_reader_reads.sh`: tools/mutants.py runs them."""
 
-from tools.mutants_of.common import P50_TESTS, P59_TESTS
+from tools.mutants_of.common import KEEP_1215, P50_TESTS, P59_TESTS
 
 P13 = "tools/trial_p13_cli.sh"
 P13_TESTS = "tests.test_tools.TrialScript."
@@ -36,16 +36,6 @@ TRIALS_ENV = "tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the
 TRIALS_ROOT = "tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does"
 TRIALS_SHELL = "tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment"
 TRIALS_KEEP = "tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_in_a_private_directory_it_deletes"
-# Each of the SA's ruling of 2026-11-26 on the raw answers' directory, as (name, old, new), for every token script.
-KEEP_1215 = (
-    ("%s keeps its raw answers without --keep-raw", '    [ -n "$keep" ] || rm -rf', '    [ -n "1" ] || rm -rf'),
-    ("%s deletes its raw answers though --keep-raw asked", "{ keep=1; shift; }", "{ shift; }"),
-    ("%s deletes each raw answer though --keep-raw asked", 'drop() { [ -n "$keep" ] || rm -f -- "$@"; }', 'drop() { rm -f -- "$@"; }'),
-    ("%s does not say where it kept its raw answers", '"$scratch" >&2\n}\n', '"$scratch" >/dev/null\n}\n'),
-    ("%s makes its raw answers' directory for others to read", 'scratch=$(cd "$made" && pwd -P)\n', 'chmod 755 "$made"\nscratch=$(cd "$made" && pwd -P)\n'),
-    ("%s keeps a scratch directory inside the repo", "    exit 2 ;;\nesac\n# The exit trap", "    ;;\nesac\n# The exit trap"),
-    ("%s keeps a redacted raw answer to the end", '2> "$out/redacted-$n"\n    drop "$scratch/raw-$n"\n', '2> "$out/redacted-$n"\n'),
-)
 ROOTS_1215 = SCRIPTS_1215 + ("trial_p13_cli.sh", "trial_p13_ended.sh", "trial_p26_sandbox.sh", "trial_p61_timeline.sh")
 # Not P-59's: trials/P-59.json holds the canary to have run that file as it is in tools/, byte for byte.
 EVERY_1215 = ROOTS_1215 + ("trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh")
@@ -1296,4 +1286,19 @@ MUTANTS = [
     # unless --keep-raw keeps it and says where.
     *[(name % script, "tools/" + script, old, new, (TRIALS_KEEP,) + run_1215(script, "test_keep_raw_keeps_the_raw_answers_private_and_says_where"))
       for script in SCRIPTS_1215 for name, old, new in KEEP_1215],
+    # Issue 1215: each tells the Maintainer of a token a stop mid-mint may have left live, as P-80 did first. P-80 and
+    # P-81 hold their own "tells nothing" mutant.
+    *[("%s never clears its mint mark" % script, "tools/" + script, 'minting=""\n', "\n",
+       ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
+      for script in SCRIPTS_1215],
+    *[("%s tells nothing of a stop mid-mint" % script, "tools/" + script, '    elif [ -n "${minting:-}" ]; then', '    elif false; then',
+       ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
+      for script in SCRIPTS_1215 if script not in ("trial_p80_branch_reads.sh", "trial_p81_review_order.sh")],
+    *[("%s marks no mint" % script, "tools/" + script, "minting=1\n", "",
+       ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
+      for script in SCRIPTS_1215],
+    *[("%s says nothing of a stop mid-mint" % script, "tools/" + script,
+       'echo "%s: stopped while a token was being minted;' % script[:-3], ': "%s: stopped while a token was being minted;' % script[:-3],
+       ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
+      for script in SCRIPTS_1215],
 ]

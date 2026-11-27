@@ -258,7 +258,7 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
 
     # Capacity and the org's concurrency are not brakes: they bound no cycle (§4.1), and only defer; a Run listed
     # before its run-name defers too (decision 0036). Each is read whole, for either kind of Work item, in one place.
-    stop = run_deferral(_decision, facts, state, evidence, context, now, limits)
+    stop = run_deferral(_decision, facts, state, evidence, context, now, limits, role, config.get("pushers"))
     if stop:
         return stop
 

@@ -59,6 +59,17 @@ OWN_CD_TESTS = (IDENTITY_TESTS + "test_a_subshells_cd_is_its_own",)
 EXPANSION_TESTS = (IDENTITY_TESTS + "test_a_variable_in_an_expansion_the_hook_does_not_read_may_be_anything",)
 BACKSLASH_TESTS = (IDENTITY_TESTS + "test_a_backslash_in_double_quotes_is_read_as_the_shell_reads_it",)
 RUNNER = "tests.test_tools.Mutants."
+# Each of the SA's ruling of 2026-11-26 on the raw answers' directory, as (name, old, new), for every token script
+# (tools_trial_p12_status_sh.py and tools_trial_p52_pause_sh.py both read it).
+KEEP_1215 = (
+    ("%s keeps its raw answers without --keep-raw", '    [ -n "$keep" ] || rm -rf', '    [ -n "1" ] || rm -rf'),
+    ("%s deletes its raw answers though --keep-raw asked", "{ keep=1; shift; }", "{ shift; }"),
+    ("%s deletes each raw answer though --keep-raw asked", 'drop() { [ -n "$keep" ] || rm -f -- "$@"; }', 'drop() { rm -f -- "$@"; }'),
+    ("%s does not say where it kept its raw answers", '"$scratch" >&2\n}\n', '"$scratch" >/dev/null\n}\n'),
+    ("%s makes its raw answers' directory for others to read", 'scratch=$(cd "$made" && pwd -P)\n', 'chmod 755 "$made"\nscratch=$(cd "$made" && pwd -P)\n'),
+    ("%s keeps a scratch directory inside the repo", "    exit 2 ;;\nesac\n# The exit trap", "    ;;\nesac\n# The exit trap"),
+    ("%s keeps a redacted raw answer to the end", '2> "$out/redacted-$n"\n    drop "$scratch/raw-$n"\n', '2> "$out/redacted-$n"\n'),
+)
 # common.py holds no mutants. Its MUTANTS is empty so that a loader that read it as a file of them would still import,
 # and the loader's test would tell the mistake as a failure, not an import's AttributeError (#1153's merge group).
 MUTANTS = ()
