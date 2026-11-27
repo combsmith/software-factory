@@ -364,4 +364,8 @@ MUTANTS = [
     ('the advisory check has another name', ADVICE,
      'CHECK = "advisory-%s"',
      'CHECK = "advice-%s"', ('tests.test_tools.Rulesets.test_no_ruleset_and_no_required_lens_names_an_advisory_lens',)),
+    # Decision 0224: a reader's model is compared as its vendor writes it, case and all (trial P-75).
+    ('a model named in another case is the pinned one', ADVICE,
+     '    if reason is None and model != told["model"]:\n',
+     '    if reason is None and str(model).casefold() != told["model"].casefold():\n', ADVICE_READ),
 ]

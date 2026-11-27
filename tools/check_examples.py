@@ -336,6 +336,21 @@ def _table(feed, decision_schema) -> list:
     return out
 
 
+def _readers(harness) -> list:
+    """What harness/1 cannot say of its readers, since a schema here has no rule on a key: each is an advisory Lens of
+    the same file, by a name advice/1 can hold, and of another family than the Engine's (decision 0224)."""
+    out = []
+    for name in sorted(harness.get("readers", {})):
+        if name not in harness["advisory"]:
+            out.append("harness: the reader %s is no advisory Lens; name it under advisory, or take its block out" % name)
+        elif not re.fullmatch(r"[a-z]{1,31}", name):
+            out.append("harness: the reader %s has a name advice/1 cannot hold: letters alone, 31 at most" % name)
+        elif any(str(harness["readers"][name].get(pin, "")).casefold().startswith("claude") for pin in ("model", "deployment")):
+            # A second family's read is never the Engine's own family's (decision 0224).
+            out.append("harness: the reader %s is of the Engine's own family; an advisory Lens reads with a second family" % name)
+    return out
+
+
 def _unprotected(value) -> list:
     """What is wrong with `value`, a Consumer entry valid to its schema: nothing, or its setup or test script that none
     of its protected paths names, by the Kernel's own matcher, so that an author could weaken the tests it is judged by
@@ -493,6 +508,8 @@ def run(root: pathlib.Path = ROOT) -> list:
             errors = errors or check_authority.branch_read_problems(value, root)
         if kind == "consumer" and not errors:
             errors = _unprotected(value)
+        if kind == "harness" and not errors:
+            errors = _readers(value)
         if not errors:
             problems.append("invalid/%s: was accepted, and must be rejected" % path.name)
         elif len(errors) > 1:
@@ -509,6 +526,8 @@ def run(root: pathlib.Path = ROOT) -> list:
         errors = validate(value, schemas[kind], schemas=schemas)
         if kind == "feed" and not errors and "decision" in schemas:
             errors = _table(value, schemas["decision"])
+        if kind == "harness" and not errors:
+            errors = _readers(value)
         if kind == "eval-set" and not errors and value.get("gate") is True:
             # Held first as the job reads it, so that a gate set the schema lets leave out what it gives of its own is
             # a problem named, never a crash further on (the Claude read of the follow-on to #642).
