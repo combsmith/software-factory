@@ -1731,6 +1731,23 @@ class Opening(unittest.TestCase):
 
     def test_a_drafts_title_and_body_are_text_this_reads(self):
         self.assertIsNone(draft())
+        # Each refusal is a code of its own, and none is the None that lets a draft open.
+        self.assertEqual((opening.UNREADABLE, opening.LINKS, opening.MENTIONS, opening.CLOSES),
+                         ("opening_unreadable", "opening_links", "opening_mentions", "opening_closes"))
+        # Every control character, between two that show, and every bidi control: a body may hold a break and a tab.
+        controls = [chr(code) for code in [*range(0x20), *range(0x7f, 0xa0), 0x2028, 0x2029, 0x061c, 0x200e, 0x200f,
+                                           *range(0x202a, 0x202f), *range(0x2066, 0x206a)]]
+        for c in controls:
+            self.assertEqual(draft(title="a" + c + "b"), opening.UNREADABLE, repr(c))
+            self.assertEqual(draft(body="a" + c + "b"), None if c in "\t\n" else opening.UNREADABLE, repr(c))
+        # What shows nothing alone is blank; inside a word, as an emoji's joiner is, it is text.
+        for blank in ("\u200b", "\u2060", "\ufeff", "\u3164", "\u115f", "\u00ad", " \u200b\u200d "):
+            self.assertEqual(draft(title=blank), opening.UNREADABLE, repr(blank))
+            self.assertEqual(draft(body=blank), opening.UNREADABLE, repr(blank))
+        self.assertNone(["a\u200db", "\U0001F468\u200d\U0001F469"])
+        # A percent-escape is `%` before any hex digit, in either case.
+        self.assertEach(opening.UNREADABLE, ["%" + h + "0" for h in "0123456789abcdefABCDEF"])
+        self.assertNone(["%g0", "100 %"])
         self.assertNone(["## What\n\n- a\tb\n\nC# 9, 100% sure, 50% off, a < b, a <= b, <3, x & y, a && b, R & D"])
         # No text of its exact kind: text of another kind may say it is anything.
         for wrong in (None, b"x", Odd("x"), 1, ["x"], {"x": "x"}):
@@ -1760,6 +1777,16 @@ class Opening(unittest.TestCase):
         self.assertEqual(draft(body="@a closes"), opening.MENTIONS)
 
     def test_a_draft_links_mentions_and_closes_nothing(self):
+        # Each digit after a mark is a reference.
+        for d in "0123456789":
+            self.assertEach(opening.LINKS, ["#" + d, "GH-" + d, "issues/" + d, "pull/" + d])
+            self.assertEach(opening.MENTIONS, ["@" + d + "x"])
+        # A dot segment a browser takes out leads where its path without it does, a backslash read as a slash.
+        self.assertEach(opening.LINKS, ["https://github.com/o/r/issues/./12", "https://github.com/o/r/pull/x/../3",
+                                        "www.github.com/o/r/issues/./1", "issues\\.\\12", "a/./b"])
+        self.assertNone(["see ../docs", "./run.sh", "a.b/c", "e.g. a/b"])
+        # A character that folds to letters joins no keyword to a longer word.
+        self.assertEach(opening.CLOSES, ["\u212afixes it", "\u00dffixes it", "\u017fclose it", "\u212aFIXES"])
         self.assertEach(opening.LINKS, [
             "#1", "#0", "x#1", "(#12)", "##12", "owner/repo#12", "Org_name/Repo.js#3", "GH-12", "gh-7", "Gh-1", "xGH-1",
             "GH\\-12", "https://github.com/o/r/issues/12", "HTTPS://WWW.GITHUB.COM/O/R/PULL/3",

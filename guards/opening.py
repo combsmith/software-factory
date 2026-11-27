@@ -10,11 +10,14 @@ mentions no one and closes nothing.
   - `UNREADABLE`: a title or a body that is no text of its exact kind; one that holds a lone surrogate, U+D800 to
     U+DFFF, which is no character, so no UTF-8 can carry it to GitHub; a title that is empty or blank, or holds a
     line break, a tab or another control character; a body that is empty or blank, or holds a control character
-    but a line break or a tab; or text that reads as other text once GitHub renders it: a character reference (`&` before a letter or
-    `#`), a percent-escape (`%` before a hex digit) or raw HTML (`<` before a letter, `/`, `!` or `?`).
+    but a line break or a tab; a title or a body of characters that show nothing alone, such as U+200B; a bidi
+    control, U+200E, U+200F, U+061C, U+202A to U+202E or U+2066 to U+2069, anywhere, which shows text in an order
+    other than its own; or text that reads as other text once GitHub renders it: a character reference (`&` before a
+    letter or `#`), a percent-escape (`%` before a hex digit) or raw HTML (`<` before a letter, `/`, `!` or `?`).
   - `LINKS`: a reference GitHub could read as a link to an issue, a pull request or a discussion: `#` before a digit,
     so also `owner/repo#12`; `GH-` before a digit; a path whose part `issue`, `issues`, `pull`, `pulls` or
-    `discussions` is followed by a digit, whatever its host or scheme; a Markdown link or image, inline (`](`) or by a
+    `discussions` is followed by a digit, whatever its host or scheme; a dot segment, `/./` or `/../`, which a
+    browser takes out of a path, so `issues/x/../12` leads to issue 12; a Markdown link or image, inline (`](`) or by a
     reference or a footnote (`]:`), whose target may be relative: on a pull request's page, `[see](12)` is a link to
     pull request 12.
   - `MENTIONS`: `@` before a character a GitHub login may begin with, a letter or a digit.
@@ -22,8 +25,10 @@ mentions no one and closes nothing.
     resolved, in any case.
 
 Each is read in any case, of the text as it is and of the same text with every backslash taken out, since Markdown
-drops the backslash of an escape (`GH\\-12` renders as `GH-12`); and a path's part is read with every slash taken out,
-so `issues//12` is read as `issues/12`.
+drops the backslash of an escape (`GH\\-12` renders as `GH-12`); a path's part is read with every slash taken out,
+so `issues//12` is read as `issues/12`, and a dot segment with each backslash read as a slash, as a browser reads it.
+A keyword is read in the case-folded text and in the text's ASCII letters alone, so a character that folds to letters
+(the Kelvin sign, `ß`, `ſ`) joins no keyword to a longer word.
 
 What is refused more widely than GitHub links or closes, on purpose: refusing a harmless title costs a Run, and a link
 let through binds or notifies what no one admitted.
@@ -38,9 +43,12 @@ let through binds or notifies what no one admitted.
   `issues/%31%32` leads to issue 12, and a link GitHub makes of a tag shows none of its target.
 
 Its stated limits:
-- GitHub also links a commit's SHA, `owner/repo@sha` (refused as a mention where the SHA begins with a letter), a URL
-  to a user, a repository, a file or a commit, and a repository's own autolink prefixes: none is an issue or a pull
-  request, none notifies anyone and none closes anything, so each is let through.
+- GitHub also links a commit's SHA (`owner/repo@sha` is refused as a mention, since a login may begin with a letter
+  or a digit), a URL to a user, a repository, a file or a commit, and a repository's own autolink prefixes: none
+  binds an issue or a pull request, notifies anyone or closes anything, so each is let through. An autolink's target
+  may be an issue's page; whether a repository holds such a prefix is its settings', which this reads none of.
+- An invisible character between a mark and a digit, `#` U+200B `12`, is let through: GitHub links no reference so
+  split, and the text shows one only to the eye.
 - A mark is read only as ASCII writes it: GitHub reads no other `#`, `@`, digit or hyphen in a reference or a
   mention, so a full-width number sign before a digit is let through.
 - That `apply`'s own line reads as written is `apply`'s, and not this guard's: written after the Result's text, an
@@ -59,7 +67,11 @@ CLOSES = "opening_closes"           # a closing keyword in the Result's own text
 # What a body may not hold: every control character but a line break and a tab, the line separators among them.
 CONTROL = ("\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0b\x0c\r\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a\x1b"
            "\x1c\x1d\x1e\x1f\x7f\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8a\x8b\x8c\x8d\x8e\x8f\x90\x91\x92\x93\x94"
-           "\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\u2028\u2029")
+           "\x95\x96\x97\x98\x99\x9a\x9b\x9c\x9d\x9e\x9f\u2028\u2029"
+           # and the bidi controls, which show text in an order other than its own.
+           "\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
+# What shows nothing alone, beside white space: a title or a body of these and white space is blank.
+INVISIBLE = "\u00ad\u034f\u115f\u1160\u17b4\u17b5\u180e\u200b\u200c\u200d\u2060\u2061\u2062\u2063\u2064\u3164\ufeff\uffa0"
 # The first and the last surrogate: a str may hold one alone, as JSON's escape gives it, but it is no character, and
 # no UTF-8 encodes it. Compared as characters, since a guard writes no number but 0 and 1.
 SURROGATE_FIRST = "\ud800"
@@ -69,6 +81,7 @@ BREAKS = "\t\n"
 DIGITS = "0123456789"
 HEX = "0123456789abcdef"
 LETTERS = "abcdefghijklmnopqrstuvwxyz"
+UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 # What a GitHub login may begin with, case-folded.
 LOGIN_FIRST = "abcdefghijklmnopqrstuvwxyz0123456789"
 # What a character reference holds after its `&`, and what raw HTML holds after its `<`.
@@ -101,8 +114,20 @@ def _text(said, banned: str) -> bool:
 
 def _links(text: str) -> bool:
     bare = "".join(text.split("/"))
+    path = "/".join(text.split("\\"))
     return (_follows(text, "#", DIGITS) or _follows(text, "gh-", DIGITS) or "](" in text or "]:" in text
-            or any(_follows(bare, segment, DIGITS) for segment in SEGMENTS))
+            or any(_follows(bare, segment, DIGITS) for segment in SEGMENTS) or _follows(path, "/.", "/."))
+
+
+def _seen(said: str) -> list:
+    """What of `said` shows: its words once each character that shows nothing alone is taken out."""
+    return "".join(c for c in said if c not in INVISIBLE).split()
+
+
+def _ascii(said: str) -> list:
+    """`said`'s ASCII letters alone, lower-cased, every other character a space, as it is and with every backslash
+    taken out: no character folds here into letters that join a keyword to a longer word."""
+    return ["".join(c.casefold() if c in UPPER else c for c in text) for text in (said, "".join(said.split("\\")))]
 
 
 def _closes(text: str) -> bool:
@@ -112,13 +137,13 @@ def _closes(text: str) -> bool:
 
 def refusal(title, body):
     """None where a draft may be opened with `title` and `body`, the Result's own, or the one reason why not."""
-    if not (_text(title, CONTROL + BREAKS) and title.split() and _text(body, CONTROL) and body.split()):
+    if not (_text(title, CONTROL + BREAKS) and _seen(title) and _text(body, CONTROL) and _seen(body)):
         return UNREADABLE
     texts = _readings(title) + _readings(body)
     if any(_links(text) for text in texts):
         return LINKS
     if any(_follows(text, "@", LOGIN_FIRST) for text in texts):
         return MENTIONS
-    if any(_closes(text) for text in texts):
+    if any(_closes(text) for text in texts + _ascii(title) + _ascii(body)):
         return CLOSES
     return None
