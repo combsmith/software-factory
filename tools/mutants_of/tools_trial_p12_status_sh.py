@@ -1200,6 +1200,8 @@ MUTANTS = [
      '        *) ;;\n', (P81_TESTS + 'test_a_status_no_answer_has_is_not_kept_and_its_token_is_revoked',)),
     ("P-81 keeps a status below the range", P81, '        [1-5][0-9][0-9]) ;;\n', '        [0-5][0-9][0-9]) ;;\n',
      (P81_TESTS + 'test_a_status_no_answer_has_is_not_kept_and_its_token_is_revoked',)),
+    ("P-81 keeps a status above the range", P81, '        [1-5][0-9][0-9]) ;;\n', '        [1-6][0-9][0-9]) ;;\n',
+     (P81_TESTS + 'test_a_status_no_answer_has_is_not_kept_and_its_token_is_revoked',)),
     ('P-81 writes to a pull request reviewed before', P81,
      '    if [ "$(body_of "$n")" != "[]" ]; then\n',
      '    if false; then\n', (P81_TESTS + 'test_a_pull_request_reviewed_before_is_written_to_not_at_all',)),
@@ -1329,4 +1331,14 @@ MUTANTS = [
        start + "awk 'BEGIN { head = 1 } head && /^HTTP\\// { found = \"\" } { sub(/\\r$/, \"\") } head && $0 != \"\" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/)",
        start + "awk 'BEGIN { head = 1 } head && /^HTTP\\// { found = \"\" } { sub(/\\r$/, \"\") } head && $0 != \"\" { if (/^HTTP\\/[0-9.]+ [0-9]+/)",
        (STATUS_DIGITS,)) for where, start in (("", "    status=$("), (", on the installation read", '\\"status\\": \\"$('))],
+    # And P-4's other relaxations, on each of its two reads, which the generated ones above cannot tell apart (Carbon).
+    *[("P-4 keeps a status %s%s" % (what, where), "tools/trial_p4_narrow.sh",
+       start + "awk 'BEGIN { head = 1 } head && /^HTTP\\// { found = \"\" } { sub(/\\r$/, \"\") } head && $0 != \"\" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found",
+       start + "awk 'BEGIN { head = 1 } head && /^HTTP\\// { found = \"\" } { sub(/\\r$/, \"\") } head && $0 != \"\" { if (/^HTTP\\/[0-9.]+ " + relaxed,
+       (STATUS_DIGITS,))
+      for where, start in (("", "    status=$("), (", on the installation read", '\\"status\\": \\"$('))
+      for what, relaxed in (("whose last is no digit", "[0-9][0-9].( |$)/) found"),
+                            ("whose first is no digit", ".[0-9][0-9]( |$)/) found"),
+                            ("whose middle is no digit", "[0-9].[0-9]( |$)/) found"),
+                            ("that runs on past three digits", "[0-9][0-9][0-9]/) found"))],
 ]
