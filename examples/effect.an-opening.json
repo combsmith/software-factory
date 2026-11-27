@@ -17,7 +17,7 @@
       "title": {
         "body": "docs: end the glossary's first line with a stop"
       },
-      "body": "The glossary's first line is a sentence, and now ends as one. Nothing else in the file changes."
+      "body": "## Why\n\nThe glossary's first line is a sentence, but ends with no stop.\n\n## What changed\n\nThe line now ends with a stop.\n\n## What to look at\n\nThe glossary's first line.\n\n## Record and protected edits\n\nNone: nothing else in the file changes."
     }
   ]
 }

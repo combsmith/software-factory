@@ -1224,8 +1224,10 @@ class RoleWrites(unittest.TestCase):
 class Opening(unittest.TestCase):
     """An opening's draft: the model's title with the issue's number after it, held to the title's rule, and its body
     after the one closing line (issue 838; the Solution Architect's rulings of 2026-11-27)."""
-    GOOD = {"id": "e2", "title": {"body": "docs: end the glossary's first line with a stop"},
-            "body": "The glossary's first line is a sentence, and now ends as one."}
+    BODY = ("## Why\n\nThe glossary's first line is a sentence, but ends with no stop.\n\n## What changed\n\n"
+            "The line now ends with a stop.\n\n## What to look at\n\nThe glossary's first line.\n\n"
+            "## Record and protected edits\n\nNone: nothing else in the file changes.")
+    GOOD = {"id": "e2", "title": {"body": "docs: end the glossary's first line with a stop"}, "body": BODY}
     ISSUE = dict(support.ITEM, type="issue", number=838)
 
     def opening(self, title=None, body=None) -> dict:
@@ -1281,15 +1283,37 @@ class Opening(unittest.TestCase):
         self.assertEqual((first in refs[0], n in refs[0], first in refs[1], n in refs[1]), (True, False, True, True))
         # The line is the body's first, a paragraph of its own: a fence the model leaves open, indented code or a quote
         # in its text comes after it, so it can make nothing of the line, and the model's text follows unchanged.
-        for said in ("```\nthe fence is left open", "~~~~\nnor this one", "    indented\n    code", "> a quote\n",
+        for tail in ("```\nthe fence is left open", "~~~~\nnor this one", "    indented\n    code", "> a quote\n",
                      "Text, then a fence:\n\n```python\nprint(1)\n"):
+            said = self.BODY + "\n\n" + tail
             self.assertIsNone(draft.draft(self.opening(body=said), 838)[0], said)
             body = draft.draft(self.opening(body=said), 838)[1][1]
             self.assertEqual(body.split("\n")[:2], ["Closes #838", ""])
             self.assertEqual(body[len(draft.CLOSING % 838):], said)
         # A comment or a details block, which could hide a line after it, never reaches the draft: the guard refuses it.
         for said in ("<!-- left open", "<details>\nleft open", "<DETAILS open>"):
-            self.assertEqual(draft.draft(self.opening(body=said), 838), ("opening_unreadable", None), said)
+            self.assertEqual(draft.draft(self.opening(body=self.BODY + "\n\n" + said), 838), ("opening_unreadable", None),
+                             said)
+
+    def test_a_drafts_body_is_refused_on_any_problem_of_the_templates_headings(self):
+        # Shared cases: the draft is refused exactly where tools/pr_title.py finds the whole body, its closing line
+        # first, out of the template's shape, by the first problem's own code; the title is held first.
+        why, changed = self.BODY.split("\n\n## What changed\n\n")
+        for said, code in ((self.BODY, None),
+                           ("The glossary's first line now ends with a stop.", "body_heading_missing"),
+                           ("```\n" + self.BODY, "body_heading_missing"),
+                           (self.BODY + "\n\n## Why\n\nOnce more.", "body_heading_twice"),
+                           (self.BODY.replace("The glossary's first line.", "- "), "body_section_empty"),
+                           ("## What changed\n\n" + changed.split("\n\n", 1)[0] + "\n\n" + why + "\n\n"
+                            + changed.split("\n\n", 1)[1], "body_heading_out_of_order")):
+            problems = pr_title.body_problems(draft.CLOSING % 838 + said)
+            self.assertEqual(problems[0].split(":")[0] if problems else None, code, said)
+            # The rule is given the very body the draft writes, its closing line first.
+            with unittest.mock.patch.object(pr_title, "body_problems", wraps=pr_title.body_problems) as held:
+                self.assertEqual(draft.draft(self.opening(body=said), 838), (code, None) if code else (
+                    None, (self.GOOD["title"]["body"] + " (#838)", draft.CLOSING % 838 + said)), said)
+            held.assert_called_once_with(draft.CLOSING % 838 + said)
+        self.assertEqual(draft.draft(self.opening("Docs: end it", "No headings."), 838), ("title_no_area", None))
 
     def test_a_refused_draft_is_the_roles_attempt_and_its_run_was_told_the_rule(self):
         permits = the_task(item=self.ISSUE, permitted_effects=["submit_review", "create_check_run", "open_pull_request"])
@@ -1298,7 +1322,8 @@ class Opening(unittest.TestCase):
         # Each refusal is the Role's (`item`), before anything is written: so it counts toward the Role's attempts.
         for opening, code in ((self.opening("Docs: end it"), "title_no_area"),
                               (self.opening("docs: " + "a" * draft.room(838)), "title_too_long"),
-                              (self.opening(body="Fixes it."), "opening_closes")):
+                              (self.opening(body="Fixes it."), "opening_closes"),
+                              (self.opening(body="No headings."), "body_heading_missing")):
             self.assertEqual(refused(task=permits, res=asking(opening)), ("item", code))
             self.assertEqual(apply.outcome(permits, {"effects": []}, ("item", code))["outcome"], "item")
         # The room is the admitted issue's: a title that fits after ` (#7)` is too long after ` (#838)`.
@@ -1319,6 +1344,8 @@ class Opening(unittest.TestCase):
                     self.assertIn(said, told)
                 for what, _ in pr_title.INTERNAL:
                     self.assertIn(what, told)
+                # The body's headings in the template's own order, the order the rule holds the body to.
+                self.assertIn(": " + ", ".join("## " + name for name in pr_title.HEADINGS) + ".", told)
         for task in (the_task(), dict(permits, item=dict(support.ITEM)),
                      dict(permits, permitted_effects=["submit_review", "create_check_run"])):
             self.assertNotIn("Your draft's title", engine.argv("/opt/claude", task, "claude-x", "s", "")[2])
