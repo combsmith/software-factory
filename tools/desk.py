@@ -33,7 +33,6 @@ from __future__ import annotations
 import json
 import os
 import pathlib
-import re
 import subprocess
 import sys
 
@@ -122,7 +121,7 @@ def _lines(shortstat: str) -> int:
     lines = 0
     for part in shortstat.split(","):
         words = part.split()
-        if len(words) == 2 and words[0].isdigit() and words[1].startswith(("insertion", "deletion")):
+        if len(words) == 2 and words[0].isdecimal() and words[1].startswith(("insertion", "deletion")):
             lines += int(words[0])
     return lines
 
