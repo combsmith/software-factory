@@ -3319,5 +3319,128 @@ class Entry(unittest.TestCase):
         self.assertEqual(len(minted), 100)
 
 
+class Advisory(unittest.TestCase):
+    """`controller/advisory.py`: whether the day's ceiling admits one more advisory read (decision 0224)."""
+
+    NOW = "2026-11-18T13:00:00Z"
+    HARNESS = {"readers": {"astra": {}}, "advisory_ceiling_usd_per_day": 30, "advisory_worst_case_usd": 2}
+
+    @staticmethod
+    def ran(started: str = "2026-11-18T09:00:00Z", intent: str = "review-change", **advice) -> dict:
+        return dict({"run": "r_01JA7Q", "intent": intent, "started_at": started, "status": "completed"}, **advice)  # finished
+
+    def test_the_days_advisory_spend_counts_an_unknown_cost_at_the_worst_case_and_never_at_nought(self):
+        from controller import advisory
+        ran = self.ran
+        # What one review Run of the day counts: its cost, where it finished, asked and gives one above nought; nothing
+        # where it finished and asked no reader; and the worst case for every other.
+        for record, counts in ((ran(advisory_asks=1, advisory_cost_usd=0.93), 0.93), (ran(advisory_asks=2, advisory_cost_usd=100000), 100000),
+                               (ran(advisory_asks=0, advisory_cost_usd=None), 0), (ran(advisory_asks=0, advisory_cost_usd=0), 0),
+                               (ran(advisory_asks=0), 0),
+                               # It asked and gives no cost, or nought, which no read costs.
+                               (ran(advisory_asks=1, advisory_cost_usd=None), 2), (ran(advisory_asks=1), 2),
+                               (ran(advisory_asks=2, advisory_cost_usd=0), 2), (ran(advisory_asks=1, advisory_cost_usd=-0.0), 2),
+                               (ran(advisory_asks=2, advisory_cost_usd=5e-324), 2), (ran(advisory_asks=2, advisory_cost_usd=4e-7), 2),
+                               (ran(advisory_asks=2, advisory_cost_usd=0.000001), 0.000001),
+                               # Its advice was not read, or it is still running, whatever it says.
+                               (ran(), 2), (ran(advisory_cost_usd=0.5), 2),
+                               (ran(status="in_progress", advisory_asks=1, advisory_cost_usd=0.01), 2),
+                               (ran(status="queued", advisory_asks=0, advisory_cost_usd=None), 2),
+                               (ran(status=None, advisory_asks=1, advisory_cost_usd=0.01), 2),
+                               # Its fields do not agree, or hold what no record may.
+                               (ran(advisory_asks=0, advisory_cost_usd=5), 2), (ran(advisory_asks=1, advisory_cost_usd=-1), 2),
+                               (ran(advisory_asks=1, advisory_cost_usd=float("nan")), 2),
+                               (ran(advisory_asks=1, advisory_cost_usd=float("inf")), 2),
+                               (ran(advisory_asks=1, advisory_cost_usd=10 ** 400), 2), (ran(advisory_asks=1, advisory_cost_usd=100000.01), 2),
+                               (ran(advisory_asks=1, advisory_cost_usd="0.93"), 2), (ran(advisory_asks=1, advisory_cost_usd=True), 2),
+                               (ran(advisory_asks=True, advisory_cost_usd=0.5), 2), (ran(advisory_asks=-1, advisory_cost_usd=0.5), 2),
+                               (ran(advisory_asks="1", advisory_cost_usd=0.5), 2), (ran(advisory_asks=101, advisory_cost_usd=0.5), 2),
+                               (ran(advisory_asks=0, advisory_cost_usd=float("nan")), 2), (None, 2), ("a run", 2), ([], 2)):
+            self.assertEqual(advisory.counted(record, 2), counts, record)
+        # The day is the UTC date of the pass's now. A review Run that started on another day counts nothing, and so does
+        # a Run of another Intent; one whose start cannot be read is not shown to be another day's, and counts.
+        records = [ran(advisory_asks=1, advisory_cost_usd=1.5), ran("2026-11-18T00:00:00Z", advisory_asks=1, advisory_cost_usd=0.25),
+                   ran("2026-11-17T23:59:59Z", advisory_asks=1, advisory_cost_usd=100),
+                   ran("2026-11-19T00:00:00Z", advisory_asks=1, advisory_cost_usd=100),
+                   ran(intent="fix-findings", advisory_asks=1, advisory_cost_usd=100), ran("2026-11-18T23:59:59Z")]
+        self.assertEqual(advisory.spent(records, self.NOW, 2), 3.75)
+        # A Run still in flight counts on today's sum whatever day it started: what runs across midnight is carried.
+        for start in ("2026-11-17T23:59:59Z", "2026-11-10T00:00:00Z", "2026-11-19T00:00:00Z"):
+            for status in ("in_progress", "queued", None):
+                self.assertEqual(advisory.spent([ran(start, status=status, advisory_asks=1, advisory_cost_usd=0.01)], self.NOW, 2), 2,
+                                 (start, status))
+        self.assertEqual(advisory.spent([ran("2026-11-17T23:59:59Z", intent="fix-findings", status="in_progress")], self.NOW, 2), 0)
+        for start in (None, "", 1795000000, "20261118T090000Z", " 2026-11-18T09:00:00Z", "2026-11-17", "2026-11-17T23:59:59+00:00"):
+            self.assertEqual(advisory.spent([ran(start, advisory_asks=1, advisory_cost_usd=7)], self.NOW, 2), 7, start)
+        self.assertEqual(advisory.spent([{"intent": "review-change"}, None, "x"], self.NOW, 2), 6)
+        self.assertEqual(advisory.spent([], self.NOW, 2), 0)
+        # Two records of one Run are two counts: nothing here says which is the Run's, and more is the safe way.
+        self.assertEqual(advisory.spent([ran(advisory_asks=1, advisory_cost_usd=10)] * 2, self.NOW, 2), 20)
+
+    def test_a_review_run_is_told_yes_only_under_a_ceiling_and_a_worst_case_that_are_configured(self):
+        from controller import advisory
+        ran, now, harness = self.ran, self.NOW, self.HARNESS
+        self.assertIs(advisory.admits([], True, now, harness), True)
+        # The day's sum and this Run's own worst case together may reach the ceiling and not pass it, to a millionth.
+        at = [ran(advisory_asks=1, advisory_cost_usd=28)]
+        self.assertIs(advisory.admits(at, True, now, harness), True)
+        self.assertIs(advisory.admits(at + [ran(advisory_asks=1, advisory_cost_usd=0.000001)], True, now, harness), False)
+        self.assertIs(advisory.admits([ran(advisory_asks=1, advisory_cost_usd=0.07)] * 400, True, now, harness), True)
+        self.assertIs(advisory.admits([ran(advisory_asks=1, advisory_cost_usd=0.1)] * 2, True, now,
+                                      dict(harness, advisory_ceiling_usd_per_day=0.3, advisory_worst_case_usd=0.1)), True)
+        # A Run in flight does not refuse the next one: each counts the worst case, fourteen of them and this one.
+        flying = ran(status="in_progress")
+        self.assertIs(advisory.admits([flying] * 14, True, now, harness), True)
+        self.assertIs(advisory.admits([flying] * 15, True, now, harness), False)
+        self.assertIs(advisory.admits([ran(status="in_progress", advisory_asks=1, advisory_cost_usd=0.01)] * 15, True, now, harness), False)
+        # Neither figure has a default: with no ceiling, no worst case, or one that is no figure its schema would hold,
+        # the answer is no; and with no reader, or readers that are no object of them.
+        for change in ({"advisory_ceiling_usd_per_day": None}, {"advisory_worst_case_usd": None}, {"advisory_ceiling_usd_per_day": 0},
+                       {"advisory_worst_case_usd": 0}, {"advisory_ceiling_usd_per_day": "30"}, {"advisory_worst_case_usd": True},
+                       {"advisory_ceiling_usd_per_day": True}, {"advisory_ceiling_usd_per_day": float("inf")},
+                       {"advisory_worst_case_usd": float("nan")}, {"advisory_ceiling_usd_per_day": float("nan")},
+                       {"advisory_ceiling_usd_per_day": -30}, {"advisory_worst_case_usd": -2},
+                       {"advisory_ceiling_usd_per_day": 10 ** 400}, {"advisory_ceiling_usd_per_day": 10001},
+                       {"advisory_worst_case_usd": 5e-324}, {"advisory_worst_case_usd": 0.009},
+                       {"readers": {}}, {"readers": None}, {"readers": True}, {"readers": ["astra"]}, {"readers": "astra"}):
+            self.assertIs(advisory.admits([], True, now, dict(harness, **change)), False, change)
+        self.assertIs(advisory.admits([], True, now, dict(harness, advisory_ceiling_usd_per_day=10000, advisory_worst_case_usd=0.01)), True)
+        for key in harness:
+            self.assertIs(advisory.admits([], True, now, {k: v for k, v in harness.items() if k != key}), False, key)
+        # A worst case above the ceiling admits nothing, and run records not read whole admit nothing.
+        self.assertIs(advisory.admits([], True, now, dict(harness, advisory_worst_case_usd=31)), False)
+        for whole in (False, None, 1, "yes"):
+            self.assertIs(advisory.admits([], whole, now, harness), False, whole)
+        # Whatever it is handed it answers, and what it cannot read it answers no to: a time in another form, which
+        # names no day, and a configuration or run records that are none.
+        spent_ = [ran(advisory_asks=1, advisory_cost_usd=100)]
+        for when in ("20261118T130000Z", "1795006800", " 2026-11-18T13:00:00Z", "2026-11-19T01:00:00+02:00", "", "2026-11",
+                     None, 1795006800, b"2026-11-18T13:00:00Z"):
+            self.assertIs(advisory.admits([], True, when, harness), False, when)
+            self.assertIs(advisory.admits(spent_, True, when, harness), False, when)
+        for odd in (None, [], "x", 7):
+            self.assertIs(advisory.admits([], True, now, odd), False, odd)
+        for odd in (None, {}, "runs", 7):
+            self.assertIs(advisory.admits(odd, True, now, harness), False, odd)
+        self.assertIs(advisory.admits([None] * 15, True, now, harness), False)
+        self.assertIs(advisory.admits([ran(advisory_asks=1, advisory_cost_usd=10 ** 400)] * 15, True, now, harness), False)
+        # The schemas hold the three places the answer and its figures lie.
+        from controller import shared as held
+        from tools.jsonschema_lite import validate
+        harness_schema, record, entry = (held.SCHEMAS["harness"]["properties"], held.SCHEMAS["run-record"],
+                                         held.SCHEMAS["pass"]["properties"]["pull_requests"]["items"])
+        self.assertNotIn("advisory_worst_case_usd", held.SCHEMAS["harness"]["required"])
+        for figure, ok in ((1.91, True), (0, False), (-1, False), ("2", False), (None, False), (10001, False)):
+            self.assertEqual(validate(figure, harness_schema["advisory_worst_case_usd"]) == [], ok, figure)
+        example = json.loads((ROOT / "examples" / "pass.json").read_text())["runs"][0]
+        self.assertEqual(validate(dict(example, advisory_asks=2, advisory_cost_usd=1.42), record, schemas=held.SCHEMAS), [])
+        self.assertEqual(validate(dict(example, advisory_asks=1, advisory_cost_usd=None), record, schemas=held.SCHEMAS), [])
+        for change in ({"advisory_asks": -1}, {"advisory_asks": 1.5}, {"advisory_asks": None}, {"advisory_cost_usd": -1},
+                       {"advisory_cost_usd": "1"}, {"advisory_cost_usd": float("inf")}, {"advisory_asks": 101}):
+            self.assertTrue(validate(dict(example, **change), record, schemas=held.SCHEMAS), change)
+        self.assertEqual(entry["properties"]["advisory_ask"], {"type": "boolean"})
+        self.assertNotIn("advisory_ask", entry["required"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -251,4 +251,14 @@ MUTANTS = [
     ("a counter-example of the pin's file is not held to its readers' names", 'tools/check_examples.py',
      '        if kind == "harness" and not errors:\n            errors = _readers(value)\n        if not errors:\n',
      '        if not errors:\n', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
+    # Decision 0224: the day's advisory ceiling, held by the Controller's pass.
+    ('the worst case may be under what a read may cost', 'tools/check_examples.py',
+     '        if worst < round(most, 6):\n',
+     '        if False:\n', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
+    ("the worst case counts a reader's prompt alone", 'tools/check_examples.py',
+     ' + r["output_tokens"] * r["usd_per_million"]["output"])\n',
+     ')\n', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
+    ("the worst case counts a reader's output alone", 'tools/check_examples.py',
+     '(r["prompt_characters"] * r["usd_per_million"]["input"] + r["output_tokens"]',
+     '(r["output_tokens"]', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
 ]

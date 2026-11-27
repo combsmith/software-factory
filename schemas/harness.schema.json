@@ -278,6 +278,11 @@
       "type": "number",
       "minimum": 0.01,
       "maximum": 10000
+    },
+    "advisory_worst_case_usd": {
+      "type": "number",
+      "minimum": 0.01,
+      "maximum": 10000
     }
   }
 }
