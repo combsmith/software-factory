@@ -783,6 +783,15 @@ class Examples(unittest.TestCase):
         deeper["properties"]["next_actor"]["properties"]["sentences"] = shaped
         self.assertTrue(caught(check_examples._free(deeper, schemas, deeper, "feed", "$", set()),
                                "schema feed admits text at $.next_actor.sentences.*"))
+        # Nor the feed brought below its top by a reference to itself: it is swept again there (issue 1179).
+        itself = copy.deepcopy(feed)
+        itself["properties"]["next_actor"]["properties"]["again"] = {"$ref": "feed.schema.json"}
+        found = check_examples._free(itself, dict(schemas, feed=itself), itself, "feed", "$", set())
+        self.assertTrue(caught(found, "schema feed admits text at $.next_actor.again.sentences.*"), found)
+        itself = copy.deepcopy(feed)
+        itself["properties"]["again"] = {"$ref": "feed.schema.json"}
+        found = check_examples._free(itself, dict(schemas, feed=itself), itself, "feed", "$", set())
+        self.assertTrue(caught(found, "schema feed admits text at $.again.sentences.*"), found)
         named = {"type": "object", "additionalProperties": False, "properties": {"phrases": shaped}}
         self.assertTrue(caught(check_examples._free(named, {}, named, "feed", "$", set()),
                                "schema feed admits text at $.phrases.*"))
@@ -3510,6 +3519,15 @@ class Repo(unittest.TestCase):
                                      # Each reader at its own prices, and a figure of more than a millionth's places rounded up.
                                      (4.92, {"astra": block, "kimi": dear}, True), (4.91, {"astra": block, "kimi": dear}, False),
                                      (2.289998, {"astra": odd}, True), (2.289997, {"astra": odd}, False)):
+            found = check_examples._readers(dict(named, readers=readers, advisory_worst_case_usd=worst))
+            self.assertEqual(not caught(found, "is under what the readers' caps and prices let one Run cost"), held, (worst, sorted(readers)))
+        # Each reader at its own caps; and a figure between the cost and its round up to a millionth is under it.
+        wide = dict(block, prompt_characters=2 * block["prompt_characters"], output_tokens=block["output_tokens"] // 2)
+        both = most + (wide["prompt_characters"] * wide["usd_per_million"]["input"]
+                       + wide["output_tokens"] * wide["usd_per_million"]["output"]) / 1000000
+        for worst, readers, held in ((round(both, 6), {"astra": block, "kimi": wide}, True),
+                                     (round(both, 6) - 0.000001, {"astra": block, "kimi": wide}, False),
+                                     (2.2899975, {"astra": odd}, False)):
             found = check_examples._readers(dict(named, readers=readers, advisory_worst_case_usd=worst))
             self.assertEqual(not caught(found, "is under what the readers' caps and prices let one Run cost"), held, (worst, sorted(readers)))
         self.assertEqual(check_examples._readers(dict(named, readers={"astra": block})), [])       # with none, no reader is asked
