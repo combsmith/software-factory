@@ -42,8 +42,10 @@ def told(issue: int) -> str:
     return ("\n\nYour draft's title is held to the rule for a pull request's title: its area, a lowercase word, a colon "
             "and a space, then a plain verb phrase that starts with a lowercase letter and ends with no stop, holding "
             "none of these: %s. It is at most %d characters, since the Harness adds the issue's number after it. The "
-            "Harness writes the line that closes the issue, before your body: your title and body link, mention and "
-            "close nothing. A draft that breaks any of this is refused, as your attempt." % (marks, room(issue)))
+            "Harness writes the line that closes the issue, before your body. Your title and body hold no # before a "
+            "digit, no @ before a letter or a digit, no link, no raw HTML, and no word close, fix or resolve in any "
+            "form, even one that names no issue. A draft that breaks any of this is refused, as your attempt."
+            % (marks, room(issue)))
 
 
 def draft(opening: dict, issue: int) -> tuple:

@@ -3,7 +3,7 @@
     {
       "id": "e1",
       "title": {
-        "body": "The glossary's first line ends with a full stop"
+        "body": "docs: end the glossary's first line with a stop"
       },
       "body": "The glossary's first line is a sentence, and now ends as one. Nothing else in the file changes.",
       "head": "factory-work/issue-12-1"

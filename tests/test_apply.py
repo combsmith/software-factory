@@ -1266,17 +1266,19 @@ class Opening(unittest.TestCase):
         self.assertEqual(draft.draft(self.opening(body="See @someone."), 838), ("opening_mentions", None))
 
     def test_the_closing_line_comes_before_the_models_text_and_still_closes_its_issue(self):
-        # trials/P-46.json: GitHub read a closing line at the start of a body, the rest after a blank line, as closing
-        # the issue it names: the edit that put the line there put the issue among the closing references.
+        # trials/P-46.json: GitHub read a closing line as the first line of a body, its paragraph ended by a blank line,
+        # as a closing reference to the issue it names, and so the line after it, which the trial's edit put there.
+        # trials/P-67.json, read in tests/test_tools.py, shows the merge then closes each issue so referenced.
         p46 = json.loads((ROOT / "trials" / "P-46.json").read_text())
         n = p46["exchanges"][0]["response"]["body"]["number"]
         edited = [e["request"]["body"]["body"] for e in p46["exchanges"]
                   if e["request"]["call"].startswith("PATCH /repos/") and "/pulls/" in e["request"]["call"]][0]
         lines = edited.split("\n\n", 1)[0].split("\n")
-        self.assertIn((draft.CLOSING % n).rstrip("\n"), lines)
-        self.assertTrue(all(re.fullmatch(r"Closes #[0-9]+", line) for line in lines))
+        first = int(re.fullmatch(r"Closes #([0-9]+)", lines[0]).group(1))
+        self.assertEqual(lines, [(draft.CLOSING % first).rstrip("\n"), (draft.CLOSING % n).rstrip("\n")])
         reads = [e["response"]["body"]["data"]["repository"] for e in p46["exchanges"] if e["request"]["via"] == "graphql"]
-        self.assertIn(n, [x["number"] for x in reads[1]["pullRequest"]["closingIssuesReferences"]["nodes"]])
+        refs = [[x["number"] for x in r["pullRequest"]["closingIssuesReferences"]["nodes"]] for r in reads[:2]]
+        self.assertEqual((first in refs[0], n in refs[0], first in refs[1], n in refs[1]), (True, False, True, True))
         # The line is the body's first, a paragraph of its own: a fence the model leaves open, indented code or a quote
         # in its text comes after it, so it can make nothing of the line, and the model's text follows unchanged.
         for said in ("```\nthe fence is left open", "~~~~\nnor this one", "    indented\n    code", "> a quote\n",
@@ -1299,18 +1301,33 @@ class Opening(unittest.TestCase):
                               (self.opening(body="Fixes it."), "opening_closes")):
             self.assertEqual(refused(task=permits, res=asking(opening)), ("item", code))
             self.assertEqual(apply.outcome(permits, {"effects": []}, ("item", code))["outcome"], "item")
+        # The room is the admitted issue's: a title that fits after ` (#7)` is too long after ` (#838)`.
+        fits = self.opening("docs: " + "a" * (draft.room(7) - 6))
+        self.assertIsNone(refused(task=dict(permits, item=dict(self.ISSUE, number=7)), res=asking(fits)))
+        self.assertEqual(refused(task=permits, res=asking(fits)), ("item", "title_too_long"))
         # Only an issue's Run opens a draft: one of another item has no issue to close.
         self.assertEqual(refused(task=dict(permits, item=dict(support.ITEM)), res=asking(self.GOOD)),
                          ("item", "opening_not_on_issue"))
-        # The Run was told the rule and the room the issue's number leaves: the CLI's prompt says both, and a Task
-        # that permits no opening, or of another item, is told neither.
-        told = engine.argv("/opt/claude", permits, "claude-x", "s", "")[2]
-        self.assertIn(draft.told(838), told)
-        self.assertIn("at most %d characters" % draft.room(838), draft.told(838))
-        for what, _ in pr_title.INTERNAL:
-            self.assertIn(what, draft.told(838))
-        for task in (the_task(), dict(permits, item=dict(support.ITEM))):
+        # The Run was told the rule and the room the issue's number leaves, in the CLI's prompt, with the read tools
+        # or without; a Task of an issue that permits no opening, or of another item, is told none of it.
+        for issue, room in ((838, 65), (12345, 63)):
+            task = dict(permits, item=dict(self.ISSUE, number=issue))
+            for read in (False, True):
+                told = engine.argv("/opt/claude", task, "claude-x", "s", "", read=read)[2]
+                for said in ("at most %d characters" % room, "a lowercase word, a colon and a space",
+                             "starts with a lowercase letter and ends with no stop", "close, fix or resolve"):
+                    self.assertIn(said, told)
+                for what, _ in pr_title.INTERNAL:
+                    self.assertIn(what, told)
+        for task in (the_task(), dict(permits, item=dict(support.ITEM)),
+                     dict(permits, permitted_effects=["submit_review", "create_check_run"])):
             self.assertNotIn("Your draft's title", engine.argv("/opt/claude", task, "claude-x", "s", "")[2])
+
+    def test_each_example_opening_is_a_draft_apply_writes(self):
+        # The schema's own examples of an opening keep the title's rule and the guard's.
+        for name in ("effect.an-opening.json", "effect.an-opening-after-its-push.json"):
+            for opening in json.loads((ROOT / "examples" / name).read_text())["open_pull_request"]:
+                self.assertIsNone(draft.draft(opening, 838)[0], name)
 
 
 class Push(unittest.TestCase):
@@ -1835,6 +1852,15 @@ class Job(unittest.TestCase):
         self.assertEqual(shared.errors(record, "applied"), [])
         self.assertEqual(shared.errors(ended, "outcome"), [])
         return record, ended, calls
+
+    def test_a_refused_draft_mints_nothing(self):  # issue 838
+        # A draft refused for its title or its text is the Role's attempt, and no token is minted or write sent for it.
+        task = the_task(item=Opening.ISSUE, permitted_effects=["submit_review", "create_check_run", "open_pull_request"])
+        for title, code in (("Docs: end it", "title_no_area"), ("docs: see #12", "opening_links")):
+            res = result(effects=dict(result()["effects"], open_pull_request=[Opening().opening(title)]))
+            record, ended, calls = self.go(res, task=task)
+            self.assertEqual(((ended["outcome"], ended["reason"]), calls["mint"], calls["written"]),
+                             (("item", code), [], []), title)
 
     def test_a_push_is_held_before_anything_is_minted_and_its_refusal_recorded(self):  # issue 139
         data = a_bundle(changed("docs/a.md"))

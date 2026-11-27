@@ -382,4 +382,6 @@ MUTANTS = [
      ' + _draft(task) + instructions', ' + instructions', ('tests.test_apply.Opening.test_a_refused_draft_is_the_roles_attempt_and_its_run_was_told_the_rule',)),
     ("a pull request's Run is told the draft's rule", 'harness/engine.py',
      ' in task["permitted_effects"] and item["type"] == "issue" else', ' in task["permitted_effects"] else', ('tests.test_apply.Opening.test_a_refused_draft_is_the_roles_attempt_and_its_run_was_told_the_rule',)),
+    ("an issue's Run that may open no draft is told the draft's rule", 'harness/engine.py',
+     'if OPENING in task["permitted_effects"] and item["type"] == "issue"', 'if item["type"] == "issue"', ('tests.test_apply.Opening.test_a_refused_draft_is_the_roles_attempt_and_its_run_was_told_the_rule',)),
 ]
