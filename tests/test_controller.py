@@ -439,7 +439,10 @@ class Record(unittest.TestCase):
         spent = dict(run("r_000009Z", number=9), advisory_asks=2, advisory_cost_usd=3.5)
         self.assertEqual(asks(reads(pulls=[pr(1)], runs=[spent])), [("admit", False)])
         self.assertEqual(asks(reads(pulls=[pr(1)], runs=[dict(spent, advisory_cost_usd=3)])), [("admit", True)])
-        self.assertEqual(asks(reads(pulls=[pr(1)], runs=[dict(spent, started_at="2026-10-10T12:10:00Z")])), [("admit", True)])
+        self.assertEqual(asks(reads(pulls=[pr(1)], runs=[dict(spent, started_at="2026-10-10T12:10:00Z", ended_at="2026-10-10T12:20:00Z")])),
+                         [("admit", True)])
+        # One of another day whose end cannot be read may have ended today, and counts.
+        self.assertEqual(asks(reads(pulls=[pr(1)], runs=[dict(spent, started_at="2026-10-10T12:10:00Z")])), [("admit", False)])
         # A pass whose records read an advisory cost is read whole as any other: its Runs are listed, and counted.
         advised_ = reads(pulls=[pr(1)], runs=[dict(spent, advisory_cost_usd=3)])
         advised_["records"]["reads"].append({"read": "advice_cost", "date": "2026-10-11T12:59:58Z", "age": 0})
