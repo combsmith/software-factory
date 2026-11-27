@@ -113,8 +113,9 @@ drop() { [ -n "$keep" ] || rm -f -- "$@"; }
 # would be revoked by the exit trap though this run never minted it; and curl is told of no file to write its TLS
 # keys to (issue 1215).
 unset SSLKEYLOGFILE token jwt signature minted minting
-# Nor does curl go through a proxy, or trust a certificate authority, that the shell names (issue 1288).
-unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR
+# Nor does curl go through a proxy, or trust a certificate authority or TLS library, that the shell names, nor does
+# openssl, which signs with the App's key, load a configuration or a module the shell names (issue 1288).
+unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR CURL_SSL_BACKEND OPENSSL_CONF OPENSSL_ENGINES OPENSSL_MODULES
 token=""
 
 revoke() {

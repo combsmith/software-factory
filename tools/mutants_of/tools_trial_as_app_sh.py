@@ -101,6 +101,8 @@ MUTANTS = [
      "unset SSLKEYLOGFILE token jwt signature minted minting\n", "", ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
     ("the App's script takes a proxy from the shell", "tools/trial_as_app.sh", UNPROXIED, "",
      ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
+    ("the App's gh logs its headers as GODEBUG says", "tools/trial_as_app.sh", "unset GH_DEBUG DEBUG CURL_HOME GODEBUG\n",
+     "unset GH_DEBUG DEBUG CURL_HOME\n", ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
     ("the App's script finds its root by CDPATH", "tools/trial_as_app.sh", "root=$(CDPATH= cd -P -- ", "root=$(cd -P -- ", ("tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does",)),
     ("the App's script finds its root logically", "tools/trial_as_app.sh", "root=$(CDPATH= cd -P -- ", "root=$(CDPATH= cd -- ", ("tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does",)),
     ("the App's script exports what its environment says to", "tools/trial_as_app.sh", "set +a\nunset CDPATH\n", "unset CDPATH\n",
