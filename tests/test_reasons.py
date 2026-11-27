@@ -135,6 +135,14 @@ def _flows(value, foreign: bool = True) -> bool:
     return any(_flows(part, foreign) for part in parts)
 
 
+def _binds_reason(node) -> bool:
+    """Whether `node` binds the name `reason` by no Name node: an import, an exception handler, or a definition."""
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return any((a.asname or a.name.split(".")[0]) == "reason" for a in node.names)
+    return isinstance(node, (ast.ExceptHandler, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) \
+        and node.name == "reason"
+
+
 def _bound(target, value, found: list, unread: list, read: set) -> None:
     """A binding of `target` to `value`, pair by pair for tuples: a reason given to a reason's slot, and a reason read
     elsewhere bound to any other name, which cannot be read. Each reason's slot bound here goes into `read`."""
@@ -161,9 +169,9 @@ def written(tree, taken: dict) -> tuple:
     that takes one, or as its default, as a value bound or stored to the name `reason` or to a mapping's "reason", as a
     literal compared with a reason or a table of them, and as a member of a table. A call that gives no reason by
     place or name, a table bound anywhere but once at the top level, a handed table bound again, and the name `reason`
-    bound any other way, by a loop, a comprehension or `:=`, is put in `unread`. The scan assumes good faith, as the
-    Kernel's other source checks do: it reads the forms the Kernel writes and refuses the ones the record lists, and
-    no others (decision 0248's limit row). The runtime test is the binding hold.
+    bound any other way, by a loop, a comprehension, `:=`, an import, a handler or a definition, is put in `unread`.
+    The scan assumes good faith, as the Kernel's other source checks do: it reads the forms the Kernel writes and
+    refuses the ones the record lists, and no others (decision 0248's limit row). The runtime test is the binding hold.
     """
     found, unread, calls, bound = [], [], 0, set()
     tops = {id(t) for node in tree.body if isinstance(node, ast.Assign) for t in node.targets}
@@ -257,6 +265,8 @@ def written(tree, taken: dict) -> tuple:
                         _give(side, found, unread)
     unread += [n.lineno for n in ast.walk(tree) if _reason_slot(n)
                and not isinstance(n.ctx, ast.Load) and id(n) not in bound]
+    # The name bound by an import, a handler or a definition is read as it is bound any other way (issue 1179).
+    unread += [n.lineno for n in ast.walk(tree) if _binds_reason(n)]
     return found, unread, calls
 
 
@@ -397,6 +407,15 @@ class Written(unittest.TestCase):
             ('reading(f, r, c, t.QUEUE_WAITS)', [], []),
             ('reading(f, r, c, ())', [], []),
             ('reading(f, r, c, past=make())', [], [1]),
+            ('from kernel.terms import X as reason', [], [1]),
+            ('from kernel.terms import reason', [], [1]),
+            ('import reason', [], [1]),
+            ('import kernel.reason', [], []),
+            ('import kernel as reason', [], [1]),
+            ('try:\n    pass\nexcept E as reason:\n    pass', [], [3]),
+            ('def reason():\n    pass', [], [1]),
+            ('async def reason():\n    pass', [], [1]),
+            ('class reason:\n    pass', [], [1]),
         )
         for source, found, unread in cases:
             with self.subTest(source=source):

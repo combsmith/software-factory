@@ -2,6 +2,13 @@
 
 TARGETS = ("tests/test_reasons.py",)
 MUTANTS = [
+    # Issue 1179: the name `reason` bound by an import, a handler or a definition is read as any other binding of it.
+    ("the scan reads no reason bound by an import, a handler or a definition", "tests/test_reasons.py",
+     "    unread += [n.lineno for n in ast.walk(tree) if _binds_reason(n)]\n", "", ("tests.test_reasons.Written.test_a_reason_written_any_way_is_read",)),
+    ("the scan reads an import's name, not the name it binds", "tests/test_reasons.py",
+     'any((a.asname or a.name.split(".")[0]) == "reason"', 'any(a.name.split(".")[0] == "reason"', ("tests.test_reasons.Written.test_a_reason_written_any_way_is_read",)),
+    ("the scan reads no handler bound to the name reason", "tests/test_reasons.py",
+     "(ast.ExceptHandler, ast.FunctionDef,", "(ast.FunctionDef,", ("tests.test_reasons.Written.test_a_reason_written_any_way_is_read",)),
     # Decision 0248: every reason is in one of two sets, a pull request's and an issue's own.
     ("the scan reads no choice between reasons", "tests/test_reasons.py",
      "    elif isinstance(node, ast.IfExp):\n        _give(node.body, found, unread)\n        _give(node.orelse, found, unread)\n",
