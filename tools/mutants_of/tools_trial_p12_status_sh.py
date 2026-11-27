@@ -1198,6 +1198,8 @@ MUTANTS = [
     ("P-81 keeps a status no answer has", P81,
      '        [1-5][0-9][0-9]) ;;\n',
      '        *) ;;\n', (P81_TESTS + 'test_a_status_no_answer_has_is_not_kept_and_its_token_is_revoked',)),
+    ("P-81 keeps a status below the range", P81, '        [1-5][0-9][0-9]) ;;\n', '        [0-5][0-9][0-9]) ;;\n',
+     (P81_TESTS + 'test_a_status_no_answer_has_is_not_kept_and_its_token_is_revoked',)),
     ('P-81 writes to a pull request reviewed before', P81,
      '    if [ "$(body_of "$n")" != "[]" ]; then\n',
      '    if false; then\n', (P81_TESTS + 'test_a_pull_request_reviewed_before_is_written_to_not_at_all',)),
@@ -1316,6 +1318,8 @@ MUTANTS = [
     # an answer's first line reaches requests.json or the terminal.
     *[("%s keeps a status that is not three digits" % script, "tools/" + script, "[0-9][0-9][0-9]( |$)/) found",
        "[0-9]+/) found", (STATUS_DIGITS,)) for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
+    *[("%s keeps a status whose last is no digit" % script, "tools/" + script, "[0-9][0-9][0-9]( |$)/) found",
+       "[0-9][0-9].( |$)/) found", (STATUS_DIGITS,)) for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
     *[("P-4 keeps a status that is not three digits%s" % where, "tools/trial_p4_narrow.sh",
        start + "awk 'BEGIN { head = 1 } head && /^HTTP\\// { found = \"\" } { sub(/\\r$/, \"\") } head && $0 != \"\" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/)",
        start + "awk 'BEGIN { head = 1 } head && /^HTTP\\// { found = \"\" } { sub(/\\r$/, \"\") } head && $0 != \"\" { if (/^HTTP\\/[0-9.]+ [0-9]+/)",
