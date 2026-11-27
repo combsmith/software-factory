@@ -540,4 +540,7 @@ MUTANTS = [
     ("a cost GitHub does not answer for ends the list's reading", 'adapters/records.py',
      '            costs = COSTS\n            continue\n        if cost is not None:',
      '            break\n        if cost is not None:', COST_READ),
+    ("one Run's miss and another's keep the second as none", 'adapters/records.py',
+     'for attempt, cost in none.items() if attempt in absent})',
+     'for attempt, cost in none.items() if absent})', COST_READ),
 ]

@@ -1685,6 +1685,10 @@ class Records(unittest.TestCase):
         self.assertEqual(sorted(key[0] for key in records.advised([{"runs": bare}, {"runs": first["runs"]}])), ["r_000000Z", "r_000003Z"])
         self.assertEqual(records.advised([{"runs": first["runs"]}, {"runs": bare}]), {})
         self.assertEqual(records.advised([{"runs": first["runs"]}, {"runs": []}, {"runs": []}]), {})
+        # Two misses in a row are of the same attempt: one Run's miss and then another's keep neither.
+        miss = [{"run": run_, "started_at": "2026-10-20T12:00:00Z", "advisory_cost_usd": None} for run_ in ("r_00000AZ", "r_00000BZ")]
+        self.assertEqual(records.advised([{"runs": miss[:1]}, {"runs": miss[1:]}]), {})
+        self.assertEqual(list(records.advised([{"runs": miss[1:]}, {"runs": miss[1:]}])), [("r_00000BZ", "2026-10-20T12:00:00Z")])
         changed = [dict(first["runs"][0], advisory_cost_usd=9)]
         self.assertEqual(records.advised([{"runs": first["runs"]}, {"runs": changed}])[("r_000000Z", "2026-10-21T00:00:00Z")],
                          {"advisory_asks": 2, "advisory_cost_usd": 9})
