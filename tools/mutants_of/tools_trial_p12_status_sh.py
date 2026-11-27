@@ -1280,6 +1280,8 @@ MUTANTS = [
     # Issue 1288: nor a proxy or a certificate authority the shell names.
     *[("%s takes a proxy from the shell" % script, "tools/" + script, UNPROXIED, "",
        (TRIALS_ENV,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in SCRIPTS_1215],
+    # Issue 1300: nor P-61's gh, which reads with the Maintainer's own login.
+    ("P-61's gh takes a proxy from the shell", "tools/trial_p61_timeline.sh", UNPROXIED, "", (TRIALS_ENV,)),
     *[("%s's root follows CDPATH" % script, "tools/" + script, "root=$(CDPATH= cd -P -- ", "root=$(cd -P -- ",
        (TRIALS_ROOT,) + run_1215(script, "test_the_maintainers_environment_steers_nothing")) for script in ROOTS_1215],
     *[("%s's root is found logically" % script, "tools/" + script, "root=$(CDPATH= cd -P -- ", "root=$(CDPATH= cd -- ",

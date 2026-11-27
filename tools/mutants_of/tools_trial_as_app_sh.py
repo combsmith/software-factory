@@ -112,4 +112,11 @@ MUTANTS = [
      '        curl -sS -i --fail-with-body -X "$1"', ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
     ("the App's mint reads a .curlrc", "tools/trial_as_app.sh", '    curl -q -sS -i --fail-with-body -X POST',
      '    curl -sS -i --fail-with-body -X POST', ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
+    # Issue 1300: gh reads no configuration the shell names, nor openssl a relative include the shell points.
+    ("the App's gh reads the shell's configuration", "tools/trial_as_app.sh", 'export GH_CONFIG_DIR="$out/gh-reads-no-config"\n', "",
+     ("tests.test_tools.AppThreads.test_gh_reads_no_configuration_of_the_shells",)),
+    ("the App's gh reads a configuration in OUT", "tools/trial_as_app.sh", 'GH_CONFIG_DIR="$out/gh-reads-no-config"', 'GH_CONFIG_DIR="$out"',
+     ("tests.test_tools.AppThreads.test_gh_reads_no_configuration_of_the_shells",)),
+    ("the App's openssl takes a relative include from the shell", "tools/trial_as_app.sh", " OPENSSL_CONF_INCLUDE", "",
+     ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
 ]

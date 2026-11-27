@@ -10919,7 +10919,8 @@ import json, os, pathlib, sys
 here = pathlib.Path(__file__).resolve().parent
 args = sys.argv[1:]
 with open(here / "calls", "a") as calls:
-    calls.write(json.dumps({"argv": args, "token": os.environ.get("GH_TOKEN")}) + "\n")
+    calls.write(json.dumps({"argv": args, "token": os.environ.get("GH_TOKEN"), "config": os.environ.get("GH_CONFIG_DIR"),
+                            "config_there": os.path.exists(os.environ.get("GH_CONFIG_DIR") or "/nonexistent")}) + "\n")
 state = json.loads((here / "state").read_text()) if (here / "state").exists() else {"reviews": 0, "resolved": False, "reply": False, "deleted": False}
 def answer(status, body):
     (here / "state").write_text(json.dumps(state))
@@ -11130,6 +11131,23 @@ esac
                          [["PRRT_T1"], ["PRRT_T1"], ["PRRT_T1", "PRRT_T2"], ["PRRT_T1", "PRRT_T2"], ["PRRT_T1", "PRRT_T2"]])
         self.assertEqual([r["nodes"][0]["isResolved"] for r in reads], [False, True, True, True, True])
         self.assertEqual(exchanges[-1]["request"]["call"], "DELETE /installation/token")
+
+    def test_gh_reads_no_configuration_of_the_shells(self):
+        # A configuration the shell names, by GH_CONFIG_DIR or XDG_CONFIG_HOME, could send each request and GH_TOKEN to a
+        # socket of its own. Every gh call is pointed at a directory that does not exist, in OUT, and none is made there
+        # (issue 1300).
+        planted = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (planted / "gh").mkdir()
+        for where in (planted, planted / "gh"):
+            (where / "config.yml").write_text("http_unix_socket: /tmp/planted.sock\n")
+        bin_, ran = self.run_threads(GH_CONFIG_DIR=str(planted), XDG_CONFIG_HOME=str(planted))
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        out = pathlib.Path(re.search(r"^trial_as_app: OUT is (.+)$", ran.stdout, re.M).group(1))
+        calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()]
+        self.assertTrue(calls)
+        self.assertEqual({c["config"] for c in calls}, {str(out / "gh-reads-no-config")})
+        self.assertFalse(any(c["config_there"] for c in calls))
+        self.assertFalse((out / "gh-reads-no-config").exists())
 
     def test_a_thread_it_cannot_find_stops_it_before_any_write_and_the_token_is_revoked(self):
         # The first thread is not the App's own trial thread, being another's words, another's comment, or given an id
@@ -16023,6 +16041,12 @@ class SignalTraps(unittest.TestCase):
                          and re.search(r"(?:^|\||\$\(|&&|;)\s*openssl\s", line)]
                 self.assertLess(lines.index(unproxied), min(calls[:1] + signs[:1]), script.name)
         self.assertEqual(minting, 12)
+        # P-61 mints nothing, but its gh reads with the Maintainer's own login: the same line, before its first gh (issue
+        # 1300).
+        p61 = (ROOT / "tools" / "trial_p61_timeline.sh").read_text().splitlines()
+        reads = [n for n, line in enumerate(p61) if not line.lstrip().startswith("#") and re.search(r"(?:^|\||\$\(|&&|;)\s*gh\s", line)]
+        self.assertEqual(p61.count(unproxied), 1)
+        self.assertLess(p61.index(unproxied), reads[0])
         app = (ROOT / "tools" / "trial_as_app.sh").read_text().splitlines()
         gh = [n for n, line in enumerate(app) if not line.lstrip().startswith("#") and re.search(r'GH_TOKEN="\$token" gh\s', line)]
         self.assertEqual(app.count("unset GH_DEBUG DEBUG CURL_HOME GODEBUG"), 1)
@@ -16055,8 +16079,8 @@ class SignalTraps(unittest.TestCase):
 # What curl and openssl read from the environment to choose a proxy, a certificate authority, a TLS library or a
 # configuration: each token trial unsets them all before its first curl (issue 1288).
 PROXY_AND_TLS = ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY", "no_proxy", "NO_PROXY",
-                 "CURL_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_SSL_BACKEND", "OPENSSL_CONF", "OPENSSL_ENGINES",
-                 "OPENSSL_MODULES")
+                 "CURL_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_SSL_BACKEND", "OPENSSL_CONF", "OPENSSL_CONF_INCLUDE",
+                 "OPENSSL_ENGINES", "OPENSSL_MODULES")
 
 
 class ReaderTrialScript(unittest.TestCase):

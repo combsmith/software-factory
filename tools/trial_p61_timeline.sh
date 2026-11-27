@@ -40,6 +40,9 @@ set -euf
 set +a
 unset CDPATH
 set +x
+# Nor does gh, which reads with the Maintainer's own login, go through a proxy or trust a certificate authority that
+# the shell names; the same line as the token trials' (issue 1300).
+unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR CURL_SSL_BACKEND OPENSSL_CONF OPENSSL_CONF_INCLUDE OPENSSL_ENGINES OPENSSL_MODULES
 
 if [ "$#" -ne 4 ]; then
     echo "usage: tools/trial_p61_timeline.sh OUT REPO ISSUE PULL_REQUEST" >&2
