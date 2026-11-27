@@ -32,7 +32,7 @@ MUTANTS = [
     ('the size warns only at its limit', 'tools/desk.py',
      'SHARE = 0.95 ', 'SHARE = 1.0 ', DESK_SIZE),
     ('the size counts the diff as it is written', 'tools/desk.py',
-     'return task.carried(task.numbered(pull.canonical(diff))), lines', 'return len(diff), lines', DESK_SIZE),
+     'return task.carried(task.numbered(pull.canonical(diff))), _lines(shortstat)', 'return len(diff), _lines(shortstat)', DESK_SIZE),
     ("the size keeps each index line's ids as git wrote them", 'tools/desk.py',
      'task.numbered(pull.canonical(diff))', 'task.numbered(diff)', DESK_SIZE),
     ('the size reads ids as this clone abbreviates them', 'tools/desk.py',
