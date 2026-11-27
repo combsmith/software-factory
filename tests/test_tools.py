@@ -19,6 +19,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -3484,9 +3485,10 @@ class Repo(unittest.TestCase):
             odd = dict(harness, advisory=["coderabbit", name], readers={name: block})
             self.assertTrue(caught(check_examples._readers(odd), "has a name advice/1 cannot hold"), name)
         self.assertEqual(check_examples._readers(dict(harness, advisory=["a" * 31], readers={"a" * 31: block})), [])
-        # A reader is a second family: one of the Engine's own family, by its model or its deployment, is refused.
+        # A reader is a second family: one of the Engine's own family, by its model or its deployment, is refused, its
+        # family named anywhere in either.
         for pin in ("model", "deployment"):
-            for engines in ("claude-" + "opus-5-5", "Claude-Reader"):
+            for engines in ("claude-" + "opus-5-5", "Claude-Reader", "anthropic.claude-" + "opus-5-5", "prod-claude", "prod-CLAUDE-1", "prodclaude1"):
                 own = dict(named, readers={"astra": dict(block, **{pin: engines})})
                 self.assertTrue(caught(check_examples._readers(own), "the reader astra is of the Engine's own family"), (pin, engines))
 
@@ -5067,6 +5069,13 @@ class Workflows(unittest.TestCase):
         # A merge group is read from the entry before it, which main does not hold yet: its record is not this one's.
         before = head(["docs/decisions/1129-a.md"])
         self.assertEqual(said(head(["docs/decisions/1130-b.md"], on=before), event_name="merge_group", since=before), [])
+        # Only what the head adds since the merge base is read: a record main took out after the branch left it is not
+        # one the head adds, though the head still holds it (issue 1179).
+        moved_on = head(removed=["docs/decisions/0002-b.md"])
+        self.assertEqual(said(one, since=moved_on), [])
+        # And a record the head adds is its own though main added the same file since: the head adds it (Astra).
+        main_too = head(["docs/decisions/1129-x.md", "kernel/m.py"])
+        refused(said(head(["docs/decisions/1129-x.md"]), since=main_too), "1129-x.md' is a decision record")
         # A record a replacement changes is not one it adds.
         self.assertEqual(said(head(["docs/decisions/1130-x.md"], changed=["docs/decisions/0001-a.md"])), [])
         self.assertEqual(said(head(["docs/decisions/0999-x.md"]), 999), [])
@@ -8172,12 +8181,37 @@ class Trials(unittest.TestCase):
                  "P-99.md": (good % "99").replace("Is it asked?", "```hidden"), "P-41.md": page,
                  "P-88.md": (good % "88").replace("Is it asked?", "Is A | B asked?"), "P-87.md": (good % "87").replace("Yes", " "),
                  "P-85.md": (good % "85").replace("Is it asked?", " "),
+                 "P-84.md": (good % "84").replace("Is it asked?", '[it]: https://example.com "Is it asked?"'),
+                 "P-83.md": (good % "83").replace("Yes", "  [Yes]: <x>"),
+                 "P-184.md": (good % "184").replace("Yes", "[Yes]:"),
+                 "P-185.md": (good % "185").replace("Yes", "   [a\\]b]: <x>"),
+                 "P-186.md": (good % "186").replace("Is it asked?", '> [it]: /url "Is it asked?"'),
+                 "P-187.md": (good % "187").replace("Is it asked?", "- [it]: /url"),
+                 "P-188.md": (good % "188").replace("Yes", "[ ]: unchecked"),
+                 "P-189.md": (good % "189").replace("Yes", "-    [it]: /url"),
+                 "P-190.md": (good % "190").replace("Yes", ">    [it]: /url"),
+                 "P-191.md": (good % "191").replace("Yes", "> 1) [Yes]: <x>"),
+                 "P-192.md": (good % "192").replace("Yes", "   > - [it]: /url"),
+                 "P-193.md": (good % "193").replace("Yes", "[  \\]ok]: /url"),
+                 "P-194.md": (good % "194").replace("Yes", "[\u00a0it]: /url"),
+                 "P-195.md": (good % "195").replace("Yes", "-[ok]: /url"),
+                 "P-196.md": (good % "196").replace("Yes", ">     [it]: /url"),
                  "P-86.md\n": good % "86"}
         planted = clone({check_trials.PAGES + "/" + k: v for k, v in files.items()})
         (planted / check_trials.PAGES / "P-89.md").symlink_to(planted / check_trials.PAGES / "P-90.md")
         problems = check_trials.run(planted)
         for name in ("P-98.md", "P-99.md"):
             self.assertTrue(caught(problems, "%s/%s: holds a fence or an HTML comment" % (check_trials.PAGES, name)), name)
+        # So does a link reference definition, which shows as nothing (issue 1179).
+        # A marker takes four blanks after it, an ordered list's too, markers nest, and a label may open with blanks,
+        # an escape or a blank of no ASCII.
+        for name in ("P-84.md", "P-83.md", "P-184.md", "P-185.md", "P-186.md", "P-187.md", "P-189.md", "P-190.md",
+                     "P-191.md", "P-192.md", "P-193.md", "P-194.md"):
+            self.assertTrue(caught(problems, "%s/%s: holds a link reference definition" % (check_trials.PAGES, name)), name)
+        # A label of blanks is no label, a list's marker that touches its label is text, and five blanks after a quote's
+        # marker are code: each line is shown.
+        for name in ("P-188.md", "P-195.md", "P-196.md"):
+            self.assertFalse(caught(problems, "%s: holds a link reference definition" % name), name)
         for name in ("README.md", "P-095.md", "deep/P-96.md", "P-89.md", "P-86.md\n"):
             self.assertTrue(caught(problems, "%s/%s: only a trial's page" % (check_trials.PAGES, name)), name)
         self.assertTrue(caught(problems, "P-90.md: is headed P-91"), problems)
@@ -14533,10 +14567,11 @@ class Mutants(unittest.TestCase):
 
     def test_every_mutant_is_in_exactly_one_shard(self):
         # CI runs the mutants in shards, one job each. A mutant in no shard is a rule nobody checks; one in two is run
-        # twice. Each is told apart by its name, so no name is used twice.
+        # twice. Each is told apart by its name, so no name is used twice. The counts run to twelve, then the workflow's
+        # sixteen and forty (issue 1314).
         names = [mutant[0] for mutant in mutants.MUTANTS]
         self.assertEqual(len(names), len(set(names)))
-        for count in range(1, 13):
+        for count in list(range(1, 13)) + [16, 40]:
             placed = [mutant[0] for index in range(count) for mutant in mutants.shard(mutants.MUTANTS, index, count)]
             self.assertEqual(sorted(placed), sorted(names), count)
 
@@ -16020,8 +16055,12 @@ class SignalTraps(unittest.TestCase):
         # A name a script holds a credential in, exported, reaches every child; SSLKEYLOGFILE has curl write the TLS keys
         # that read a token off the wire; a .curlrc can print the Authorization header. Each script that mints unsets the
         # first two before its first curl, and every curl reads no .curlrc. A curl is one that starts a command: on its
-        # line, after a pipe or in a substitution, wherever the line breaks.
+        # line, after a pipe or in a substitution, wherever the line breaks. Nor does curl take a proxy, a certificate
+        # authority or a TLS library the shell names, which would carry the JWT and each token through it, nor openssl a
+        # configuration that loads code where the App's key is read; and gh, in the App's trial, no GODEBUG that logs
+        # each header it sends (issue 1288).
         unset = "unset SSLKEYLOGFILE token jwt signature minted minting"
+        unproxied = "unset " + " ".join(PROXY_AND_TLS)
         minting = 0
         for script in sorted((ROOT / "tools").glob("trial_*.sh")):
             lines = script.read_text().splitlines()
@@ -16033,7 +16072,16 @@ class SignalTraps(unittest.TestCase):
                 minting += 1
                 self.assertEqual(lines.count(unset), 1, script.name)
                 self.assertLess(lines.index(unset), calls[0], script.name)
+                self.assertEqual(lines.count(unproxied), 1, script.name)
+                # Before curl, and before openssl first reads the App's key.
+                signs = [n for n, line in enumerate(lines) if not line.lstrip().startswith("#")
+                         and re.search(r"(?:^|\||\$\(|&&|;)\s*openssl\s", line)]
+                self.assertLess(lines.index(unproxied), min(calls[:1] + signs[:1]), script.name)
         self.assertEqual(minting, 12)
+        app = (ROOT / "tools" / "trial_as_app.sh").read_text().splitlines()
+        gh = [n for n, line in enumerate(app) if not line.lstrip().startswith("#") and re.search(r'GH_TOKEN="\$token" gh\s', line)]
+        self.assertEqual(app.count("unset GH_DEBUG DEBUG CURL_HOME GODEBUG"), 1)
+        self.assertLess(app.index("unset GH_DEBUG DEBUG CURL_HOME GODEBUG"), gh[0])
 
     def test_every_trial_finds_its_root_as_the_file_system_does(self):  # issue 1215
         # A plain cd looks a relative path up along CDPATH, and says where it went, and takes .. past a link logically.
@@ -16059,6 +16107,13 @@ class SignalTraps(unittest.TestCase):
             self.assertEqual(then[:2], ["set +a", "unset CDPATH"], script.name)
 
 
+# What curl and openssl read from the environment to choose a proxy, a certificate authority, a TLS library or a
+# configuration: each token trial unsets them all before its first curl (issue 1288).
+PROXY_AND_TLS = ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY", "no_proxy", "NO_PROXY",
+                 "CURL_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_SSL_BACKEND", "OPENSSL_CONF", "OPENSSL_ENGINES",
+                 "OPENSSL_MODULES")
+
+
 class ReaderTrialScript(unittest.TestCase):
     """`tools/trial_reader_reads.sh`, run against a stand-in curl and openssl and never GitHub (issues 222 and 231): each
     refusal before anything is minted, two tokens each narrowed to one permission on the canary alone, every read made
@@ -16075,7 +16130,7 @@ class ReaderTrialScript(unittest.TestCase):
     CURL = r'''#!/usr/bin/env python3
 import json, os, sys
 here = os.path.dirname(os.path.abspath(__file__))
-ENV_NAMES = ("token", "jwt", "signature", "minted", "minting", "SSLKEYLOGFILE")
+ENV_NAMES = ("token", "jwt", "signature", "minted", "minting", "SSLKEYLOGFILE") + ''' + repr(PROXY_AND_TLS) + r'''
 args = sys.argv[1:]
 url = [a for a in args if a.startswith("https://")][-1]
 method = args[args.index("-X") + 1] if "-X" in args else "GET"
@@ -16113,6 +16168,16 @@ if method == "DELETE":
     sys.stdout.write(open(os.path.join(here, "revoke.status")).read().strip())
     sys.exit(0)
 roles = json.load(open(os.path.join(here, "roles")))
+# A read that curl says failed, with a status or with nothing at all, and one curl answered whose status line cannot be
+# read (issue 1281). Each body holds a marker that must reach no file of OUT.
+if os.path.exists(os.path.join(here, "answer.broke")):
+    sys.stdout.write("HTTP/2 200\r\n\r\n{\"marker-1281")
+    sys.exit(18)
+if os.path.exists(os.path.join(here, "answer.unsent")):
+    sys.exit(7)
+if os.path.exists(os.path.join(here, "answer.headless")):
+    sys.stdout.write("HTTP/2 OK\r\ncontent-type: application/json\r\n\r\n{\"marker-1281\": 1}")
+    sys.exit(0)
 if os.path.exists(os.path.join(here, "slow")):
     # Mid-read: tell the test on one pipe, and wait on the other until the test lets the read end, or is gone.
     told, held = (int(n) for n in open(os.path.join(here, "slow")).read().split())
@@ -16399,12 +16464,13 @@ esac
 
     def test_the_maintainers_environment_steers_nothing(self):  # issue 1215
         # Run by a path relative to the repo, under a CDPATH that holds a tools/ of its own, with SSLKEYLOGFILE and each
-        # name a credential is held in exported, and the shell started exporting every assignment: the script finds its
-        # own root, and curl is handed none of them.
+        # name a credential is held in exported, a proxy and a certificate authority named (issue 1288), and the shell
+        # started exporting every assignment: the script finds its own root, and curl is handed none of them.
         decoy = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         (decoy / "tools").mkdir()
         env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
                "CDPATH": str(decoy), "SSLKEYLOGFILE": str(decoy / "keys"),
+               **{name: str(decoy / name) for name in PROXY_AND_TLS},
                **{name: self.TOKEN for name in ("token", "jwt", "signature", "minted", "minting")}}
         ran = subprocess.run(["sh", "-a", str(self.SCRIPT.relative_to(ROOT)), str(self.out), str(self.key), *self.GIVEN],
                              cwd=str(ROOT), capture_output=True, text=True, env=env, timeout=120)
@@ -16450,6 +16516,25 @@ esac
         asked = [a["status"] for a in json.loads((self.out.parent / "proxied" / "requests.json").read_text()) if "call" in a]
         self.assertEqual(asked, plain)
         self.assertIn(403, asked)
+
+
+    def test_a_curl_that_failed_is_told_apart_from_a_status_line_that_cannot_be_read(self):
+        # Both stop with nothing in OUT and the token revoked; only what the person is told differs (issue 1281).
+        failed, unread = "curl failed", "curl answered, but its status line could not be read"
+        for flag, said, not_said in (("answer.broke", failed, unread), ("answer.unsent", failed, unread),
+                                     ("answer.headless", unread, failed)):
+            with self.subTest(flag=flag):
+                self.setUp()
+                (self.stand_in / flag).write_text("")
+                ran = self.run_script()
+                self.assertNotEqual(ran.returncode, 0, ran.stdout)
+                self.assertIn(": %s; nothing of it reaches OUT" % said, ran.stderr)
+                self.assertNotIn(not_said, ran.stderr)
+                self.assertEqual(ran.stderr.count("nothing of it reaches OUT"), 1, ran.stderr)
+                self.assertEqual([c["method"] for c in self.calls()][-1], "DELETE")
+                self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+                self.assertFalse((self.out / "requests.json").exists())
+                self.assertFalse([p.name for p in self.out.iterdir() if "marker-1281" in p.read_text()])
 
 
 class IssueLookupTrial(ReaderTrialScript):
@@ -18457,6 +18542,44 @@ class Desk(unittest.TestCase):
         self.assertEqual(desk.size(tree({"a.py": "a\n"})), "no base to compare: this tree is no clone")
         git(root, "update-ref", "-d", "refs/remotes/origin/main")
         self.assertEqual(desk.size(root), "no base to compare: origin/main cannot be read here")
+
+    def test_the_desks_git_runs_no_program_the_clone_names_and_reads_no_git_variable_of_its_caller(self):
+        # A clone's configuration may name a program for git to run: a file system monitor, an external diff, a filter
+        # or a textconv. No read runs one, and a GIT_ variable of whatever runs the desk, such as GIT_DIR, reaches no
+        # read; those the desk sets are its own on every read (issue 1179).
+        root = self.merging()
+        expected = (desk.size(root), desk.merged(root))
+        marker = root.parent / (root.name + "-ran")
+        program = root.parent / (root.name + "-program.sh")
+        program.write_text("#!/bin/sh\ntouch %s\nexit 1\n" % shlex.quote(str(marker)))
+        program.chmod(0o755)
+        for key in ("core.fsmonitor", "diff.external", "filter.x.clean", "filter.x.smudge", "diff.x.textconv"):
+            git(root, "config", key, str(program))
+        (root / ".git" / "info").mkdir(exist_ok=True)
+        (root / ".git" / "info" / "attributes").write_text("*.py filter=x diff=x\n")
+        ran, real = [], subprocess.run
+
+        def run(argv, **kwargs):
+            ran.append(kwargs["env"])
+            return real(argv, **kwargs)
+
+        told = {"GIT_DIR": str(marker), "GIT_INDEX_FILE": str(marker), "GIT_EXTERNAL_DIFF": str(program),
+                "GIT_OPTIONAL_LOCKS": "1", "GIT_NO_LAZY_FETCH": "0", "GIT_TERMINAL_PROMPT": "1", "GIT_CONFIG_NOSYSTEM": "0"}
+        with mock.patch.dict(os.environ, told), mock.patch.object(desk, "subprocess", mock.NonCallableMock(
+                run=run, DEVNULL=subprocess.DEVNULL, TimeoutExpired=subprocess.TimeoutExpired)):
+            got = (desk.size(root), desk.merged(root))
+        self.assertFalse(marker.exists(), got)
+        self.assertEqual(got, expected)
+        own = {"GIT_CONFIG_NOSYSTEM": "1", "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"}
+        self.assertTrue(ran)
+        for env in ran:
+            self.assertEqual({k: v for k, v in env.items() if k.startswith("GIT_")}, own)
+        # Each pin stands as written, those a read's own flags shadow today among them: --no-ext-diff, -z, and the
+        # submodule flags of FORM and merged() (issue 1179).
+        self.assertEqual(desk.SAFE, ("--no-replace-objects", "--literal-pathspecs", "-c", "core.commitGraph=false",
+                                     "-c", "core.fsmonitor=false", "-c", "diff.external=", "-c", "diff.ignoreSubmodules=none",
+                                     "-c", "core.quotePath=true", "-c", "diff.suppressBlankEmpty=false",
+                                     "-c", "diff.submodule=short"))
 
     def test_make_checks_note_fails_nothing(self):
         # The note is printed after the checks have answered, and nothing it does, an error or an exit, changes the
