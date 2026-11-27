@@ -2,7 +2,7 @@
 # Trial P-81, issue 1219: where the issue timeline adapters/seen.py reads puts a review started, left pending past an
 # issue comment and submitted a minute later, and what submitted_at it carries.
 #
-#   tools/trial_p81_review_order.sh OUT PR_REVIEW_KEY REPO PULL_REQUEST FILE
+#   tools/trial_p81_review_order.sh [--keep-raw] OUT PR_REVIEW_KEY REPO PULL_REQUEST FILE
 #
 # The Maintainer runs it at his own terminal; no session runs it, since it mints a credential. OUT is a new directory
 # outside this repo. PR_REVIEW_KEY is the pr-review App's private key file, which only openssl reads. REPO is the canary,
@@ -16,10 +16,11 @@
 # 2. a review started with one line comment on FILE, left pending; 3. twenty seconds on, an issue comment; 4. a minute
 # on, the review submitted as a comment; 5. twenty seconds on, another comment; 6. the timeline two a page, and the
 # review's comments. The token lives in a shell variable and reaches curl on its standard input. Each answer is redacted
-# by tools/redact_trial.py in a scratch directory outside the repo; OUT gets the clean answers (clean-N), what the
-# redaction removed (redacted-N), the bodies sent (sent-NAME), each call with the time before it (requests.json) and
-# ran_at. A refused mint, a failed call, a reviews list not read as none before the first write, a review not started
-# pending, a later write refused or a revocation not answered 204 stops the run; a token that may be live is told.
+# by tools/redact_trial.py in a scratch directory outside the repo, deleted on exit, unless --keep-raw keeps it and says
+# where; OUT gets the clean answers (clean-N), what the redaction removed (redacted-N), the bodies sent (sent-NAME),
+# each call with the time before it (requests.json) and ran_at. A refused mint, a failed call, a reviews list not read
+# as none before the first write, a review not started pending, a later write refused or a revocation not answered 204
+# stops the run; a token that may be live is told.
 set -eu
 # Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
 # (issue 1215).

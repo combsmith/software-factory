@@ -15779,7 +15779,7 @@ class SignalTraps(unittest.TestCase):
         # that mints marks the ask, and its clean-up tells the Maintainer the token may be live.
         scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
                    if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
-        self.assertEqual(len(scripts), 10)
+        self.assertEqual(len(scripts), 11)
         for script in scripts:
             lines = [line.strip() for line in script.read_text().splitlines()]
             mint = next(n for n, line in enumerate(lines) if line.startswith("minted=$(") and '"$jwt" | curl' in line)
