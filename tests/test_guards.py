@@ -2129,7 +2129,11 @@ class Settings(unittest.TestCase):
             "a quoted key": changed("    name: SonarCloud\n", "    \"name\": SonarCloud\n"),
             "a key given twice": changed(SCAN_STEP, SCAN_STEP + SCAN_STEP),
             "a job given twice": SCAN + "  sonarcloud:\n    runs-on: x\n    steps:\n      - name: x\n" + SCAN_STEP,
-            "an item with no key on its line": changed("      - name: SonarCloud Scan\n", "      -\n        name: SonarCloud Scan\n"),
+            "a dash alone on its line": changed("      - name: SonarCloud Scan\n", "      -\n        name: SonarCloud Scan\n"),
+            "a quote inside its quotes": changed("          java-version: '21'\n", "          java-version: '2'1'\n"),
+            "a lone quote": changed("          java-version: '21'\n", "          java-version: '\n"),
+            "an item among the jobs": SCAN + "  - runs-on: x\n    steps:\n      - name: x\n" + SCAN_STEP,
+            "a checkout of another commit": changed(CHECKOUT_WITH, CHECKOUT_WITH + "          ref: refs/pull/1/head\n"),
             "a key and its colon run together": changed("    name: SonarCloud\n", "    name:SonarCloud\n"),
             "a line of no key": changed("    name: SonarCloud\n", "    name: SonarCloud\n    stray\n"),
             "a kid off its column": changed("      contents: read\n", "      contents: read\n     x: y\n"),
@@ -2174,6 +2178,17 @@ class Settings(unittest.TestCase):
         }
         for why, step in routes.items():
             self.assertEqual(settings(changed(SCAN_STEP, step)), workflows.UNREADABLE, why)
+        # A line's end YAML reads where this reads none hides what follows it in a value: each is refused, anywhere.
+        hidden = "        with:%s          args: -Dproject.settings=other.properties\n"
+        for end in ("\r", "\x85", "\u2028", "\u2029", "\ufeff", "\x00", "\x1f", "\x7f", "\x9f", "\t"):
+            self.assertEqual(settings(changed("      - name: SonarCloud Scan\n", "      - name: SonarCloud Scan" + end + hidden % end)),
+                             workflows.UNREADABLE, repr(end))
+            self.assertEqual(settings(end + SCAN), workflows.UNREADABLE, repr(end))
+        self.assertIsNone(settings(changed("      - name: SonarCloud Scan\n", "      - name: SonarCloud Scan \u00a0~\n")))
+        # The scanner's other variables are names outside the table.
+        for name in ("SONARCLOUD_URL", "SONAR_HOST_URL", "SONAR_ROOT_CERT", "SONAR_USER_HOME", "INPUT_ARGS"):
+            self.assertEqual(settings(changed(SCAN_STEP, SCAN_STEP + "        env:\n          %s: x\n" % name)),
+                             workflows.UNREADABLE, name)
         # The same names given to the job, or to the workflow, are refused too, and so is a checkout put elsewhere.
         for name in ("SONAR_SCANNER_OPTS", "SONAR_SCANNER_JSON_PARAMS", "SONARQUBE_SCANNER_PARAMS"):
             self.assertEqual(settings(changed("      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}\n",

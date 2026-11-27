@@ -9,9 +9,10 @@ says is refused, never passed.
 
 - `refusal(path, text, listed)`: None where every job of the workflow at `path`, of text `text`, takes its settings
   only from files `listed` holds, or the one reason, a code, why not:
-  - `UNREADABLE`: a path, a text or a list of no exact kind; a line outside the narrow form (an indent or a key
-    with a tab, an anchor, an alias, a tag, a block scalar, a flow form, a quote left open, a key of another spelling,
-    a key or a job given twice, a list item that holds no key on its own line, or a line of no key, wherever it
+  - `UNREADABLE`: a path, a text or a list of no exact kind; a control character but the line feed, a tab among them,
+    or what YAML may read as a line's end, a carriage return, U+0085, U+2028 or U+2029, or the byte order mark,
+    anywhere; a line outside the narrow form (an anchor, an alias, a tag, a block scalar, a flow form, a quote left
+    open, a key of another spelling, a key or a job given twice, a dash alone, or a line of no key, wherever it
     stands); a key the table does not name, at the top, in a job or in a step; a job that calls another workflow or
     runs in a container; a step that runs a command (`run:`) or uses an action, at its pin, that `ACTIONS` does not
     name; an input of an action its row does not name; an `env:` name outside `ENV`.
@@ -21,7 +22,9 @@ says is refused, never passed.
 Every route that points SonarCloud's scan at another settings file is refused: the scan's `args` and `projectBaseDir`
 are inputs its row does not name, and `SONAR_SCANNER_OPTS`, `SONAR_SCANNER_JSON_PARAMS` and `SONARQUBE_SCANNER_PARAMS`
 are names outside `ENV`. With neither, the scan action at its pin runs the scanner with `-Dsonar.projectBaseDir=.`,
-which reads `sonar-project.properties` where the checkout put the repo, and the checkout's `path` is refused too.
+which reads `sonar-project.properties` where the checkout put the repo. The checkout's `path` and `ref` are refused
+too, so the file is the commit the run is for, and the scanner's other variables, `SONARCLOUD_URL`, `SONAR_HOST_URL` and
+`SONAR_ROOT_CERT` among them, are names outside `ENV`.
 
 Its stated limits:
 - Every job read is taken to hold a secret: which jobs do is the rest of record 0239's first row, which waits on
@@ -32,6 +35,8 @@ Its stated limits:
   row names it.
 - What a listed file says is a person's: a `sonar-project.properties` that names modules points the scanner at files
   of their folders, and this reads no file's text.
+- The events and the runner are not read: a runner is taken to be GitHub's own, which keeps nothing of an earlier job
+  and sets no variable of its own.
 - That `listed` is the base's list, never the head's, is the caller's: `adapters/rules.py` reads it at the base commit.
 
 The caller gives all three arguments; this reads nothing itself.
@@ -46,6 +51,13 @@ KEY = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
 # What no value read here begins with: an anchor, an alias, a tag, a block scalar, a flow form, a directive or a
 # reserved mark. A flow form is read only as `{}`, the empty mapping `permissions` is often given.
 MARKS = "&*!|>{}[]%@`"
+# What YAML may read as a line's end, or as nothing, where this reads none: a carriage return, the next line, the line
+# and paragraph separators and the byte order mark. Every other character below the space, the DEL and the C1 controls
+# are refused with them, a tab among them.
+BREAKS = "\r\x85\u2028\u2029\ufeff"
+SPACE = " "
+DEL = "\x7f"
+C1_LAST = "\x9f"
 # Keys whose values say nothing of the files a job reads: their values are not read, so may be of any form.
 TOP = ("name", "run-name", "on", "permissions", "concurrency")
 JOB = ("name", "runs-on", "timeout-minutes", "permissions", "if", "needs", "concurrency", "environment",
@@ -55,7 +67,7 @@ STEP = ("name", "id", "if", "continue-on-error", "timeout-minutes")
 ENV = ("SONAR_TOKEN", "GITHUB_TOKEN")
 # Each action a job may use, at its pin: the inputs it may be given, and the files of the repo it takes settings from.
 ACTIONS = (
-    ("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", ("fetch-depth", "persist-credentials", "ref"), ()),
+    ("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", ("fetch-depth", "persist-credentials"), ()),
     ("actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6", ("distribution", "java-version"), ()),
     ("SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9", (), ("sonar-project.properties",)),
 )
@@ -84,6 +96,8 @@ def _lines(text: str):
     """Each line that is no comment as `(column, item, key, value)`: where its key starts, the column of its list item's
     dash or None, its key, None for an item that is a value alone, and its value; or None where a line is outside the
     narrow form."""
+    if any(c < SPACE and c != "\n" or DEL <= c <= C1_LAST or c in BREAKS for c in text):
+        return None
     out = []
     for raw in text.split("\n"):
         body = _lstrip(raw)
