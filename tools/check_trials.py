@@ -117,9 +117,11 @@ HIDDEN = re.compile(r"(?:^ {0,3}(`{3,})[^\n]*\n.*?^ {0,3}\1`*[ \t]*$)|(?:^ {0,3}
                     r"|(?:<!--.*?-->)", re.M | re.S)
 # An opener with no close hides the rest, as a renderer reads it: no row after it is a trial.
 OPENED = re.compile(r"(?:^ {0,3}(?:```|~~~))|(?:<!--)", re.M)
-# A line that opens with a link's label and a colon is a link reference definition, which a renderer shows as nothing
-# (issue 1179). One with no link after its colon is shown, and is refused too: a page has no use for either.
-DEFINED = re.compile(r"^ {0,3}\[(?:\\.|[^\\\[\]\n])+\]:", re.M)
+# A line that opens with a link's label and a colon is a link reference definition, which a renderer shows as nothing,
+# in a block quote or a list item too (issue 1179). A label holds more than blanks. One with no link after its colon is
+# shown, and is refused too: a page has no use for either.
+DEFINED = re.compile(r"^(?:[ \t]*(?:>|[-*+]|[0-9]{1,9}[.)])[ \t]*)* {0,3}\[[ \t]*(?:\\.|[^\\\[\]\s])(?:\\.|[^\\\[\]\n])*\]:",
+                     re.M)
 # A trial's page, in place of its row in section 6, so that two pull requests that each add a trial touch no line in
 # common (decision 0249). PAGES holds nothing else: no index, and no file not named for its trial. A page holds the
 # trial as its heading, its batch of section 6.1, and its question and its pass, each the text its row's cell would
