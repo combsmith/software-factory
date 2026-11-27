@@ -15747,7 +15747,7 @@ class SignalTraps(unittest.TestCase):
         # the run says where.
         scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
                    if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
-        self.assertEqual(len(scripts), 10)
+        self.assertEqual(len(scripts), 11)
         for script in scripts:
             text, name = script.read_text(), script.stem
             lines = text.splitlines()
@@ -16814,7 +16814,7 @@ elif "/issues/" in url:""", 1)
         (self.stand_in / "odd.status").write_text("")
         ran = self.run_script()
         self.assertNotEqual(ran.returncode, 0, ran.stdout)
-        self.assertIn("answered no status of three digits; nothing of it is kept", ran.stderr)
+        self.assertIn("answered no status of three digits; nothing of it reaches OUT", ran.stderr)
         self.assertEqual([c["method"] for c in self.calls()], ["POST", "GET", "DELETE"])
         self.assertNotIn("200x", ran.stdout + ran.stderr)
         self.assertFalse((self.out / "requests.json").exists())
