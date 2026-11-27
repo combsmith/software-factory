@@ -785,13 +785,15 @@ MUTANTS = [
      '        if mod.rel not in NAME_LOADERS:\n', '        if True:\n', ('tests.test_tools.Writes.test_on_main_only_the_callers_listed_reach_a_write_and_each_what_it_lists',)),
     # Issue 1276: a bare import of a file of its own folder, which a script run there loads.
     ("a bare import of its own folder's file passes", 'tools/check_writes.py',
-     '        problems += _sibling(mod, known)\n', '', ('tests.test_tools.Writes.test_a_bare_import_of_a_file_of_its_own_folder_fails',)),
+     '        problems += _sibling(mod, set(sources))\n', '', ('tests.test_tools.Writes.test_a_bare_import_of_a_file_of_its_own_folder_fails',)),
     ('a namespace package of its own folder is no file of it', 'tools/check_writes.py',
-     ' or any(k.startswith(near + ".") for k in known)', '', ('tests.test_tools.Writes.test_a_bare_import_of_a_file_of_its_own_folder_fails',)),
+     ' or any(rel.startswith(near + "/") for rel in sources)', '', ('tests.test_tools.Writes.test_a_bare_import_of_a_file_of_its_own_folder_fails',)),
     ('a bare name in a from-import is not read', 'tools/check_writes.py',
      '[n.module] if isinstance(n, ast.ImportFrom) and not n.level and n.module else []', '[]', ('tests.test_tools.Writes.test_a_bare_import_of_a_file_of_its_own_folder_fails',)),
     ('a relative import is read as a bare one', 'tools/check_writes.py',
      ' and not n.level and n.module', ' and n.module', ('tests.test_tools.Writes.test_a_bare_import_of_a_file_of_its_own_folder_fails',)),
     ('a dotted bare name is looked for whole', 'tools/check_writes.py',
-     '(folder, name.split(".")[0])', '(folder, name)', ('tests.test_tools.Writes.test_a_bare_import_of_a_file_of_its_own_folder_fails',)),
+     '(folder, name.split(".")[0])', '(folder, name.replace(".", "/"))', ('tests.test_tools.Writes.test_a_bare_import_of_a_file_of_its_own_folder_fails',)),
+    ('only the first name an import gives is read', 'tools/check_writes.py',
+     'names = [a.name for a in n.names] if isinstance(n, ast.Import) else \\\n            [n.module]', 'names = [a.name for a in n.names[:1]] if isinstance(n, ast.Import) else \\\n            [n.module]', ('tests.test_tools.Writes.test_a_bare_import_of_a_file_of_its_own_folder_fails',)),
 ]

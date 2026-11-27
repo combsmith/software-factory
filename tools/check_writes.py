@@ -13,8 +13,10 @@ syntax names, a class's attribute set by `setattr` or from outside the class's o
 the class, an attribute or a key set from another module on what a module of the repo's defines, or `gh` or `git` run
 from Python, or from a shell's command line, but where RUNNERS allows it, and code run from text. A package with no `__init__.py`, which Python
 imports as a namespace package, is read as one. A bare import of a name the file's own folder holds, `import mutants` in
-`tools/`, is a problem too: run as a script, the file has that folder first on its path (issue 1276). A change to
-`sys.path` is not read: a folder of the repo put on it lets a bare name load a file there, which is this check's limit.
+`tools/`, is a problem too: run as a script, the file has that folder first on its path (issue 1276). Two things are this
+check's limits, not read: a change to `sys.path`, which lets a bare name load a file of the folder it adds; and a file
+named as a module of Python's own library, `tools/decimal.py`, which a script beside it loads in that module's place
+when Python's own code imports it (Astra).
 """
 from __future__ import annotations
 
@@ -556,20 +558,21 @@ def _changed(mod: Module, nodes: list, call: ast.Call) -> list:
     return out
 
 
-def _sibling(mod: Module, known: set) -> list:
-    """Each line that imports, by its bare name, a module or package of the file's own folder: run as a script, the
-    file has that folder first on its path, so the name loads the folder's own file, which this check reads under
-    another name (issue 1276). A file at the root has no other folder: its bare names are the repo's own."""
-    folder = mod.rel.rpartition("/")[0].replace("/", ".")
+def _sibling(mod: Module, sources: set) -> list:
+    """Each line that imports, by its bare name, a file or a folder of Python beside the file, `__init__.py` among them:
+    run as a script, the file has its own folder first on its path, so the name may load that file, which this check
+    reads under another name, if at all (issue 1276). Read by path, so a folder whose name holds a dot is its own. A
+    file at the root has no other folder: its bare names are the repo's own."""
+    folder = mod.rel.rpartition("/")[0]
     out = []
     for n in mod.nodes if folder else ():
         names = [a.name for a in n.names] if isinstance(n, ast.Import) else \
             [n.module] if isinstance(n, ast.ImportFrom) and not n.level and n.module else []
         for name in names:
-            near = "%s.%s" % (folder, name.split(".")[0])
-            if near in known or any(k.startswith(near + ".") for k in known):
-                out.append("%s:%d imports %s by its bare name, which run as a script loads %s from its own folder, so "
-                           "what it reaches cannot be read; import it from the root" % (mod.rel, n.lineno, name, near))
+            near = "%s/%s" % (folder, name.split(".")[0])
+            if near + ".py" in sources or any(rel.startswith(near + "/") for rel in sources):
+                out.append("%s:%d imports %s by its bare name, which run as a script may load %s beside it in its place, "
+                           "so what it reaches cannot be read; import it from the root" % (mod.rel, n.lineno, name, near))
     return out
 
 
@@ -1124,7 +1127,7 @@ def run(root: pathlib.Path = ROOT) -> list:
             problems += _registry(mod)
         if mod.rel not in TEST_IMPORTERS:
             problems += _tests(mod)
-        problems += _sibling(mod, known)
+        problems += _sibling(mod, set(sources))
         if mod.rel not in NAME_LOADERS:
             problems += ["%s:%d loads a module by its name, or may, so what it reaches cannot be read; import it" % (mod.rel, line)
                          for line in _loaded(mods, mod)]

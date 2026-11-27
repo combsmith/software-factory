@@ -13960,18 +13960,22 @@ class Writes(unittest.TestCase):
         files = {"tools/bare.py": "import mutants\n", "tools/from_bare.py": "from mutants_of import common\n",
                  "tools/dotted.py": "import mutants_of.common as c\n", "tools/hooks/near.py": "import os\nimport protected\n",
                  "tools/space/inside.py": "X = 1\n", "tools/to_space.py": "import space.inside\n",
+                 "tools/probe.py": "def probe():\n    import os, mutants\n", "tools/hooks/init.py": "from __init__ import x\n",
+                 "tools/ci.jobs/report.py": "import calendar\n", "tools/ci/jobs/calendar.py": "X = 1\n",
                  "tools/rooted.py": "from tools import walk\nimport os, json\n", "tools/hooks/up.py": "from .. import walk\n",
                  "tools/hooks/beside.py": "from .shell import words\n", "rootfile.py": "import tools\n",
                  "controller/other.py": "import walk\n"}
         problems = check_writes.run(clone(files))
-        said = "imports %s by its bare name, which run as a script loads %s from its own folder"
-        for rel, line, name, near in (("tools/bare.py", 1, "mutants", "tools.mutants"),
-                                      ("tools/from_bare.py", 1, "mutants_of", "tools.mutants_of"),
-                                      ("tools/dotted.py", 1, "mutants_of.common", "tools.mutants_of"),
-                                      ("tools/hooks/near.py", 2, "protected", "tools.hooks.protected"),
-                                      ("tools/to_space.py", 1, "space.inside", "tools.space")):
+        said = "imports %s by its bare name, which run as a script may load %s beside it in its place"
+        for rel, line, name, near in (("tools/bare.py", 1, "mutants", "tools/mutants"),
+                                      ("tools/from_bare.py", 1, "mutants_of", "tools/mutants_of"),
+                                      ("tools/dotted.py", 1, "mutants_of.common", "tools/mutants_of"),
+                                      ("tools/hooks/near.py", 2, "protected", "tools/hooks/protected"),
+                                      ("tools/to_space.py", 1, "space.inside", "tools/space"),
+                                      ("tools/probe.py", 2, "mutants", "tools/mutants"),
+                                      ("tools/hooks/init.py", 1, "__init__", "tools/hooks/__init__")):
             self.assertTrue(caught(problems, "%s:%d %s" % (rel, line, said % (name, near))), (rel, problems))
-        for rel in ("tools/rooted.py:", "tools/hooks/up.py:", "tools/hooks/beside.py:", "rootfile.py:",
+        for rel in ("tools/rooted.py:", "tools/hooks/up.py:", "tools/hooks/beside.py:", "rootfile.py:", "tools/ci.jobs/report.py:",
                     "controller/other.py:", "tools/hooks/near.py:1"):
             self.assertFalse(caught(problems, rel), (rel, problems))
 
