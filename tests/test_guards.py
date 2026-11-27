@@ -298,6 +298,10 @@ class Patch(unittest.TestCase):
         # And from the first: a line put in with spaces before it, and an empty one, are each their own bytes.
         spaced = readable(section("docs/a.md", b"@@ -1 +1,3 @@\n a\n+    x\n+\n"))[0]["hunks"][0]
         self.assertEqual([(said["sign"], said["text"]) for said in spaced["lines"]], [(b" ", b"a"), (b"+", b"    x"), (b"+", b"")])
+        # So is a line taken out, or one both sides hold, with spaces or a tab before it, and an empty one of each.
+        kept = readable(section("docs/a.md", b"@@ -1,5 +1,2 @@\n  \tb\n \n-    c\n-\t d\n-\n"))[0]["hunks"][0]
+        self.assertEqual([(said["sign"], said["text"]) for said in kept["lines"]],
+                         [(b" ", b" \tb"), (b" ", b""), (b"-", b"    c"), (b"-", b"\t d"), (b"-", b"")])
         # Each hunk of a section is read, with each side's own place and count.
         two = readable(section("docs/a.md", b"@@ -2,2 +2,3 @@\n b\n+C\n d\n@@ -9,3 +10,2 @@\n x\n-y\n z\n"))[0]["hunks"]
         self.assertEqual([(h["old_start"], h["old_count"], h["new_start"], h["new_count"], len(h["lines"])) for h in two],
