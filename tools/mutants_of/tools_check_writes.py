@@ -769,11 +769,8 @@ MUTANTS = [
      'for line, names in _imported(mod) if loaders.intersection(names)]', 'for line, names in _imported(mod) if False]',
      ('tests.test_tools.Writes.test_only_a_runner_imports_the_mutants_loader',)),
     ("a runner may not import the mutants' loader", 'tools/check_writes.py',
-     '        if mod.rel not in RUNNERS and mod.rel not in NAME_LOADERS:\n', '        if mod.rel not in NAME_LOADERS:\n',
-     ('tests.test_tools.Writes.test_only_a_runner_imports_the_mutants_loader',)),
-    ("the mutants' loader may not import itself", 'tools/check_writes.py',
-     '        if mod.rel not in RUNNERS and mod.rel not in NAME_LOADERS:\n', '        if mod.rel not in RUNNERS:\n',
-     ('tests.test_tools.Writes.test_only_a_runner_imports_the_mutants_loader',)),
+     '        if mod.rel not in RUNNERS:\n            problems += ["%s:%d imports tools/mutants.py',
+     '        if True:\n            problems += ["%s:%d imports tools/mutants.py', ('tests.test_tools.Writes.test_only_a_runner_imports_the_mutants_loader',)),
     ("the mutation runner's own load by name fails", 'tools/check_writes.py',
      '        if mod.rel not in NAME_LOADERS:\n', '        if True:\n', ('tests.test_tools.Writes.test_on_main_only_the_callers_listed_reach_a_write_and_each_what_it_lists',)),
 ]

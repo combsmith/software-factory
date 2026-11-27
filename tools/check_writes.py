@@ -1092,7 +1092,7 @@ def run(root: pathlib.Path = ROOT) -> list:
             problems += ["%s:%d imports from a file of the mutants' data that names a command as text, which only "
                          "another such file, or one tools/check_writes.py's RUNNERS names, may do" % (mod.rel, line)
                          for line, names in _imported(mod) if texting.intersection(names)]
-        if mod.rel not in RUNNERS and mod.rel not in NAME_LOADERS:
+        if mod.rel not in RUNNERS:
             problems += ["%s:%d imports tools/mutants.py, which hands on the text of every file of the mutants' data; "
                          "only a file tools/check_writes.py's RUNNERS names may" % (mod.rel, line)
                          for line, names in _imported(mod) if loaders.intersection(names)]

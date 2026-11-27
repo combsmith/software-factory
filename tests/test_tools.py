@@ -13727,7 +13727,7 @@ class Writes(unittest.TestCase):
         # Issue 1176 (a Muse read of pull request 1118): tools/mutants.py loads every file of the mutants' data by its
         # name and hands their text on through names read as attributes, so a file that imports it is a runner: by any
         # import, plain, of the module, of a name, relative, or inside a function. A file of the data imported, and the
-        # runners and the loader itself, pass.
+        # runners, pass.
         files = {"tools/takes.py": "from tools import mutants\n",
                  "tools/takes_name.py": "import os\nfrom tools.mutants import OUTSIDE\n",
                  "tools/plain.py": "import tools.mutants\n",
@@ -13739,7 +13739,7 @@ class Writes(unittest.TestCase):
         for rel, line in (("tools/takes.py", 1), ("tools/takes_name.py", 2), ("tools/plain.py", 1), ("tools/near.py", 1),
                           ("tools/lazy.py", 2)):
             self.assertTrue(caught(problems, "%s:%d %s" % (rel, line, taken)), (rel, problems))
-        for rel in ("tools/beside.py", "tools/untested.py", "tools/check_decisions.py", "tools/mutants.py"):
+        for rel in ("tools/beside.py", "tools/untested.py", "tools/check_decisions.py"):
             self.assertFalse(caught(problems, rel + ":"), (rel, problems))
         # A runner may import it.
         with mock.patch.object(check_writes, "RUNNERS", check_writes.RUNNERS + ("tools/takes.py",)):
