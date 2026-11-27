@@ -1215,6 +1215,10 @@ def _decide(facts: dict, runs: list, context: dict, config: dict, now: str) -> d
     if label is not None and not in_progress(mine):
         if _run_holds(after):
             return after
+        # The acts since a writer acted cannot be counted while the writer's time cannot be read: the removal waits,
+        # and the issue defers on that time, as `after` does (issue 1251).
+        if not readable_writer(facts):
+            return after
         brake = brakes.on_act(_decision, facts, state, [label], context, REMOVE_LABEL, since_writer(mine, facts),
                               config["limits"], acted_since_writer(mine, facts))
         if _waits(brake):

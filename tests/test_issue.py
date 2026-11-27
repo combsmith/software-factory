@@ -2179,6 +2179,26 @@ class RemoveLabel(unittest.TestCase):
         d = decide(facts(label_events=READIED_BY_A_PERSON + [labelled(TRIAGE, OTHER_APP, 3)], acts_since_writer=top))
         self.assertEqual(what(d), ("admit", "ready", OPEN))
 
+    def test_a_waiting_label_with_the_writers_time_unread_defers(self):  # issue 1251
+        # The acts since a writer acted cannot be counted while the writer's time cannot be read: the removal waits, and
+        # the issue defers on that time, beside a completed Run as without one, below the ceiling as at it.
+        top = LIMITS["max_acts_per_item"]
+        waiting = ACCEPTED + [labelled(READY, OTHER_APP, 4)]
+        for mark in (3, "today", [at(2)]):
+            for acts in (top - 1, top, None):
+                for runs in ([], [investigated()]):
+                    f = facts(label_events=waiting, last_writer_action_at=mark, acts_since_writer=acts)
+                    try:
+                        d = decide(f, runs)
+                    except Exception as e:
+                        self.fail("a writer's time of %r raised %r" % (mark, e))
+                    self.assertEqual((d["state"], what(d)), ("triage", ("defer", "writer_unreadable", None)),
+                                     (mark, acts, runs))
+        # The other side: with the writer's time read, one act below the ceiling, the label is removed.
+        d = decide(facts(label_events=waiting, last_writer_action_at=at(2), acts_since_writer=top - 1),
+                   [investigated()])
+        self.assertEqual(what(d), ("act", "label_not_counted", "remove_label"))
+
 class UnmergedCloses(unittest.TestCase):
     """The Controller places factory:hold when unmerged closes pass max_unmerged_closes (I-43)."""
 
