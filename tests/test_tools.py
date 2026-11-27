@@ -16873,7 +16873,7 @@ elif "/issues/" in url:""", 1)
                       ran.stderr)
         self.assertEqual([c["method"] for c in self.calls()][-3:], ["SLEEP", "POST", "DELETE"])
 
-    def test_a_status_that_is_no_number_is_not_kept_and_its_token_is_revoked(self):
+    def test_a_status_no_answer_has_is_not_kept_and_its_token_is_revoked(self):
         # Three digits that no answer has: a status that is not three digits awk keeps as none (issue 1215).
         (self.stand_in / "odd.status").write_text("")
         ran = self.run_script()
