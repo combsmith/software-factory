@@ -12,7 +12,7 @@ MUTANTS = [
     ("the day's ceiling may be nought", 'schemas/harness.schema.json',
      '"advisory_ceiling_usd_per_day": {\n      "type": "number",\n      "minimum": 0.01,',
      '"advisory_ceiling_usd_per_day": {\n      "type": "number",\n      "minimum": 0,', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
-    # Decision 0224: the day's advisory ceiling, held by the Controller's pass.
+    # Decision 0224: the worst case one read is counted at, held by tools/check_examples.py (worded in 0243).
     ('the worst case one read is counted at may be nought', 'schemas/harness.schema.json',
      '"advisory_worst_case_usd": {\n      "type": "number",\n      "minimum": 0.01,',
      '"advisory_worst_case_usd": {\n      "type": "number",\n      "minimum": 0,', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
