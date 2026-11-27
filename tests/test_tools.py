@@ -4893,6 +4893,9 @@ class Workflows(unittest.TestCase):
         # one the head adds, though the head still holds it (issue 1179).
         moved_on = head(removed=["docs/decisions/0002-b.md"])
         self.assertEqual(said(one, since=moved_on), [])
+        # And a record the head adds is its own though main added the same file since: the head adds it (Astra).
+        main_too = head(["docs/decisions/1129-x.md", "kernel/m.py"])
+        refused(said(head(["docs/decisions/1129-x.md"]), since=main_too), "1129-x.md' is a decision record")
         # A record a replacement changes is not one it adds.
         self.assertEqual(said(head(["docs/decisions/1130-x.md"], changed=["docs/decisions/0001-a.md"])), [])
         self.assertEqual(said(head(["docs/decisions/0999-x.md"]), 999), [])
