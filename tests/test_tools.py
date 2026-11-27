@@ -10321,7 +10321,8 @@ else:
                     ({"status": 422, "body": self.MINTED}, True, "held a token all the same"),
                     # No refusal and no token: a transfer that failed with no answer, or a gateway's 5xx (issue 1245).
                     ({"status": "000", "body": ""}, False, "GitHub may have minted one"),
-                    ({"status": 503, "body": "<html>unavailable</html>"}, False, "GitHub may have minted one")):
+                    ({"status": 503, "body": "<html>unavailable</html>"}, False, "GitHub may have minted one"),
+                    ({"status": 429, "body": '{"message": "API rate limit exceeded"}'}, False, "429")):
                 with self.subTest(script=name, plan=plan):
                     self.setUp()
                     argv = [a.replace("KEY", self.key_file) for a in args]
@@ -10331,8 +10332,10 @@ else:
                     self.assertNotIn("ermission denied", told_)
                     self.assertNotIn("ghs_", said + told_)
                     self.assertIn(told, told_)
-                    if plan["status"] == 403:
+                    if plan["status"] in (403, 429):
                         self.assertNotIn("may have minted one", told_)
+                    # Each is told where it is handled, so the clean-up never adds a stop mid-mint (issue 1245).
+                    self.assertNotIn("stopped while a token was being minted", told_)
                     self.assertEqual(self.revoked(calls), self.minted(calls) if revoked else [])
                     self.assertFalse((self.out / "requests.json").exists())
 
@@ -15784,7 +15787,7 @@ class SignalTraps(unittest.TestCase):
         # A stop while the mint is asked leaves no answer to find a token in, and GitHub may have minted one: each sh script
         # that mints marks the ask, and its clean-up tells the Maintainer the token may be live. The mark stands until the
         # answer is read, not only until curl returns (issue 1245): nothing on the line that clears the JWT clears it, and
-        # nothing clears it before the status is read.
+        # nothing clears it before the answer's token is read.
         scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
                    if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
         self.assertEqual(len(scripts), 11)
@@ -15793,7 +15796,7 @@ class SignalTraps(unittest.TestCase):
             mint = next(n for n, line in enumerate(lines) if line.startswith("minted=$(") and '"$jwt" | curl' in line)
             self.assertEqual(lines[mint - 1], "minting=1", script.name)
             self.assertNotIn('minting=""', next(line for line in lines[mint:] if line.startswith('jwt=""')), script.name)
-            read = next(n for n in range(mint, len(lines)) if lines[n].startswith("minted_status=$("))
+            read = next(n for n in range(mint, len(lines)) if lines[n].startswith("token=$(printf '%s\\n' \"$minted\""))
             cleared = next(n for n in range(mint, len(lines)) if 'minting=""' in lines[n])
             self.assertLess(read, cleared, script.name)
             # And the answer read, the last clear of the answer, which hands the token on, clears the mark too.
@@ -16233,7 +16236,9 @@ esac
                 else:
                     self.assertNotIn("was minted (status", ran.stderr)
                     self.assertIn("suspends the App's installation", ran.stderr)
-                self.assertEqual([c for c in self.calls() if c["method"] in ("GET", "DELETE")], [])
+                calls = self.calls()
+                self.assertEqual(len(calls), 1, calls)
+                self.assertTrue(calls[0]["url"].endswith("/access_tokens"), calls)
 
     def test_a_refused_mint_or_revocation_stops_the_run_and_says_so(self):
         (self.stand_in / "mint.status").write_text("401\n")

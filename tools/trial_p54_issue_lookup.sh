@@ -241,7 +241,7 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
         # may be live. It is revoked if it
         # can be found in what came back, and the Maintainer is told either way; nothing of the answer is kept.
         token=$(token_in "$minted")
-        minted="" minting=""
+        minted=""
         if [ -n "$token" ]; then
             revoked=$(revoke || true)
             token=""
@@ -250,6 +250,7 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
             echo "trial_p54_issue_lookup: $slug: GitHub minted a token narrowed to $1 and its answer was cut short; the" \
                 "token may be live for up to an hour, and the Maintainer must revoke it by hand." >&2
         fi
+        minting=""
         echo "trial_p54_issue_lookup: $slug: nothing read, and nothing of the answer kept." >&2
         exit 1
     fi
@@ -268,7 +269,7 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
         # to a file.
         # A 4xx refusal minted nothing; any other answer with no token (000, a 5xx) may have (issue 1245).
         case "$minted_status" in
-            4??) refused="no token narrowed to $1 was minted (status $minted_status)" ;;
+            4??) minting="" refused="no token narrowed to $1 was minted (status $minted_status)" ;;
             *) refused="the mint answered ${minted_status:-none} with no token, and GitHub may have minted one, live for up to an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation" ;;
         esac
         echo "trial_p54_issue_lookup: $slug: $refused;" \

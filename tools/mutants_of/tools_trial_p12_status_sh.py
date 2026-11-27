@@ -44,6 +44,11 @@ MINT_MARK = "tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_sto
 MINT_REFUSED = "tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused"
 
 
+def cut_1245(script):
+    """The indent of `script`'s branches after its mint."""
+    return "    " if script == "trial_p8_cost.sh" else "        "
+
+
 def mark_1245(script):
     """The line after `script`'s mint that clears its JWT, and the one that clears its answer once read, each whole."""
     indent = "" if script in ("trial_p8_cost.sh", "trial_p4_narrow.sh", "trial_p52_pause.sh") else "    "
@@ -83,8 +88,8 @@ MUTANTS = [
      '{ [ -z "$token" ] || [ "$minted_exit" != 0 ]; }', '[ "$minted_exit" != 0 ]',
      ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
     ("the reader's trial leaves a token found in a mint's answer it cannot read unrevoked", "tools/trial_reader_reads.sh",
-     '        token=$(token_in "$minted")\n        minted="" minting=""\n        if [ -n "$token" ]; then\n',
-     '        token=""\n        minted="" minting=""\n        if [ -n "$token" ]; then\n',
+     '        token=$(token_in "$minted")\n        minted=""\n        if [ -n "$token" ]; then\n',
+     '        token=""\n        minted=""\n        if [ -n "$token" ]; then\n',
      ("tests.test_tools.ReaderTrialScript.test_a_mint_answered_201_and_cut_short_is_revoked_and_told",)),
     ("the reader's raw answers may be kept inside the repo", "tools/trial_reader_reads.sh",
      'case "$scratch/" in "$root"/*)', 'case "$scratch/" in "/nowhere"/*)',
@@ -735,16 +740,16 @@ MUTANTS = [
     ("P-39's trial of reach reads a 201 it cannot read as no token minted", "tools/trial_p39_reach.sh",
      '    if [ "$minted_status" = 201 ] && [ -z "$token" ]; then\n', '    if false; then\n', ("tests.test_tools.ReachScript.test_a_201_whose_token_cannot_be_read_is_written_nowhere_and_is_revoked_or_told",)),
     ("P-39's trial of reach leaves a token found in a mint's answer it cannot read unrevoked", "tools/trial_p39_reach.sh",
-     '        token=$(token_in "$minted")\n        minted="" minting=""\n        if [ -n "$token" ]; then\n',
-     '        token=""\n        minted="" minting=""\n        if [ -n "$token" ]; then\n', ("tests.test_tools.ReachScript.test_a_201_whose_token_cannot_be_read_is_written_nowhere_and_is_revoked_or_told",)),
+     '        token=$(token_in "$minted")\n        minted=""\n        if [ -n "$token" ]; then\n',
+     '        token=""\n        minted=""\n        if [ -n "$token" ]; then\n', ("tests.test_tools.ReachScript.test_a_201_whose_token_cannot_be_read_is_written_nowhere_and_is_revoked_or_told",)),
     ("P-39's trial of reach drops a token a refused mint held", "tools/trial_p39_reach.sh",
      '            minted=""\n            echo "trial_p39_reach: $slug: the mint answered', '            token=""\n            minted=""\n            echo "trial_p39_reach: $slug: the mint answered',
      ("tests.test_tools.ReachScript.test_a_refused_mint_is_shown_redacted_and_a_token_it_holds_is_revoked",)),
     ("P-8's trial reads a 201 it cannot read as no token minted", "tools/trial_p8_cost.sh",
      'if [ "$minted_status" = 201 ] && [ -z "$token" ]; then\n', 'if false; then\n', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
     ("P-8's trial leaves a token found in a mint's answer it cannot read unrevoked", "tools/trial_p8_cost.sh",
-     '    token=$(token_in "$minted")\n    minted="" minting=""\n    if [ -n "$token" ]; then\n',
-     '    token=""\n    minted="" minting=""\n    if [ -n "$token" ]; then\n', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+     '    token=$(token_in "$minted")\n    minted=""\n    if [ -n "$token" ]; then\n',
+     '    token=""\n    minted=""\n    if [ -n "$token" ]; then\n', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
     ("P-8's trial drops a token a refused mint held", "tools/trial_p8_cost.sh",
      '    minted=""\n    echo "trial_p8_cost: $slug: the mint answered', '    token=""\n    minted=""\n    echo "trial_p8_cost: $slug: the mint answered',
      ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
@@ -1304,8 +1309,17 @@ MUTANTS = [
        (MINT_MARK,)) for script in SCRIPTS_1215],
     *[("%s clears its mint mark when curl returns" % script, "tools/" + script, mark_1245(script)[0],
        mark_1245(script)[0][:-1] + ' minting=""\n', (MINT_MARK,)) for script in SCRIPTS_1215],
+    # Issue 1245: and is cleared where each mint that did not end is told: a 201 cut short, and an answer with no token.
+    *[("%s keeps its mint mark past an answer cut short" % script, "tools/" + script,
+       '%sminting=""\n%secho "%s: $slug: nothing read, and nothing of the answer kept."' % (cut_1245(script), cut_1245(script), script[:-3]),
+       '%secho "%s: $slug: nothing read, and nothing of the answer kept."' % (cut_1245(script), script[:-3]), (MINT_REFUSED,))
+      for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
+    *[("%s keeps its mint mark past an answer with no token" % script, "tools/" + script,
+       '%sminted="" minting=""\n%sexit 1\n' % (cut_1245(script), cut_1245(script)), '%sminted=""\n%sexit 1\n' % (cut_1245(script), cut_1245(script)),
+       (MINT_REFUSED,) + run_1215(script, "test_a_mint_with_no_token_and_no_refusal_tells_the_maintainer_one_may_be_live"))
+      for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
     # Issue 1245: only a 4xx says no token was minted; a 000 or a 5xx with no token may have left one live.
-    *[("%s tells a mint %s" % (script, what), "tools/" + script, "4??) refused=", wrong + ") refused=",
+    *[("%s tells a mint %s" % (script, what), "tools/" + script, '4??) minting="" refused=', wrong + ') minting="" refused=',
        (MINT_REFUSED,) + run_1215(script, "test_a_mint_with_no_token_and_no_refusal_tells_the_maintainer_one_may_be_live"))
       for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"
       for what, wrong in (("with no answer as none minted", "*"), ("refused as one that may be live", "5??"))],
