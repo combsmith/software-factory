@@ -2,7 +2,8 @@
 # Trial P-8, the cost of a pass: what one pass over every open item costs in GraphQL points (issue 13, design
 # section 6, P-8 and P-32; the Maintainer's working ruling of 2026-10-19 on issue 13).
 #
-#   tools/trial_p8_cost.sh OUT READER_KEY OWNER/REPO [OWNER/REPO ...]
+#   tools/trial_p8_cost.sh [--keep-raw] OUT READER_KEY OWNER/REPO [OWNER/REPO ...]
+#   --keep-raw, given first, keeps the raw answers in a private scratch directory and says where; delete it once read.
 #
 # The Maintainer runs it at his own terminal, from anywhere; no session runs it, since it mints a credential.
 # OUT is a directory that does not exist yet, outside this repo. READER_KEY is the path of the reader App's private
@@ -150,6 +151,10 @@ finish() {
         echo "trial_p8_cost: stopped with a token live; revoking it returned $last" >&2
         [ "$last" = 204 ] || unrevoked "$last"
         token=""
+    elif [ -n "${minting:-}" ]; then
+        # Stopped while the mint was asked: its answer never came back here, and GitHub may have minted one (issue 1215).
+        echo "trial_p8_cost: stopped while a token was being minted; GitHub may have minted one, live for up to" \
+            "an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation." >&2
     fi
     [ -n "$keep" ] || rm -rf "$scratch"
     [ -z "$keep" ] || printf '%s: the raw answers are kept in %s, as --keep-raw asked; delete it once read\n' trial_p8_cost "$scratch" >&2
@@ -343,10 +348,11 @@ header=$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)
 claims=$(printf '{"iat":%d,"exp":%d,"iss":%d}' $((now - 60)) $((now + 540)) "$app_id" | b64url)
 signature=$(printf '%s.%s' "$header" "$claims" | openssl dgst -sha256 -sign "$key" -binary | b64url)
 jwt="$header.$claims.$signature"
+minting=1
 minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
     -H "$VERSION" -d '{"permissions":{"metadata":"read","pull_requests":"read","issues":"read","checks":"read"}}' \
     "$API/app/installations/$installation/access_tokens" || true)
-jwt=""
+jwt="" minting=""
 minted_status=$(printf '%s\n' "$minted" | tail -n 1)
 minted=$(printf '%s\n' "$minted" | sed '$d')
 token=$(printf '%s\n' "$minted" | python3 -I -c '

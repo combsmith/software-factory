@@ -9558,7 +9558,9 @@ class Push(unittest.TestCase):
                                       "push_tree_unreadable": "person", "push_tree_unfetched": "port",
                                       "push_not_permitted": "person", "push_branch_moved": "superseded",
                                       "push_answer_refused": "person", "push_unanswered": "port",
-                                      "push_rate_limited": "port"})
+                                      "push_rate_limited": "github_capacity"})
+        # GitHub's limit is the outcome's own fault, which defers only the Runs that push (decision 1269).
+        self.assertEqual(push.GITHUB, records.GITHUB_CAPACITY)
         self.assertEqual((push.READS_TOO_LARGE, push.TREE_UNFETCHED), ("push_reads_too_large", "push_tree_unfetched"))
         # A person's code is the Kernel's `person` fault, which holds the item for a person (decision 1224).
         self.assertEqual(push.PERSON, terms.ENDED_PERSON)

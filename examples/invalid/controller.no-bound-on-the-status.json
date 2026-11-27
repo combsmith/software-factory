@@ -50,6 +50,10 @@
   "not_run_seconds": 21600,
   "max_issue_requests": 100,
   "capacity_window_seconds": 18000,
+  "github_capacity": {
+    "least_seconds": 60,
+    "most_seconds": 3600
+  },
   "automatic_pause": {
     "faults": 3,
     "items": 2,
