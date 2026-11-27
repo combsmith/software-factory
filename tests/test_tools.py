@@ -15814,9 +15814,15 @@ class SignalTraps(unittest.TestCase):
                 self.assertEqual(lines.count(unset), 1, script.name)
                 self.assertLess(lines.index(unset), calls[0], script.name)
                 self.assertEqual(lines.count(unproxied), 1, script.name)
-                self.assertLess(lines.index(unproxied), calls[0], script.name)
+                # Before curl, and before openssl first reads the App's key.
+                signs = [n for n, line in enumerate(lines) if not line.lstrip().startswith("#")
+                         and re.search(r"(?:^|\||\$\(|&&|;)\s*openssl\s", line)]
+                self.assertLess(lines.index(unproxied), min(calls[:1] + signs[:1]), script.name)
         self.assertEqual(minting, 12)
-        self.assertIn("unset GH_DEBUG DEBUG CURL_HOME GODEBUG", (ROOT / "tools" / "trial_as_app.sh").read_text().splitlines())
+        app = (ROOT / "tools" / "trial_as_app.sh").read_text().splitlines()
+        gh = [n for n, line in enumerate(app) if not line.lstrip().startswith("#") and re.search(r'GH_TOKEN="\$token" gh\s', line)]
+        self.assertEqual(app.count("unset GH_DEBUG DEBUG CURL_HOME GODEBUG"), 1)
+        self.assertLess(app.index("unset GH_DEBUG DEBUG CURL_HOME GODEBUG"), gh[0])
 
     def test_every_trial_finds_its_root_as_the_file_system_does(self):  # issue 1215
         # A plain cd looks a relative path up along CDPATH, and says where it went, and takes .. past a link logically.
