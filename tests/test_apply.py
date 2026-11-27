@@ -10,6 +10,7 @@ import copy
 import hashlib
 import json
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -17,10 +18,10 @@ import unittest.mock
 
 from adapters import effects, github, identity
 from adapters.facts import Moved
-from harness import apply, bundle, engine, run, shared
+from harness import apply, bundle, draft, engine, run, shared
 from harness import task as task_
 from tests import support
-from tools import walk
+from tools import pr_title, walk
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 APPS = json.loads((ROOT / "config" / "apps.json").read_text())
@@ -1218,6 +1219,98 @@ class RoleWrites(unittest.TestCase):
             with self.assertRaisesRegex(github.Unanswered, "may not send", msg=key):
                 allowed.send(github.request("POST", "/repos/%s/check-runs" % ITEM["repo"], body=dict(good, **{key: value})))
         self.assertEqual(len(hub.sent), len(fine) + 1)      # and the good check run
+
+
+class Opening(unittest.TestCase):
+    """An opening's draft: the model's title with the issue's number after it, held to the title's rule, and its body
+    after the one closing line (issue 838; the Solution Architect's rulings of 2026-11-27)."""
+    GOOD = {"id": "e2", "title": {"body": "docs: end the glossary's first line with a stop"},
+            "body": "The glossary's first line is a sentence, and now ends as one."}
+    ISSUE = dict(support.ITEM, type="issue", number=838)
+
+    def opening(self, title=None, body=None) -> dict:
+        return {"id": "e2", "title": {"body": self.GOOD["title"]["body"] if title is None else title},
+                "body": self.GOOD["body"] if body is None else body}
+
+    def test_a_drafts_title_ends_with_its_issue_and_is_refused_on_any_problem_of_the_titles_rule(self):
+        title, body = draft.draft(self.GOOD, 838)[1]
+        self.assertEqual(title, "docs: end the glossary's first line with a stop (#838)")
+        self.assertEqual(pr_title.problems(title), [])
+        self.assertEqual(body, "Closes #838\n\n" + self.GOOD["body"])
+        # Shared cases: the draft is refused exactly where tools/pr_title.py finds a problem in the whole title, by the
+        # first problem's own code, and never cut or mended to pass.
+        for said, issue, code in (("End the glossary's first line", 838, "title_no_area"),
+                                  ("docs: End the glossary's first line", 838, "title_phrase_not_lowercase"),
+                                  ("docs: end the glossary's first line.", 838, "title_ends_with_stop"),
+                                  ("docs: end the first line ", 838, "title_ends_with_stop"),
+                                  ("docs: rename the_glossary", 838, "title_internal_term"),
+                                  ("docs: end the `glossary`", 838, "title_internal_term"),
+                                  ("docs: follow decision 0238", 838, "title_internal_term"),
+                                  ("docs: follow P-71 on the glossary", 838, "title_internal_term"),
+                                  ("docs: write effect/1 in the glossary", 838, "title_internal_term"),
+                                  ("docs: " + "a" * (draft.room(838) - 6), 838, None),
+                                  ("docs: " + "a" * (draft.room(838) - 5), 838, "title_too_long"),
+                                  ("docs: " + "a" * (draft.room(7) - 6), 7, None),
+                                  ("docs: " + "a" * (draft.room(7) - 6), 838, "title_too_long"),
+                                  ("docs: end the glossary's first line with a stop", 838, None)):
+            problems = pr_title.problems(said + " (#%d)" % issue)
+            self.assertEqual(draft.draft(self.opening(said), issue), (code, None) if code else (
+                None, (said + " (#%d)" % issue, "Closes #%d\n\n" % issue + self.GOOD["body"])), said)
+            self.assertEqual(problems[0].split(":")[0] if problems else None, code, said)
+        # The room is the longest title the rule keeps, less the suffix, whatever the issue's number.
+        for issue in (1, 7, 838, 12345, 10 ** 18):
+            self.assertEqual(draft.room(issue) + len(" (#%d)" % issue), pr_title.LONGEST)
+        # The model's own text is held to the guard first: it writes no number of its own, the issue's among them.
+        self.assertEqual(draft.draft(self.opening("docs: close the glossary"), 838), ("opening_closes", None))
+        self.assertEqual(draft.draft(self.opening("docs: end the glossary (#838)"), 838), ("opening_links", None))
+        self.assertEqual(draft.draft(self.opening(body="See @someone."), 838), ("opening_mentions", None))
+
+    def test_the_closing_line_comes_before_the_models_text_and_still_closes_its_issue(self):
+        # trials/P-46.json: GitHub read a closing line at the start of a body, the rest after a blank line, as closing
+        # the issue it names: the edit that put the line there put the issue among the closing references.
+        p46 = json.loads((ROOT / "trials" / "P-46.json").read_text())
+        n = p46["exchanges"][0]["response"]["body"]["number"]
+        edited = [e["request"]["body"]["body"] for e in p46["exchanges"]
+                  if e["request"]["call"].startswith("PATCH /repos/") and "/pulls/" in e["request"]["call"]][0]
+        lines = edited.split("\n\n", 1)[0].split("\n")
+        self.assertIn((draft.CLOSING % n).rstrip("\n"), lines)
+        self.assertTrue(all(re.fullmatch(r"Closes #[0-9]+", line) for line in lines))
+        reads = [e["response"]["body"]["data"]["repository"] for e in p46["exchanges"] if e["request"]["via"] == "graphql"]
+        self.assertIn(n, [x["number"] for x in reads[1]["pullRequest"]["closingIssuesReferences"]["nodes"]])
+        # The line is the body's first, a paragraph of its own: a fence the model leaves open, indented code or a quote
+        # in its text comes after it, so it can make nothing of the line, and the model's text follows unchanged.
+        for said in ("```\nthe fence is left open", "~~~~\nnor this one", "    indented\n    code", "> a quote\n",
+                     "Text, then a fence:\n\n```python\nprint(1)\n"):
+            self.assertIsNone(draft.draft(self.opening(body=said), 838)[0], said)
+            body = draft.draft(self.opening(body=said), 838)[1][1]
+            self.assertEqual(body.split("\n")[:2], ["Closes #838", ""])
+            self.assertEqual(body[len(draft.CLOSING % 838):], said)
+        # A comment or a details block, which could hide a line after it, never reaches the draft: the guard refuses it.
+        for said in ("<!-- left open", "<details>\nleft open", "<DETAILS open>"):
+            self.assertEqual(draft.draft(self.opening(body=said), 838), ("opening_unreadable", None), said)
+
+    def test_a_refused_draft_is_the_roles_attempt_and_its_run_was_told_the_rule(self):
+        permits = the_task(item=self.ISSUE, permitted_effects=["submit_review", "create_check_run", "open_pull_request"])
+        asking = lambda opening: result(effects=dict(result()["effects"], open_pull_request=[opening]))
+        self.assertIsNone(refused(task=permits, res=asking(self.GOOD)))
+        # Each refusal is the Role's (`item`), before anything is written: so it counts toward the Role's attempts.
+        for opening, code in ((self.opening("Docs: end it"), "title_no_area"),
+                              (self.opening("docs: " + "a" * draft.room(838)), "title_too_long"),
+                              (self.opening(body="Fixes it."), "opening_closes")):
+            self.assertEqual(refused(task=permits, res=asking(opening)), ("item", code))
+            self.assertEqual(apply.outcome(permits, {"effects": []}, ("item", code))["outcome"], "item")
+        # Only an issue's Run opens a draft: one of another item has no issue to close.
+        self.assertEqual(refused(task=dict(permits, item=dict(support.ITEM)), res=asking(self.GOOD)),
+                         ("item", "opening_not_on_issue"))
+        # The Run was told the rule and the room the issue's number leaves: the CLI's prompt says both, and a Task
+        # that permits no opening, or of another item, is told neither.
+        told = engine.argv("/opt/claude", permits, "claude-x", "s", "")[2]
+        self.assertIn(draft.told(838), told)
+        self.assertIn("at most %d characters" % draft.room(838), draft.told(838))
+        for what, _ in pr_title.INTERNAL:
+            self.assertIn(what, draft.told(838))
+        for task in (the_task(), dict(permits, item=dict(support.ITEM))):
+            self.assertNotIn("Your draft's title", engine.argv("/opt/claude", task, "claude-x", "s", "")[2])
 
 
 class Push(unittest.TestCase):

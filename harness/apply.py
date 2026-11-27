@@ -36,6 +36,7 @@ from adapters import github, identity
 from adapters.applied import OPENED
 from adapters.rules import UNREADABLE as LIST_UNREADABLE
 from harness import engine, shared
+from harness import draft as draft_
 from harness import task as task_
 from kernel import derive, gate
 from kernel import terms as t
@@ -198,6 +199,13 @@ def _effects(task: dict, result: dict, facts: dict, advisory):
     ids = [e["id"] for kind in ORDER for e in effects.get(kind, ())]
     if len(ids) != len(set(ids)):
         return "effect_named_twice"
+    # An opening's draft is held to `harness/draft.py`'s rules, its title with the issue's number and its body with the
+    # closing line, before any token is minted: a refused draft is the Role's attempt. Only an issue's Run opens one.
+    for opening in effects.get("open_pull_request", ()):
+        item = task["item"]
+        why = draft_.draft(opening, item["number"])[0] if item["type"] == "issue" else "opening_not_on_issue"
+        if why:
+            return why
     # A review is recovered as this App's one on this commit (section 3.6): a second would be read back as the first.
     if len(effects.get("submit_review", ())) > 1:
         return "review_twice"

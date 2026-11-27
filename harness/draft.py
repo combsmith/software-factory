@@ -1,0 +1,60 @@
+"""The draft an opening Run opens: its title and body as `apply` writes them (issue 838; decision 0238, and the record
+that adds this module).
+
+`draft(opening, issue)` is what `apply` writes of a Result's `open_pull_request`, `(None, (title, body))`, or why it
+writes nothing, `(code, None)`. The title and the body are the model's (decision 0238). What is added is `apply`'s, read
+from the issue the Decision admitted, never from the Result:
+- The title gains ` (#N)`, the issue's number, which `tools/pr_title.py` asks a pull request's title to end with. The
+  model's text is first held to `guards/opening.py`, which refuses `#N` in it. The whole title is then held to
+  `pr_title.problems`, the rule CI's `commits` job holds the pull request's title to, by the same code, not a copy of it.
+  A title it finds any problem in is refused by that problem's code, never cut or mended.
+- The body is led by the one line that closes the issue, `Closes #N`, and a blank line, as `trials/P-46.json` shows
+  GitHub reads a closing line at a body's start. Before the model's text, nothing in that text, an unclosed code fence
+  among them, can make the line code or hide it.
+
+Each code is the Role's: `apply` gives it as the Result's refusal, before any token is minted, so a refused draft is the
+Role's attempt and counts toward its bound. `told(issue)` is what the Run is told of its title: the rule and the room
+the suffix leaves.
+
+Its stated limits: a title or a body over GitHub's bound in UTF-8 bytes is the writer port's to refuse, and is not held
+here (decision 0238). Nothing here reads a clock, a file or the network.
+
+Still to come, by hand: the push loop, `harness/push.py`, which `adapters/push.py` names, and `apply`'s dispatch of the
+push and the draft.
+"""
+from __future__ import annotations
+
+from guards import opening as text
+from tools import pr_title
+
+SUFFIX = " (#%d)"           # after the model's title: the issue it serves, as tools/pr_title.py asks a title to end
+CLOSING = "Closes #%d\n\n"  # before the model's body: the draft's one link, a closing line, then a blank line
+
+
+def room(issue: int) -> int:
+    """How long the model's title may be, in characters: the longest title `tools/pr_title.py` keeps, less the suffix."""
+    return pr_title.LONGEST - len(SUFFIX % issue)
+
+
+def told(issue: int) -> str:
+    """What a Run that opens a draft is told of its title and body, from `tools/pr_title.py`'s own rule and marks."""
+    marks = ", ".join(what for what, _ in pr_title.INTERNAL)
+    return ("\n\nYour draft's title is held to the rule for a pull request's title: its area, a lowercase word, a colon "
+            "and a space, then a plain verb phrase that starts with a lowercase letter and ends with no stop, holding "
+            "none of these: %s. It is at most %d characters, since the Harness adds the issue's number after it. The "
+            "Harness writes the line that closes the issue, before your body: your title and body link, mention and "
+            "close nothing. A draft that breaks any of this is refused, as your attempt." % (marks, room(issue)))
+
+
+def draft(opening: dict, issue: int) -> tuple:
+    """`(None, (title, body))`, the draft `apply` writes of the Result's opening for issue `issue`, or `(code, None)`:
+    the guard's code for the model's text, or the first problem `tools/pr_title.py` finds in the whole title."""
+    title, body = opening["title"]["body"], opening["body"]
+    why = text.refusal(title, body)
+    if why:
+        return why, None
+    whole = title + SUFFIX % issue
+    found = pr_title.problems(whole)
+    if found:
+        return found[0].split(":", 1)[0], None
+    return None, (whole, CLOSING % issue + body)
