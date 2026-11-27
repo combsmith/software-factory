@@ -348,6 +348,18 @@ def _readers(harness) -> list:
         elif any(str(harness["readers"][name].get(pin, "")).casefold().startswith("claude") for pin in ("model", "deployment")):
             # A second family's read is never the Engine's own family's (decision 0224).
             out.append("harness: the reader %s is of the Engine's own family; an advisory Lens reads with a second family" % name)
+    # The worst case one read is counted at is no less than what one Run may cost by the readers' own caps and prices:
+    # each reader's largest prompt at a token a byte, which is the most a prompt of that many bytes can be and what the
+    # step that asks holds a prompt to (`prompt_characters` bounds its bytes of UTF-8), and its whole output cap. A
+    # figure under it would count a read whose cost is not known at less than it may have spent (decision 0224, Spend).
+    worst = harness.get("advisory_worst_case_usd")
+    if worst is not None and not out:
+        most = sum((r["prompt_characters"] * r["usd_per_million"]["input"] + r["output_tokens"] * r["usd_per_million"]["output"])
+                   / 1000000 for r in harness.get("readers", {}).values())
+        least = -(-round(most * 1000000, 3) // 1) / 1000000    # up to a millionth, past a float's noise alone
+        if worst < least:
+            out.append("harness: the worst case one read is counted at, %s, is under what the readers' caps and prices let "
+                       "one Run cost, %s; raise it, or lower a cap" % (worst, least))
     return out
 
 

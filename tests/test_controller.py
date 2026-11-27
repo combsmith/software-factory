@@ -3402,5 +3402,94 @@ class Entry(unittest.TestCase):
         self.assertEqual(len(minted), 100)
 
 
+class Advisory(unittest.TestCase):
+    """`controller/advisory.py`: what the day's advisory reads have spent (decision 0224)."""
+
+    NOW = "2026-11-18T13:00:00Z"
+
+    @staticmethod
+    def ran(started: str = "2026-11-18T09:00:00Z", intent: str = "review-change", **advice) -> dict:
+        return dict({"run": "r_01JA7Q", "intent": intent, "started_at": started, "status": "completed"}, **advice)  # finished
+
+    def test_the_days_advisory_spend_counts_an_unknown_cost_at_the_worst_case_and_never_at_nought(self):
+        from controller import advisory
+        ran = self.ran
+        # What one review Run of the day counts: its cost, where it finished, asked and gives one above nought; nothing
+        # where it finished and asked no reader; and the worst case for every other.
+        for record, counts in ((ran(advisory_asks=1, advisory_cost_usd=0.93), 0.93), (ran(advisory_asks=2, advisory_cost_usd=100000), 100000),
+                               (ran(advisory_asks=0, advisory_cost_usd=None), 0), (ran(advisory_asks=0, advisory_cost_usd=0), 0),
+                               (ran(advisory_asks=0), 0),
+                               # It asked and gives no cost, or nought, which no read costs.
+                               (ran(advisory_asks=1, advisory_cost_usd=None), 2), (ran(advisory_asks=1), 2),
+                               (ran(advisory_asks=2, advisory_cost_usd=0), 2), (ran(advisory_asks=1, advisory_cost_usd=-0.0), 2),
+                               (ran(advisory_asks=2, advisory_cost_usd=5e-324), 2), (ran(advisory_asks=2, advisory_cost_usd=4e-7), 2),
+                               (ran(advisory_asks=2, advisory_cost_usd=0.000001), 0.000001),
+                               (ran(advisory_asks=100, advisory_cost_usd=29), 29),
+                               # Its advice was not read, or it is still running, whatever it says.
+                               (ran(), 2), (ran(advisory_cost_usd=0.5), 2),
+                               (ran(status="in_progress", advisory_asks=1, advisory_cost_usd=0.01), 2),
+                               (ran(status="queued", advisory_asks=0, advisory_cost_usd=None), 2),
+                               (ran(status=None, advisory_asks=1, advisory_cost_usd=0.01), 2),
+                               # Its fields do not agree, or hold what no record may.
+                               (ran(advisory_asks=0, advisory_cost_usd=5), 2), (ran(advisory_asks=1, advisory_cost_usd=-1), 2),
+                               (ran(advisory_asks=1, advisory_cost_usd=float("nan")), 2),
+                               (ran(advisory_asks=1, advisory_cost_usd=float("inf")), 2),
+                               (ran(advisory_asks=1, advisory_cost_usd=10 ** 400), 2), (ran(advisory_asks=1, advisory_cost_usd=100000.01), 2),
+                               (ran(advisory_asks=1, advisory_cost_usd="0.93"), 2), (ran(advisory_asks=1, advisory_cost_usd=True), 2),
+                               (ran(advisory_asks=True, advisory_cost_usd=0.5), 2), (ran(advisory_asks=-1, advisory_cost_usd=0.5), 2),
+                               (ran(advisory_asks="1", advisory_cost_usd=0.5), 2), (ran(advisory_asks=101, advisory_cost_usd=0.5), 2),
+                               (ran(advisory_asks=0, advisory_cost_usd=float("nan")), 2), (None, 2), ("a run", 2), ([], 2),
+                               (ran(advisory_asks=0, advisory_cost_usd=True), 2), (ran(advisory_asks=0, advisory_cost_usd=False), 2),
+                               (ran(advisory_asks=0, advisory_cost_usd=-1), 2), (ran(advisory_asks=0, advisory_cost_usd="0"), 2)):
+            self.assertEqual(advisory.counted(record, 2), counts, record)
+        # A re-run's record is of its latest attempt: each attempt before it counts the worst case, and one whose attempt
+        # cannot be read counts as many as a Run may have, a hundred (the Solution Architect, 2026-11-27).
+        for record, counts in ((ran(advisory_asks=1, advisory_cost_usd=0.5, advisory_attempt=2), 2.5),
+                               (ran(advisory_asks=1, advisory_cost_usd=0.5, advisory_attempt=3), 4.5),
+                               (ran(advisory_asks=0, advisory_attempt=100), 198), (ran(status="in_progress", advisory_attempt=2), 4),
+                               (ran(advisory_asks=1, advisory_cost_usd=0.5, advisory_attempt=None), 198.5),
+                               (ran(status="in_progress", advisory_attempt=None), 200)):
+            self.assertEqual(advisory.counted(record, 2), counts, record)
+        for attempt in (1, 0, -2, 101, True, "2", 2.0, [2]):
+            self.assertEqual(advisory.counted(ran(advisory_asks=1, advisory_cost_usd=0.5, advisory_attempt=attempt), 2), 198.5, attempt)
+        # The day is the UTC date of the pass's now. A review Run that started on another day counts nothing, and so does
+        # a Run of another Intent; one whose start cannot be read is not shown to be another day's, and counts.
+        records = [ran(advisory_asks=1, advisory_cost_usd=1.5), ran("2026-11-18T00:00:00Z", advisory_asks=1, advisory_cost_usd=0.25),
+                   ran("2026-11-17T23:59:59Z", advisory_asks=1, advisory_cost_usd=100),
+                   ran("2026-11-19T00:00:00Z", advisory_asks=1, advisory_cost_usd=100),
+                   ran(intent="fix-findings", advisory_asks=1, advisory_cost_usd=100), ran("2026-11-18T23:59:59Z")]
+        self.assertEqual(advisory.spent(records, self.NOW, 2), 3.75)
+        # A finished Run counts on every day it touched, from its start to its end, read as its start where it gives none
+        # that can be read: one that ran across midnight counts on both days (the Solution Architect, 2026-11-27).
+        for start, end, counts in (("2026-11-17T23:00:00Z", "2026-11-18T00:30:00Z", 7), ("2026-11-18T23:00:00Z", "2026-11-19T00:30:00Z", 7),
+                                   ("2026-11-16T23:00:00Z", "2026-11-19T00:30:00Z", 7), ("2026-11-16T23:00:00Z", "2026-11-17T23:59:59Z", 0),
+                                   ("2026-11-19T00:00:00Z", "2026-11-19T00:30:00Z", 0), ("2026-11-17T23:00:00Z", None, 0),
+                                   ("2026-11-17T23:00:00Z", "2026-11-18", 0), ("2026-11-17T23:00:00Z", "2026-11-18T00:30:00Zx", 0),
+                                   ("2026-11-17T23:00:00Z", "2026-11-31T00:30:00Z", 0), ("2026-11-18T09:00:00Z", "2026-11-17T00:00:00Z", 7),
+                                   ("2026-11-19T09:00:00Z", "2026-11-17T00:00:00Z", 0)):
+            self.assertEqual(advisory.spent([ran(start, advisory_asks=1, advisory_cost_usd=7, ended_at=end)], self.NOW, 2), counts, (start, end))
+        self.assertEqual(advisory.spent([ran("2026-11-17T23:00:00Z", advisory_asks=1, advisory_cost_usd=7, advisory_attempt=2,
+                                             ended_at="2026-11-18T00:30:00Z")], self.NOW, 2), 9)
+        # A Run still in flight counts on today's sum whatever day it started: what runs across midnight is carried.
+        for start in ("2026-11-17T23:59:59Z", "2026-11-10T00:00:00Z", "2026-11-19T00:00:00Z"):
+            for status in ("in_progress", "queued", None):
+                self.assertEqual(advisory.spent([ran(start, status=status, advisory_asks=1, advisory_cost_usd=0.01)], self.NOW, 2), 2,
+                                 (start, status))
+        self.assertEqual(advisory.spent([ran("2026-11-17T23:59:59Z", intent="fix-findings", status="in_progress")], self.NOW, 2), 0)
+        for start in (None, "", 1795000000, "20261118T090000Z", " 2026-11-18T09:00:00Z", "2026-11-17", "2026-11-17T23:59:59+00:00",
+                      "2026-99-99T00:00:00Z", "2026-02-30T12:00:00Z", "2026-11-17T25:00:00Z", "2026-11-17T23:60:00Z",
+                      "2026-11-17T23:59:59Zx", "2026-11-17T23:59:59Z\n"):
+            self.assertEqual(advisory.spent([ran(start, advisory_asks=1, advisory_cost_usd=7)], self.NOW, 2), 7, start)
+        self.assertEqual(advisory.spent([{"intent": "review-change"}, None, "x"], self.NOW, 2), 6)
+        # One whose Intent cannot be read is not shown to be another Intent's either, and counts.
+        for intent in (None, 7, ["review-change"]):
+            self.assertEqual(advisory.spent([ran(intent=intent, advisory_asks=1, advisory_cost_usd=7)], self.NOW, 2), 7, intent)
+            self.assertEqual(advisory.spent([ran(intent=intent, status="in_progress")], self.NOW, 2), 2, intent)
+        self.assertEqual(advisory.spent([{"status": "in_progress"}], self.NOW, 2), 2)
+        self.assertEqual(advisory.spent([], self.NOW, 2), 0)
+        # Two records of one Run are two counts: nothing here says which is the Run's, and more is the safe way.
+        self.assertEqual(advisory.spent([ran(advisory_asks=1, advisory_cost_usd=10)] * 2, self.NOW, 2), 20)
+
+
 if __name__ == "__main__":
     unittest.main()
