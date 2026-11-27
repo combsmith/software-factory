@@ -4,7 +4,8 @@
 # counts the pull requests the Factory opened for an issue, and the branch's ref, which reads its head (decisions 0068
 # and 0242).
 #
-#   tools/trial_p80_branch_reads.sh OUT CONTROLLER_KEY REPO OPEN CLOSED MERGED BARE NEVER
+#   tools/trial_p80_branch_reads.sh [--keep-raw] OUT CONTROLLER_KEY REPO OPEN CLOSED MERGED BARE NEVER
+#   --keep-raw, given first, keeps the raw answers in a private scratch directory and says where; delete it once read.
 #
 # The Maintainer runs it at his own terminal, from anywhere; no session runs it, since it mints a credential.
 # OUT is a directory that does not exist yet, outside this repo. CONTROLLER_KEY is the path of the Controller App's
@@ -156,7 +157,7 @@ finish() {
     elif [ -n "${minting:-}" ]; then
         # Stopped while the mint was asked: its answer never came back here, and GitHub may have minted one.
         echo "trial_p80_branch_reads: stopped while a token was being minted; GitHub may have minted one, live for up to" \
-            "an hour, and the Maintainer must revoke it by hand." >&2
+            "an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation." >&2
     fi
     [ -n "$keep" ] || rm -rf "$scratch"
     [ -z "$keep" ] || printf '%s: the raw answers are kept in %s, as --keep-raw asked; delete it once read\n' trial_p80_branch_reads "$scratch" >&2

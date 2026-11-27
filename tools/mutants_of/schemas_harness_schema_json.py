@@ -15,7 +15,7 @@ MUTANTS = [
     # Decision 0224: the day's advisory ceiling, held by the Controller's pass.
     ('the worst case one read is counted at may be nought', 'schemas/harness.schema.json',
      '"advisory_worst_case_usd": {\n      "type": "number",\n      "minimum": 0.01,',
-     '"advisory_worst_case_usd": {\n      "type": "number",\n      "minimum": 0,', ('tests.test_controller.Advisory.test_a_review_run_is_told_yes_only_under_a_ceiling_and_a_worst_case_that_are_configured',)),
+     '"advisory_worst_case_usd": {\n      "type": "number",\n      "minimum": 0,', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
     ("a reader's model is held to lower case", 'schemas/harness.schema.json',
      '"pattern": "^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$"',
      '"pattern": "^[a-z0-9][a-z0-9.-]{0,127}$"', ('tests.test_tools.Repo.test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else',)),
