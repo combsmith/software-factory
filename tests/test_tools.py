@@ -3485,6 +3485,9 @@ class Repo(unittest.TestCase):
         self.assertTrue(caught(run_on(dict(harness, readers={"astra": block})), "config/harness.json: harness: the reader astra is no advisory Lens"))
         self.assertFalse(caught(run_on(dict(named, readers={"astra": block})), "config/harness.json"))
         # The counter-example is refused for its reader's name, which its schema alone would let pass.
+        counter = json.loads((ROOT / "examples" / "invalid" / "harness.a-reader-that-is-no-advisory-lens.json").read_text())
+        self.assertEqual(validate(counter, schema), [])
+        self.assertTrue(check_examples._readers(counter))
         self.assertFalse(caught(check_examples.run(clone({})), "harness.a-reader-that-is-no-advisory-lens.json"))
         # The day's ceiling is a figure in dollars beside the advisory Lenses, never among a reader's own settings, and
         # it has no default: the pin's file holds none until a person writes one, and nought is no figure.
@@ -3547,6 +3550,10 @@ class Repo(unittest.TestCase):
         self.assertEqual(problems(escaped), ["examples/invalid/harness.a-copy.json" + misplaced])
         self.assertEqual(problems(config(readers={"astra": {"model": name, "deployment": deployment}})),
                          ["examples/invalid/harness.a-copy.json" + misplaced])
+        # The pin's file itself giving a reader the Engine's model is refused by the examples check, as a reader of the
+        # Engine's own family; this check sees only where a name lies.
+        own = json.loads(config(readers={"astra": {"model": name, "deployment": deployment}}))
+        self.assertTrue(caught(check_examples._readers(dict(own, advisory=["astra"])), "the reader astra is of the Engine's own family"))
         self.assertEqual(problems(config(engine={"model": model})), ["examples/invalid/harness.a-copy.json" + misplaced])
         self.assertEqual(problems("[" * 100000), [])
         # One that is JSON but nested too deep to walk is read as one that is no JSON, never a crash of the check; a
@@ -3574,6 +3581,8 @@ class Repo(unittest.TestCase):
         for change in ({"host": "example.com"}, {"host": "factory.openai.azure.com:8443"}, {"host": "a.b.openai.azure.com"},
                        {"deployment": "a deployment"}, {"model": "A Model"}, {"api": "assistants"}, {"effort": "max"},
                        {"effort": {"critical": "max"}}, {"effort": {"critical": "most", "elsewhere": "xhigh"}}, {"output_tokens": 0},
+                       {"effort": {"elsewhere": "xhigh"}}, {"effort": {"critical": "max", "elsewhere": "most"}},
+                       {"usd_per_million": {"output": 20}},
                        {"prompt_characters": 0}, {"seconds": 0}, {"seconds": 1201}, {"usd_per_million": {"input": 2.5}},
                        {"usd_per_million": {"input": -1, "output": 20}}, {"key": "k" * 32}, {"tools": ["shell"]},
                        {"usd_per_million": {"input": 2.5, "output": -1}}, {"usd_per_million": {"input": 0, "output": 20}},
