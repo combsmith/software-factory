@@ -1,4 +1,4 @@
-# 9999. Closing references that name another issue call a person
+# 1318. Closing references that name another issue call a person
 
 Status: accepted. 2026-11-27, the Solution Architect; issue 1185. Extends decision 1147 with a second acceptance code that calls a person.
 
