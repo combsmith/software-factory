@@ -19,6 +19,7 @@ import json
 import os
 import pathlib
 import re
+import shlex
 import shutil
 import signal
 import subprocess
@@ -783,6 +784,15 @@ class Examples(unittest.TestCase):
         deeper["properties"]["next_actor"]["properties"]["sentences"] = shaped
         self.assertTrue(caught(check_examples._free(deeper, schemas, deeper, "feed", "$", set()),
                                "schema feed admits text at $.next_actor.sentences.*"))
+        # Nor the feed brought below its top by a reference to itself: it is swept again there (issue 1179).
+        itself = copy.deepcopy(feed)
+        itself["properties"]["next_actor"]["properties"]["again"] = {"$ref": "feed.schema.json"}
+        found = check_examples._free(itself, dict(schemas, feed=itself), itself, "feed", "$", set())
+        self.assertTrue(caught(found, "schema feed admits text at $.next_actor.again.sentences.*"), found)
+        itself = copy.deepcopy(feed)
+        itself["properties"]["again"] = {"$ref": "feed.schema.json"}
+        found = check_examples._free(itself, dict(schemas, feed=itself), itself, "feed", "$", set())
+        self.assertTrue(caught(found, "schema feed admits text at $.again.sentences.*"), found)
         named = {"type": "object", "additionalProperties": False, "properties": {"phrases": shaped}}
         self.assertTrue(caught(check_examples._free(named, {}, named, "feed", "$", set()),
                                "schema feed admits text at $.phrases.*"))
@@ -3456,6 +3466,147 @@ class Repo(unittest.TestCase):
         self.assertTrue(caught(check_repo.run(tree({"config/x.json": '"gpt-' + '4o-mini"'})), "names a model"))
         self.assertFalse(caught(check_repo.run(tree({"docs/notes.md": name})), "names a model"))
 
+    def test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default(self):  # decision 0224
+        # A schema here has no rule on a key, so the check holds what harness/1 cannot: a reader's block is under the
+        # name of an advisory Lens of the same file, a name advice/1 can hold.
+        loaded = json.loads((ROOT / "config" / "harness.json").read_text())
+        schema = json.loads((ROOT / "schemas" / "harness.schema.json").read_text())
+        self.assertEqual(check_examples._readers(loaded), [])
+        # The pin's file as it is with no reader and no ceiling, whatever it holds of them now.
+        harness = dict({k: v for k, v in loaded.items() if k not in ("readers", "advisory_ceiling_usd_per_day")}, advisory=["coderabbit"])
+        self.assertEqual((validate(harness, schema), check_examples._readers(harness)), ([], []))
+        block = json.loads((ROOT / "examples" / "invalid" / "harness.a-reader-that-is-no-advisory-lens.json").read_text())["readers"]["astra"]
+        named = dict(harness, advisory=["coderabbit", "astra", "kimi"])
+        self.assertEqual(check_examples._readers(dict(named, readers={"astra": block, "kimi": block})), [])
+        self.assertEqual(check_examples._readers(dict(named, readers={})), [])
+        self.assertTrue(caught(check_examples._readers(dict(harness, readers={"astra": block})), "the reader astra is no advisory Lens"))
+        self.assertTrue(caught(check_examples._readers(dict(named, readers={"astra": block, "muse": block})), "the reader muse is no advisory"))
+        for name in ("astra-2", "Astra", "a" * 32, "4o", ""):
+            odd = dict(harness, advisory=["coderabbit", name], readers={name: block})
+            self.assertTrue(caught(check_examples._readers(odd), "has a name advice/1 cannot hold"), name)
+        self.assertEqual(check_examples._readers(dict(harness, advisory=["a" * 31], readers={"a" * 31: block})), [])
+        # A reader is a second family: one of the Engine's own family, by its model or its deployment, is refused.
+        for pin in ("model", "deployment"):
+            for engines in ("claude-" + "opus-5-5", "Claude-Reader"):
+                own = dict(named, readers={"astra": dict(block, **{pin: engines})})
+                self.assertTrue(caught(check_examples._readers(own), "the reader astra is of the Engine's own family"), (pin, engines))
+
+        def run_on(config: dict) -> list:
+            return check_examples.run(clone({"config/harness.json": json.dumps(config)}))
+        self.assertTrue(caught(run_on(dict(harness, readers={"astra": block})), "config/harness.json: harness: the reader astra is no advisory Lens"))
+        self.assertFalse(caught(run_on(dict(named, readers={"astra": block})), "config/harness.json"))
+        # The counter-example is refused for its reader's name, which its schema alone would let pass.
+        counter = json.loads((ROOT / "examples" / "invalid" / "harness.a-reader-that-is-no-advisory-lens.json").read_text())
+        self.assertEqual(validate(counter, schema), [])
+        self.assertTrue(check_examples._readers(counter))
+        self.assertFalse(caught(check_examples.run(clone({})), "harness.a-reader-that-is-no-advisory-lens.json"))
+        # The day's ceiling is a figure in dollars beside the advisory Lenses, never among a reader's own settings, and
+        # it has no default: the pin's file holds none until a person writes one, and nought is no figure.
+        self.assertNotIn("advisory_ceiling_usd_per_day", schema["required"])
+        self.assertEqual(validate(dict(named, advisory_ceiling_usd_per_day=30), schema), [])
+        for figure in (0, -1, 0.001, "30", None, True, 10001, float("inf"), float("nan")):
+            self.assertTrue(validate(dict(named, advisory_ceiling_usd_per_day=figure), schema), figure)
+        self.assertTrue(validate(dict(named, readers={"astra": dict(block, advisory_ceiling_usd_per_day=30)}), schema))
+        self.assertTrue(validate(dict(named, readers={"astra": dict(block, ceiling_usd_per_day=30)}), schema))
+
+    def test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else(self):  # decision 0224
+        # A second place a model is named: an advisory Lens's reader, in the pin's own file, by its model and by its
+        # deployment, which Azure may name after a model. The pin's file and its copies may name a model at three paths
+        # and no other, and a copy names only what the pin's file pins.
+        name, model, deployment = "claude-" + "opus-5-5", "gpt-" + "6-astra-2026", "gpt-" + "6-astra"
+        misplaced = ": names a model outside the Engine's pin and a reader's model and deployment"
+        full = ": names a model by its full id"
+
+        def config(**more) -> str:
+            reader = {"host": "f.openai.azure.com", "deployment": deployment, "model": model, "api": "responses"}
+            return json.dumps(dict({"engine": {"model": name}, "readers": {"astra": reader, "kimi": dict(reader, api="chat")}}, **more))
+
+        def problems(copy: str, pin: str = None) -> list:
+            found = check_repo.run(tree({"config/harness.json": config() if pin is None else pin,
+                                         "examples/invalid/harness.a-copy.json": copy, "tools/a.py": "X = 1\n"}))
+            return [p for p in found if p.endswith(misplaced) or p.endswith(full)]
+        self.assertEqual(problems(config()), [])
+        # Outside the pin's file and its copies a reader's model is a model named, as the Engine's is.
+        for where in ("tools/a.py", "harness/advise.py", "examples/advice.json", "config/defaults.json", "examples/harness.json"):
+            for text in (model, deployment):
+                found = check_repo.run(tree({"config/harness.json": config(), where: 'X = "%s"\n' % text}))
+                self.assertIn(where + full, found, (where, text))
+        # A copy names no reader's model the pin's file does not pin, and with no reader pinned it names none.
+        self.assertEqual(problems(config(), json.dumps({"engine": {"model": name}})), ["examples/invalid/harness.a-copy.json" + full])
+        self.assertEqual(problems(config().replace(model, "gpt-" + "6-other")), ["examples/invalid/harness.a-copy.json" + full])
+        self.assertEqual(problems(config(), "{not json"), ["examples/invalid/harness.a-copy.json" + full])
+        # At any other path a pinned name is refused, in the pin's file and in a copy: beside the block, in a list, as
+        # a key, under another field of a reader, under another top field, and the Engine's pin under a reader.
+        for more in ({"texts": {"model": model}}, {"advisory": [deployment]}, {"model": model}, {"deployment": deployment},
+                     {"x": name}, {"engine": {"model": name, "also": model}}, {"engine": {"model": name, "model2": name}},
+                     {"x": {"engine": {"model": name}}}, {"x": {"readers": {"astra": {"model": model}}}},
+                     {"readers": {"astra": {"model": model, "deployment": deployment, "host": deployment}}},
+                     {"readers": {"astra": {"model": [model]}}}, {"readers": {"astra": {"model": {"model": model}}}},
+                     {"readers": {model: {"model": model}}}, {"readers": {"model": model}}, {"readers": [{"model": model}]},
+                     {"reader": {"astra": {"model": model}}}, {"readers": {"astra": {"model": model, "api": name}}},
+                     {"engine": {"model": name, "readers": {"astra": {"model": model}}}}):
+            self.assertEqual(problems(config(**more)), ["examples/invalid/harness.a-copy.json" + misplaced], more)
+            # In the pin's file a block that holds no pin of either kind leaves no reader pinned, so each of their
+            # names is a model named by its full id; where both pins stand, the name is refused for its path.
+            readers = more.get("readers", {"astra": {}})
+            intact = isinstance(readers, dict) and all(isinstance(b, dict) and not {"model", "deployment"} - set(b)
+                                                       and all(type(b[k]) is str for k in ("model", "deployment"))
+                                                       for b in readers.values()) or "readers" not in more
+            pinned_file = [p for p in problems(config(), config(**more)) if p.startswith("config/harness.json")]
+            self.assertEqual(pinned_file, ["config/harness.json" + (misplaced if intact else full)], more)
+        # A name is read at its path as the file is read, not as it is written: one written with an escape, which the
+        # text does not show, is refused where it is no pin, and the Engine's pin is no reader's.
+        escaped = config().replace('"model": "%s"' % model, '"model": "gpt-\\u0036-other"')
+        self.assertNotEqual(escaped, config())
+        self.assertEqual(problems(escaped), ["examples/invalid/harness.a-copy.json" + misplaced])
+        self.assertEqual(problems(config(readers={"astra": {"model": name, "deployment": deployment}})),
+                         ["examples/invalid/harness.a-copy.json" + misplaced])
+        # The pin's file itself giving a reader the Engine's model is refused by the examples check, as a reader of the
+        # Engine's own family; this check sees only where a name lies.
+        own = json.loads(config(readers={"astra": {"model": name, "deployment": deployment}}))
+        self.assertTrue(caught(check_examples._readers(dict(own, advisory=["astra"])), "the reader astra is of the Engine's own family"))
+        self.assertEqual(problems(config(engine={"model": model})), ["examples/invalid/harness.a-copy.json" + misplaced])
+        self.assertEqual(problems("[" * 100000), [])
+        # One that is JSON but nested too deep to walk is read as one that is no JSON, never a crash of the check; a
+        # pin's file nested too deep to read pins nothing.
+        self.assertIn("config/harness.json" + full, check_repo.run(tree({"config/harness.json": "[" * 100000 + json.dumps(model)})))
+        self.assertEqual(problems("[" * 1200 + "1" + "]" * 1200), [])
+        with mock.patch.object(check_repo, "_named_at", side_effect=RecursionError):
+            self.assertEqual(problems(config()), ["config/harness.json" + misplaced, "examples/invalid/harness.a-copy.json" + misplaced])
+            self.assertEqual(problems('{"engine": {"model": "%s"}}' % name, json.dumps({"engine": {"model": name}})), [])
+        # A copy that cannot be read as JSON has no paths, so it copies no reader's pin; the Engine's it may, as before.
+        self.assertEqual(problems('{"engine": {"model": "%s"}' % name), [])
+        self.assertEqual(problems('{"readers": {"astra": {"model": "%s"}}' % model), ["examples/invalid/harness.a-copy.json" + misplaced])
+        # harness/1 holds a reader's block, and a pin's file with none is whole.
+        schema = json.loads((ROOT / "schemas" / "harness.schema.json").read_text())
+        whole = json.loads((ROOT / "config" / "harness.json").read_text())
+        whole = {key: value for key, value in whole.items() if key != "readers"}
+        self.assertEqual(validate(whole, schema), [])
+        reader = {"host": "factory-readers.openai.azure.com", "deployment": "astra-reader", "model": "astra-model", "api": "responses",
+                  "effort": {"critical": "max", "elsewhere": "xhigh"}, "output_tokens": 32000, "prompt_characters": 600000,
+                  "seconds": 900, "usd_per_million": {"input": 2.5, "output": 20}}
+        self.assertEqual(validate(dict(whole, readers={"astra": reader, "kimi": dict(reader, api="chat")}), schema), [])
+        self.assertEqual(validate(dict(whole, readers={}), schema), [])
+        # A model is pinned as its vendor writes it, capitals and all (trial P-75).
+        self.assertEqual(validate(dict(whole, readers={"kimi": dict(reader, api="chat", model="Kimi-Model-3.1")}), schema), [])
+        for change in ({"host": "example.com"}, {"host": "factory.openai.azure.com:8443"}, {"host": "a.b.openai.azure.com"},
+                       {"deployment": "a deployment"}, {"model": "A Model"}, {"api": "assistants"}, {"effort": "max"},
+                       {"effort": {"critical": "max"}}, {"effort": {"critical": "most", "elsewhere": "xhigh"}}, {"output_tokens": 0},
+                       {"effort": {"elsewhere": "xhigh"}}, {"effort": {"critical": "max", "elsewhere": "most"}},
+                       {"usd_per_million": {"output": 20}},
+                       {"prompt_characters": 0}, {"seconds": 0}, {"seconds": 1201}, {"usd_per_million": {"input": 2.5}},
+                       {"usd_per_million": {"input": -1, "output": 20}}, {"key": "k" * 32}, {"tools": ["shell"]},
+                       {"usd_per_million": {"input": 2.5, "output": -1}}, {"usd_per_million": {"input": 0, "output": 20}},
+                       {"usd_per_million": {"input": 2.5, "output": 0}}, {"usd_per_million": {"input": 2.5, "output": 10001}},
+                       {"usd_per_million": {"input": 10001, "output": 20}}, {"output_tokens": 1000001},
+                       {"usd_per_million": {"input": float("nan"), "output": 20}},
+                       {"prompt_characters": 10000001}):
+            self.assertTrue(validate(dict(whole, readers={"astra": dict(reader, **change)}), schema), change)
+        for field in reader:
+            self.assertTrue(validate(dict(whole, readers={"astra": {k: v for k, v in reader.items() if k != field}}),
+                                                     schema), field)
+        self.assertTrue(validate(dict(whole, readers=[reader]), schema))
+
     def test_a_model_is_named_by_the_engines_pin_and_its_counter_examples_alone(self):
         name, other = "claude-" + "opus-5-5", "claude-" + "sonnet-5-5"
         copy = '{"engine": {"model": "%s"}}'
@@ -4889,6 +5040,13 @@ class Workflows(unittest.TestCase):
         # A merge group is read from the entry before it, which main does not hold yet: its record is not this one's.
         before = head(["docs/decisions/1129-a.md"])
         self.assertEqual(said(head(["docs/decisions/1130-b.md"], on=before), event_name="merge_group", since=before), [])
+        # Only what the head adds since the merge base is read: a record main took out after the branch left it is not
+        # one the head adds, though the head still holds it (issue 1179).
+        moved_on = head(removed=["docs/decisions/0002-b.md"])
+        self.assertEqual(said(one, since=moved_on), [])
+        # And a record the head adds is its own though main added the same file since: the head adds it (Astra).
+        main_too = head(["docs/decisions/1129-x.md", "kernel/m.py"])
+        refused(said(head(["docs/decisions/1129-x.md"]), since=main_too), "1129-x.md' is a decision record")
         # A record a replacement changes is not one it adds.
         self.assertEqual(said(head(["docs/decisions/1130-x.md"], changed=["docs/decisions/0001-a.md"])), [])
         self.assertEqual(said(head(["docs/decisions/0999-x.md"]), 999), [])
@@ -13730,6 +13888,52 @@ class Writes(unittest.TestCase):
                     "tools/shared.py", "tools/untested.py"):
             self.assertFalse(caught(problems, rel + ":"), (rel, problems))
 
+    def test_only_a_runner_imports_the_mutants_loader(self):
+        # Issue 1176 (a Muse read of pull request 1118): tools/mutants.py loads every file of the mutants' data by its
+        # name and hands their text on through names read as attributes, so a file that imports it is a runner: by any
+        # import, plain, of the module, of a name, relative, or inside a function; and so is one that imports a module
+        # that imports it when imported, which sets it on `tools` and may hand it on, a runner's among them. A file of
+        # the data imported, a module that imports it only inside a function, and the runners, pass.
+        files = {"tools/takes.py": "from tools import mutants\n",
+                 "tools/renamed.py": "import tools.mutants as m\n",
+                 "tools/among.py": "from tools import walk, mutants\n",
+                 "tools/hooks/up.py": "from .. import mutants\n",
+                 "tools/via_runner_m.py": "from tools.untested import mutants\n",
+                 "tools/on_package.py": "import tools.untested\nX = tools.mutants.OUTSIDE\n",
+                 "tools/after_takes.py": "from tools.takes import mutants\n",
+                 "tools/calls_later.py": "from tools.check_decisions import base\n",
+                 "controller/takes.py": "from tools import mutants\n",
+                 "tools/hands_on.py": "import tools.takes\n",
+                 "controller/after_hands.py": "import tools.hands_on\n",
+                 "tools/eager.py": "class Catalogue:\n    from tools import mutants\n",
+                 "tools/after_eager.py": "import tools.eager\n",
+                 "tools/takes_name.py": "import os\nfrom tools.mutants import OUTSIDE\n",
+                 "tools/plain.py": "import tools.mutants\n",
+                 "tools/near.py": "from .mutants import AREAS\n",
+                 "tools/lazy.py": "def listed():\n    from tools import mutants\n    return mutants.MUTANTS\n",
+                 "tools/beside.py": "from tools.mutants_of import common\n"}
+        problems = check_writes.run(clone(files))
+        taken = "imports tools/mutants.py, or a module that imports it when imported, which hands on the text"
+        for rel, line in (("tools/takes.py", 1), ("tools/takes_name.py", 2), ("tools/plain.py", 1), ("tools/near.py", 1),
+                          ("tools/lazy.py", 2), ("tools/renamed.py", 1), ("tools/among.py", 1), ("tools/hooks/up.py", 1),
+                          ("tools/via_runner_m.py", 1), ("tools/on_package.py", 1), ("tools/after_takes.py", 1),
+                          ("controller/takes.py", 1), ("tools/hands_on.py", 1), ("controller/after_hands.py", 1),
+                          ("tools/eager.py", 2), ("tools/after_eager.py", 1)):
+            self.assertTrue(caught(problems, "%s:%d %s" % (rel, line, taken)), (rel, problems))
+        for rel in ("tools/beside.py", "tools/untested.py", "tools/check_decisions.py", "tools/calls_later.py"):
+            self.assertFalse(caught(problems, rel + ":"), (rel, problems))
+        # Two runners, the second importing the first, still hand it on to a file that imports the second. A runner may
+        # import it; a file that may load a module by its name may not, for that alone, nor does it hand anything on.
+        with mock.patch.object(check_writes, "RUNNERS", check_writes.RUNNERS + ("tools/takes.py", "tools/hands_on.py")):
+            self.assertTrue(caught(check_writes.run(clone(files)), "controller/after_hands.py:1 " + taken))
+        plain = dict(files, **{"controller/plain.py": "VALUE = 1\n", "controller/client.py": "from controller.plain import VALUE\n"})
+        with mock.patch.object(check_writes, "NAME_LOADERS", check_writes.NAME_LOADERS + ("controller/plain.py",)):
+            self.assertFalse(caught(check_writes.run(clone(plain)), "controller/client.py:"))
+        with mock.patch.object(check_writes, "RUNNERS", check_writes.RUNNERS + ("tools/takes.py",)):
+            self.assertFalse(caught(check_writes.run(clone(files)), "tools/takes.py:1 " + taken))
+        with mock.patch.object(check_writes, "NAME_LOADERS", check_writes.NAME_LOADERS + ("controller/takes.py",)):
+            self.assertTrue(caught(check_writes.run(clone(files)), "controller/takes.py:1 " + taken))
+
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
             "    return effects.role_write(transport, item, 'review', req, 'me')\n"
@@ -15802,8 +16006,12 @@ class SignalTraps(unittest.TestCase):
         # A name a script holds a credential in, exported, reaches every child; SSLKEYLOGFILE has curl write the TLS keys
         # that read a token off the wire; a .curlrc can print the Authorization header. Each script that mints unsets the
         # first two before its first curl, and every curl reads no .curlrc. A curl is one that starts a command: on its
-        # line, after a pipe or in a substitution, wherever the line breaks.
+        # line, after a pipe or in a substitution, wherever the line breaks. Nor does curl take a proxy, a certificate
+        # authority or a TLS library the shell names, which would carry the JWT and each token through it, nor openssl a
+        # configuration that loads code where the App's key is read; and gh, in the App's trial, no GODEBUG that logs
+        # each header it sends (issue 1288).
         unset = "unset SSLKEYLOGFILE token jwt signature minted minting"
+        unproxied = "unset " + " ".join(PROXY_AND_TLS)
         minting = 0
         for script in sorted((ROOT / "tools").glob("trial_*.sh")):
             lines = script.read_text().splitlines()
@@ -15815,7 +16023,16 @@ class SignalTraps(unittest.TestCase):
                 minting += 1
                 self.assertEqual(lines.count(unset), 1, script.name)
                 self.assertLess(lines.index(unset), calls[0], script.name)
+                self.assertEqual(lines.count(unproxied), 1, script.name)
+                # Before curl, and before openssl first reads the App's key.
+                signs = [n for n, line in enumerate(lines) if not line.lstrip().startswith("#")
+                         and re.search(r"(?:^|\||\$\(|&&|;)\s*openssl\s", line)]
+                self.assertLess(lines.index(unproxied), min(calls[:1] + signs[:1]), script.name)
         self.assertEqual(minting, 12)
+        app = (ROOT / "tools" / "trial_as_app.sh").read_text().splitlines()
+        gh = [n for n, line in enumerate(app) if not line.lstrip().startswith("#") and re.search(r'GH_TOKEN="\$token" gh\s', line)]
+        self.assertEqual(app.count("unset GH_DEBUG DEBUG CURL_HOME GODEBUG"), 1)
+        self.assertLess(app.index("unset GH_DEBUG DEBUG CURL_HOME GODEBUG"), gh[0])
 
     def test_every_trial_finds_its_root_as_the_file_system_does(self):  # issue 1215
         # A plain cd looks a relative path up along CDPATH, and says where it went, and takes .. past a link logically.
@@ -15841,6 +16058,13 @@ class SignalTraps(unittest.TestCase):
             self.assertEqual(then[:2], ["set +a", "unset CDPATH"], script.name)
 
 
+# What curl and openssl read from the environment to choose a proxy, a certificate authority, a TLS library or a
+# configuration: each token trial unsets them all before its first curl (issue 1288).
+PROXY_AND_TLS = ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY", "no_proxy", "NO_PROXY",
+                 "CURL_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_SSL_BACKEND", "OPENSSL_CONF", "OPENSSL_ENGINES",
+                 "OPENSSL_MODULES")
+
+
 class ReaderTrialScript(unittest.TestCase):
     """`tools/trial_reader_reads.sh`, run against a stand-in curl and openssl and never GitHub (issues 222 and 231): each
     refusal before anything is minted, two tokens each narrowed to one permission on the canary alone, every read made
@@ -15857,7 +16081,7 @@ class ReaderTrialScript(unittest.TestCase):
     CURL = r'''#!/usr/bin/env python3
 import json, os, sys
 here = os.path.dirname(os.path.abspath(__file__))
-ENV_NAMES = ("token", "jwt", "signature", "minted", "minting", "SSLKEYLOGFILE")
+ENV_NAMES = ("token", "jwt", "signature", "minted", "minting", "SSLKEYLOGFILE") + ''' + repr(PROXY_AND_TLS) + r'''
 args = sys.argv[1:]
 url = [a for a in args if a.startswith("https://")][-1]
 method = args[args.index("-X") + 1] if "-X" in args else "GET"
@@ -15895,6 +16119,16 @@ if method == "DELETE":
     sys.stdout.write(open(os.path.join(here, "revoke.status")).read().strip())
     sys.exit(0)
 roles = json.load(open(os.path.join(here, "roles")))
+# A read that curl says failed, with a status or with nothing at all, and one curl answered whose status line cannot be
+# read (issue 1281). Each body holds a marker that must reach no file of OUT.
+if os.path.exists(os.path.join(here, "answer.broke")):
+    sys.stdout.write("HTTP/2 200\r\n\r\n{\"marker-1281")
+    sys.exit(18)
+if os.path.exists(os.path.join(here, "answer.unsent")):
+    sys.exit(7)
+if os.path.exists(os.path.join(here, "answer.headless")):
+    sys.stdout.write("HTTP/2 OK\r\ncontent-type: application/json\r\n\r\n{\"marker-1281\": 1}")
+    sys.exit(0)
 if os.path.exists(os.path.join(here, "slow")):
     # Mid-read: tell the test on one pipe, and wait on the other until the test lets the read end, or is gone.
     told, held = (int(n) for n in open(os.path.join(here, "slow")).read().split())
@@ -16181,12 +16415,13 @@ esac
 
     def test_the_maintainers_environment_steers_nothing(self):  # issue 1215
         # Run by a path relative to the repo, under a CDPATH that holds a tools/ of its own, with SSLKEYLOGFILE and each
-        # name a credential is held in exported, and the shell started exporting every assignment: the script finds its
-        # own root, and curl is handed none of them.
+        # name a credential is held in exported, a proxy and a certificate authority named (issue 1288), and the shell
+        # started exporting every assignment: the script finds its own root, and curl is handed none of them.
         decoy = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         (decoy / "tools").mkdir()
         env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
                "CDPATH": str(decoy), "SSLKEYLOGFILE": str(decoy / "keys"),
+               **{name: str(decoy / name) for name in PROXY_AND_TLS},
                **{name: self.TOKEN for name in ("token", "jwt", "signature", "minted", "minting")}}
         ran = subprocess.run(["sh", "-a", str(self.SCRIPT.relative_to(ROOT)), str(self.out), str(self.key), *self.GIVEN],
                              cwd=str(ROOT), capture_output=True, text=True, env=env, timeout=120)
@@ -16232,6 +16467,25 @@ esac
         asked = [a["status"] for a in json.loads((self.out.parent / "proxied" / "requests.json").read_text()) if "call" in a]
         self.assertEqual(asked, plain)
         self.assertIn(403, asked)
+
+
+    def test_a_curl_that_failed_is_told_apart_from_a_status_line_that_cannot_be_read(self):
+        # Both stop with nothing in OUT and the token revoked; only what the person is told differs (issue 1281).
+        failed, unread = "curl failed", "curl answered, but its status line could not be read"
+        for flag, said, not_said in (("answer.broke", failed, unread), ("answer.unsent", failed, unread),
+                                     ("answer.headless", unread, failed)):
+            with self.subTest(flag=flag):
+                self.setUp()
+                (self.stand_in / flag).write_text("")
+                ran = self.run_script()
+                self.assertNotEqual(ran.returncode, 0, ran.stdout)
+                self.assertIn(": %s; nothing of it reaches OUT" % said, ran.stderr)
+                self.assertNotIn(not_said, ran.stderr)
+                self.assertEqual(ran.stderr.count("nothing of it reaches OUT"), 1, ran.stderr)
+                self.assertEqual([c["method"] for c in self.calls()][-1], "DELETE")
+                self.assertIn("stopped with a token live; revoking it returned 204", ran.stderr)
+                self.assertFalse((self.out / "requests.json").exists())
+                self.assertFalse([p.name for p in self.out.iterdir() if "marker-1281" in p.read_text()])
 
 
 class IssueLookupTrial(ReaderTrialScript):
@@ -17147,7 +17401,7 @@ class Rulesets(unittest.TestCase):
         self.harness["advisory"] = ["coderabbit", "astra", "kimi"]
         self.assertEqual(self.run_on(), [])
         self.assertEqual(check_rulesets.CHECK % "astra", "advisory-astra")
-        for name in ("advisory-astra", "astra", "kimi", "advisory-kimi", "coderabbit", "Advisory-Astra", "KIMI", " astra "):
+        for name in ("advisory-astra", "astra", "kimi", "advisory-kimi", "coderabbit", "Advisory-Astra", "KIMI", " astra ", " AdViSoRy-AsTrA "):
             checks = self.main["required_status_checks"]["required_status_checks"]
             lens = name.strip().lower().replace("advisory-", "")
             for at in (0, len(checks)):         # wherever it stands among the checks required
@@ -17172,7 +17426,8 @@ class Rulesets(unittest.TestCase):
         self.assertEqual(self.run_on(), [])
         # Nor is one made required by another road: a required Lens of that name, or with that check.
         lenses = self.defaults["required_lenses"]
-        for change in ({"lens": "astra"}, {"check": "advisory-astra"}, {"check": "Kimi"}, {"check": " advisory-kimi "}, {"lens": "ASTRA"}):
+        for change in ({"lens": "astra"}, {"check": "advisory-astra"}, {"check": "Kimi"}, {"check": " advisory-kimi "}, {"lens": "ASTRA"},
+                       {"lens": "advisory-astra"}, {"lens": " astra "}, {"check": " AdViSoRy-AsTrA "}):
             lenses["deterministic"].append(dict({"lens": "lint", "check": "lint", "app_id": 15368, "workflow": None}, **change))
             self.assertTrue(caught(self.run_on(), "a required Lens is named %r, the advisory Lens" % list(change.values())[0]), change)
             lenses["deterministic"].pop()
@@ -17185,11 +17440,15 @@ class Rulesets(unittest.TestCase):
         for odd in ([{"type": "required_status_checks"}], None, "rules"):
             self.rulesets["rulesets"]["another ruleset"] = {"target": "branch", "enforcement": "disabled", "rules": odd}
             self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"), odd)
-        for odd in ("astra", ["advisory-astra"], [{"name": "advisory-astra"}], [{"context": 7}], {"advisory-astra": {}}):
+        for odd in ("astra", ["advisory-astra"], [{"name": "advisory-astra"}], [{"context": 7}], {"advisory-astra": {}},
+                    [{"context": "lint"}, {"context": 7}]):
             self.rulesets["rulesets"]["another ruleset"] = {"rules": {"required_status_checks": {"required_status_checks": odd}}}
             self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"), odd)
             self.rulesets["rulesets"]["another ruleset"] = {"rules": {"code_scanning": {"code_scanning_tools": odd}}}
             self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"), odd)
+        # One tool unread among tools read is still a ruleset this check cannot read.
+        self.rulesets["rulesets"]["another ruleset"] = {"rules": {"code_scanning": {"code_scanning_tools": [{"tool": "CodeQL"}, {"tool": 7}]}}}
+        self.assertTrue(caught(self.run_on(), "the another ruleset ruleset cannot be read for the checks it names"))
         self.rulesets = kept
         self.main = self.rulesets["rulesets"]["main"]["rules"]
         self.assertEqual(self.run_on(), [])
@@ -17238,9 +17497,16 @@ class Rulesets(unittest.TestCase):
         models = lenses.pop("model")
         self.assertTrue(caught(self.run_on(), "cannot be read for the advisory Lenses"))
         lenses["model"] = models
+        deterministic = lenses.pop("deterministic")     # the Lenses' own check refuses this one first
+        self.assertTrue(caught(self.run_on(), "cannot be read as rulesets and Lenses"))
+        lenses["deterministic"] = deterministic
+        kept_lenses = lenses["deterministic"]
+        lenses["deterministic"] = kept_lenses + ["astra"]       # one Lens unread among those read
+        self.assertTrue(caught(self.run_on(), "cannot be read for the advisory Lenses"))
+        lenses["deterministic"] = kept_lenses
         self.assertEqual(self.run_on(), [])
         # With no list of the advisory Lenses to read, nothing is shown, and the check says so.
-        for unreadable in ({}, {"advisory": "astra"}, {"advisory": [7]}, {"advisory": ["astra", 7]}, {"advisory": None}):
+        for unreadable in ({}, {"advisory": "astra"}, {"advisory": [7]}, {"advisory": ["astra", 7]}, {"advisory": None}, ["astra"], {"advisory": {}}):
             self.harness = unreadable
             self.assertTrue(caught(self.run_on(), "cannot be read for the advisory Lenses"), unreadable)
 
@@ -18232,6 +18498,44 @@ class Desk(unittest.TestCase):
         self.assertEqual(desk.size(tree({"a.py": "a\n"})), "no base to compare: this tree is no clone")
         git(root, "update-ref", "-d", "refs/remotes/origin/main")
         self.assertEqual(desk.size(root), "no base to compare: origin/main cannot be read here")
+
+    def test_the_desks_git_runs_no_program_the_clone_names_and_reads_no_git_variable_of_its_caller(self):
+        # A clone's configuration may name a program for git to run: a file system monitor, an external diff, a filter
+        # or a textconv. No read runs one, and a GIT_ variable of whatever runs the desk, such as GIT_DIR, reaches no
+        # read; those the desk sets are its own on every read (issue 1179).
+        root = self.merging()
+        expected = (desk.size(root), desk.merged(root))
+        marker = root.parent / (root.name + "-ran")
+        program = root.parent / (root.name + "-program.sh")
+        program.write_text("#!/bin/sh\ntouch %s\nexit 1\n" % shlex.quote(str(marker)))
+        program.chmod(0o755)
+        for key in ("core.fsmonitor", "diff.external", "filter.x.clean", "filter.x.smudge", "diff.x.textconv"):
+            git(root, "config", key, str(program))
+        (root / ".git" / "info").mkdir(exist_ok=True)
+        (root / ".git" / "info" / "attributes").write_text("*.py filter=x diff=x\n")
+        ran, real = [], subprocess.run
+
+        def run(argv, **kwargs):
+            ran.append(kwargs["env"])
+            return real(argv, **kwargs)
+
+        told = {"GIT_DIR": str(marker), "GIT_INDEX_FILE": str(marker), "GIT_EXTERNAL_DIFF": str(program),
+                "GIT_OPTIONAL_LOCKS": "1", "GIT_NO_LAZY_FETCH": "0", "GIT_TERMINAL_PROMPT": "1", "GIT_CONFIG_NOSYSTEM": "0"}
+        with mock.patch.dict(os.environ, told), mock.patch.object(desk, "subprocess", mock.NonCallableMock(
+                run=run, DEVNULL=subprocess.DEVNULL, TimeoutExpired=subprocess.TimeoutExpired)):
+            got = (desk.size(root), desk.merged(root))
+        self.assertFalse(marker.exists(), got)
+        self.assertEqual(got, expected)
+        own = {"GIT_CONFIG_NOSYSTEM": "1", "GIT_OPTIONAL_LOCKS": "0", "GIT_NO_LAZY_FETCH": "1", "GIT_TERMINAL_PROMPT": "0"}
+        self.assertTrue(ran)
+        for env in ran:
+            self.assertEqual({k: v for k, v in env.items() if k.startswith("GIT_")}, own)
+        # Each pin stands as written, those a read's own flags shadow today among them: --no-ext-diff, -z, and the
+        # submodule flags of FORM and merged() (issue 1179).
+        self.assertEqual(desk.SAFE, ("--no-replace-objects", "--literal-pathspecs", "-c", "core.commitGraph=false",
+                                     "-c", "core.fsmonitor=false", "-c", "diff.external=", "-c", "diff.ignoreSubmodules=none",
+                                     "-c", "core.quotePath=true", "-c", "diff.suppressBlankEmpty=false",
+                                     "-c", "diff.submodule=short"))
 
     def test_make_checks_note_fails_nothing(self):
         # The note is printed after the checks have answered, and nothing it does, an error or an exit, changes the

@@ -22,7 +22,8 @@ the draft, and the Result's text links nothing, mentions no one and closes nothi
     `discussions` is followed by a digit, whatever its host or scheme; a dot segment, `.` or `..` after a slash and
     before a space, a slash or a query, which a browser takes out of a path, so `issues/x/../12` leads to issue 12; a
     Markdown link or image, inline (`](`) or by a reference or a footnote (`]:`), whose target may be relative: on a
-    pull request's page, `[see](12)` is a link to pull request 12.
+    pull request's page, `[see](12)` is a link to pull request 12; or a TeX command that may make a link in GitHub's
+    math, `\\href`, `\\url` or `\\mmlToken`, which may carry an `href`, read as written alone, in any case.
   - `MENTIONS`: `@` before a character a GitHub login may begin with, a letter or a digit.
   - `CLOSES`: a closing keyword as a word of its own: close, closes, closed, fix, fixes, fixed, resolve, resolves or
     resolved, in any case.
@@ -41,6 +42,7 @@ let through binds or notifies what no one admitted.
   readers and this one. So an e-mail address is refused as a mention, `x#1` as a link, and `fix` before no reference.
 - A word is bounded by anything but an ASCII letter: `fix_up`, `fix2` and `pre-fix` each hold `fix`, and so do `fix`
   written with the ligature U+FB01 and `fix` after the Kelvin sign. `fixture` and `prefix` are words of their own.
+- A command is refused as part of a longer one or a path: `\\urlstyle` and `C:\\urls` each hold `\\url`.
 - A path is read with every slash taken out, so a file's path `pu/ll2` is read as `pull2`, and refused.
 - Every character reference, percent-escape and tag, raw HTML's comment among them, is refused: each makes the text
   GitHub reads, or a reader follows, other than the text this reads. `&#35;12` renders as `#12`, `#<!-- -->12` may,
@@ -57,6 +59,10 @@ Its stated limits:
   split, and the text shows one only to the eye.
 - A mark is read only as ASCII writes it: GitHub reads no other `#`, `@`, digit or hyphen in a reference or a
   mention, so a full-width number sign before a digit is let through.
+- `\\href`, `\\url` and `\\mmlToken` are refused wherever they stand, in math or not, as a precaution: it is not
+  known, and no trial asked, whether GitHub's math renders any of them as a link. A command split by what shows
+  nothing, `\\` U+200B `href`, is let through, as TeX reads no such command, and so is one that sets a style or a
+  class, `\\style` or `\\class`, which makes no link.
 - That `apply`'s own line reads as written is `apply`'s, and not this guard's: written after the Result's text, an
   unclosed code fence there would make it code; written before, nothing that follows changes how it reads.
 - Blank is read of characters, not of what Markdown renders: a body of its marks alone, `#`, `**` or `-`, with or
@@ -110,6 +116,8 @@ REFERENCE = "abcdefghijklmnopqrstuvwxyz#"
 TAG = "abcdefghijklmnopqrstuvwxyz/!?"
 # The parts of a path to an issue, a pull request or a discussion that a number follows.
 SEGMENTS = ("issue", "issues", "pull", "pulls", "discussions")
+# The TeX commands that may make a link in math, case-folded: `\mmlToken` may carry an `href`.
+COMMANDS = ("\\href", "\\url", "\\mmltoken")
 KEYWORDS = ("close", "closes", "closed", "fix", "fixes", "fixed", "resolve", "resolves", "resolved")
 
 
@@ -138,6 +146,7 @@ def _links(text: str) -> bool:
     bare = "".join(text.split("/"))
     path = "/".join(text.split("\\"))
     return (_follows(text, "#", DIGITS) or _follows(text, "gh-", DIGITS) or "](" in text or "]:" in text
+            or any(command in text for command in COMMANDS)
             or any(_follows(bare, segment, DIGITS) for segment in SEGMENTS)
             or any(part.split("?")[0].split()[:1] in ([".."], ["."]) for part in path.split("/")[1:]))
 
