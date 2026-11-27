@@ -265,6 +265,7 @@ def facts(armed=True, **over) -> dict:
         "last_writer_action_at": "2026-10-11T12:00:00Z", "reviews": [], "threads": [],
         "checks": copy.deepcopy(GREEN), "queue": False, "acts_since_writer": 0, "acceptance": None, "opened_for": None, "issue_stands": None,
         "acceptance_bounded": False,
+        "closes_another_issue": False,
         "timeline_bounded": False,
         "complete": {"acceptance": True, "reviews": True, "threads": True, "checks": True, "diff": True,
                      "changed_paths": True, "runs": True, "timeline": True},

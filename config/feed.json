@@ -369,6 +369,14 @@
       ]
     },
     {
+      "reason": "closes_another_issue",
+      "question": "closes_another_issue",
+      "choices": [
+        "fix_the_source",
+        "close"
+      ]
+    },
+    {
       "reason": "intents_unreadable",
       "question": "fact_unreadable",
       "choices": [
@@ -489,6 +497,7 @@
     "check_failed": "A required check failed; the author fixes the change.",
     "check_unreadable": "A required check gave no result or came from the wrong source; a person checks why.",
     "closed": "Closed without a merge; the Factory does nothing more.",
+    "closes_another_issue": "It closes an issue other than the one it was opened for; a person fixes the description.",
     "concurrency": "The Factory is running as many jobs as it may; it waits for one to end.",
     "conflict": "It conflicts with the branch it targets; the author resolves the conflict.",
     "contract_changed": "The acceptance contract changed after a person approved it; a person approves it again.",

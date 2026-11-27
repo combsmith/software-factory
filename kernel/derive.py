@@ -1290,11 +1290,17 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     # acceptance however whole that read claims to be.
     if facts.get("acceptance_bounded") is True:
         return {"state": None, "reason": "acceptance_bounded", "evidence": ["acceptance"]}
+    # Closing references that name an issue it is not bound to wait on its author, and no pass mends them: they defer
+    # on their own code and call a person (issue 1185). Absent, none is named; no truth value, a gap in acceptance.
+    if facts.get("closes_another_issue") is True:
+        return {"state": None, "reason": "closes_another_issue", "evidence": ["acceptance"]}
     # Its own timeline cut at the port's bound does the same: anyone can comment on a pull request (issue 1009).
     if facts.get("timeline_bounded") is True:
         return {"state": None, "reason": "timeline_bounded", "evidence": cut_reads(facts)}
     gaps = incomplete(facts)
     if facts.get("acceptance_bounded", False) is not False and "acceptance" not in gaps:
+        gaps = ["acceptance"] + gaps
+    if facts.get("closes_another_issue", False) is not False and "acceptance" not in gaps:
         gaps = ["acceptance"] + gaps
     if facts.get("timeline_bounded", False) is not False:
         cut = cut_reads(facts)
