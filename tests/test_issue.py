@@ -2179,6 +2179,23 @@ class RemoveLabel(unittest.TestCase):
         d = decide(facts(label_events=READIED_BY_A_PERSON + [labelled(TRIAGE, OTHER_APP, 3)], acts_since_writer=top))
         self.assertEqual(what(d), ("admit", "ready", OPEN))
 
+    def test_a_waiting_verdict_reads_by_time_and_as_the_controllers_removal(self):  # issue 1251
+        # The readiness App's own verdict waiting at the ceiling reads as the Controller's real removal of it does: no
+        # verdict is asked for again. And the adds are read by their time, never by their order in the list.
+        top = LIMITS["max_acts_per_item"]
+        analysed = [comment(ANALYST, 3)]
+        waiting = ACCEPTED + [labelled(READY, READINESS, 5)]
+        removed = waiting + [unlabelled(READY, CONTROLLER, 6)]
+        for acts in (top, None):
+            d = decide(facts(label_events=waiting, role_comments=analysed, acts_since_writer=acts))
+            self.assertEqual(what(d), what(decide(facts(label_events=removed, role_comments=analysed))), acts)
+            self.assertEqual(what(d), ("nothing", "judged", None), acts)
+        tail = [labelled(READY, READINESS, 5), unlabelled(READY, OTHER_APP, 6), labelled(READY, OTHER_APP, 7)]
+        for acts in (top, None, top - 1):
+            ordered = decide(facts(label_events=ACCEPTED + tail, role_comments=analysed, acts_since_writer=acts))
+            shuffled = decide(facts(label_events=ACCEPTED + tail[::-1], role_comments=analysed, acts_since_writer=acts))
+            self.assertEqual(what(shuffled), what(ordered), acts)
+
     def test_a_waiting_label_with_the_writers_time_unread_defers(self):  # issue 1251
         # The acts since a writer acted cannot be counted while the writer's time cannot be read: the removal waits, and
         # the issue defers on that time, beside a completed Run as without one, below the ceiling as at it.
@@ -2194,6 +2211,10 @@ class RemoveLabel(unittest.TestCase):
                         self.fail("a writer's time of %r raised %r" % (mark, e))
                     self.assertEqual((d["state"], what(d)), ("triage", ("defer", "writer_unreadable", None)),
                                      (mark, acts, runs))
+        # A writer's time left out is unread too, never read as none.
+        left_out = facts(label_events=waiting, acts_since_writer=top - 1)
+        del left_out["last_writer_action_at"]
+        self.assertEqual(what(decide(left_out)), ("defer", "writer_unreadable", None))
         # The other side: with the writer's time read, one act below the ceiling, the label is removed.
         d = decide(facts(label_events=waiting, last_writer_action_at=at(2), acts_since_writer=top - 1),
                    [investigated()])
