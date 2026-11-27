@@ -788,6 +788,10 @@ class Examples(unittest.TestCase):
         itself["properties"]["next_actor"]["properties"]["again"] = {"$ref": "feed.schema.json"}
         found = check_examples._free(itself, dict(schemas, feed=itself), itself, "feed", "$", set())
         self.assertTrue(caught(found, "schema feed admits text at $.next_actor.again.sentences.*"), found)
+        itself = copy.deepcopy(feed)
+        itself["properties"]["again"] = {"$ref": "feed.schema.json"}
+        found = check_examples._free(itself, dict(schemas, feed=itself), itself, "feed", "$", set())
+        self.assertTrue(caught(found, "schema feed admits text at $.again.sentences.*"), found)
         named = {"type": "object", "additionalProperties": False, "properties": {"phrases": shaped}}
         self.assertTrue(caught(check_examples._free(named, {}, named, "feed", "$", set()),
                                "schema feed admits text at $.phrases.*"))
