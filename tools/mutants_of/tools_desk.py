@@ -5,6 +5,9 @@ TARGETS = ("tools/desk.py",)
 DESK_SIZE = ("tests.test_tools.Desk.test_the_size_is_counted_as_the_factory_counts_it_and_warned_past_its_share",)
 DESK_GIT = ("tests.test_tools.Desk.test_the_desk_runs_git_only_to_read_and_says_when_there_is_no_base",)
 DESK_NOTE = ("tests.test_tools.Desk.test_make_checks_note_fails_nothing",)
+# Issue 1179: each read runs no program the clone names and takes no GIT_ variable of its caller.
+DESK_PINS = ("tests.test_tools.Desk."
+             "test_the_desks_git_runs_no_program_the_clone_names_and_reads_no_git_variable_of_its_caller",)
 # Issue 1110: the tests of its read of a merge.
 DESK_MERGE = ("tests.test_tools.Desk.test_a_merge_that_keeps_both_sides_passes_and_one_that_drops_either_is_told",)
 DESK_HAND = ("tests.test_tools.Desk.test_a_line_both_sides_changed_and_a_hand_combined_is_listed_to_read",)
@@ -17,6 +20,15 @@ DESK_SUBMODULE = ("tests.test_tools.Desk.test_a_submodule_both_sides_changed_is_
 DESK_PRINTED = ("tests.test_tools.Desk."
                 "test_a_blob_both_left_alike_main_s_deletion_and_a_path_like_a_pattern_are_told_and_each_is_printed",)
 MUTANTS = [
+    ("a read runs the clone's file system monitor", 'tools/desk.py',
+     '"-c", "core.fsmonitor=false",', '', DESK_PINS),
+    ("a read takes the caller's GIT_ variables", 'tools/desk.py',
+     '    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}\n',
+     '    env = dict(os.environ)\n', DESK_PINS),
+    ("a read writes a blank line as the clone's configuration says", 'tools/desk.py',
+     '"-c", "diff.suppressBlankEmpty=false",', '', DESK_PINS),
+    ("a read takes the clone's commit graph", 'tools/desk.py',
+     '"-c", "core.commitGraph=false", ', '', DESK_PINS),
     ('the size warns only at its limit', 'tools/desk.py',
      'SHARE = 0.95 ', 'SHARE = 1.0 ', DESK_SIZE),
     ('the size counts the diff as it is written', 'tools/desk.py',
