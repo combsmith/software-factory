@@ -5,6 +5,7 @@
 # and 0242).
 #
 #   tools/trial_p80_branch_reads.sh [--keep-raw] OUT CONTROLLER_KEY REPO OPEN CLOSED MERGED BARE NEVER
+#   --keep-raw, given first, keeps the raw answers in a private scratch directory and says where; delete it once read.
 #
 # The Maintainer runs it at his own terminal, from anywhere; no session runs it, since it mints a credential.
 # OUT is a directory that does not exist yet, outside this repo. CONTROLLER_KEY is the path of the Controller App's
@@ -30,10 +31,9 @@
 # Two tokens for the Controller's installation that P-39 found, each on REPO alone, each minted, used and revoked in
 # turn: one narrowed to contents and pull_requests reads each branch's list, then its ref, as the port sends them; one
 # narrowed to pull_requests reads BARE's ref. A token or JWT lives in a shell variable only and reaches curl on its
-# standard input. Each answer is redacted by tools/redact_trial.py in a scratch directory outside the repo, deleted on
-# exit, unless --keep-raw keeps it and says where; OUT gets only the clean answers (clean-N), what was asked
-# (requests.json) and when the run began (ran_at). A refused mint, a failed read or a revocation not answered 204 stops
-# the run, and a token that may be live is told to the Maintainer.
+# standard input. Each answer is redacted by tools/redact_trial.py in a scratch directory outside the repo; OUT gets
+# only the clean answers (clean-N), what was asked (requests.json) and when the run began (ran_at). A refused mint, a
+# failed read or a revocation not answered 204 stops the run, and a token that may be live is told to the Maintainer.
 set -eu
 # Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
 # (issue 1215).

@@ -2,6 +2,7 @@
 # Trial P-39, its third read: which repos each Factory App's installation reaches (issue 26, decision 0035).
 #
 #   tools/trial_p39_reach.sh [--keep-raw] OUT APP=KEY [APP=KEY ...]
+#   --keep-raw, given first, keeps the raw answers in a private scratch directory and says where; delete it once read.
 #
 # The Maintainer runs it at his own terminal, from anywhere; no session runs it, since it mints a credential.
 # OUT is a directory that does not exist yet, outside this repo. Each APP is controller, pr-review, reader, queue or
@@ -12,9 +13,9 @@
 # installation P-39 found (trials/P-39.grants.json), narrowed to metadata: read; read GET /installation/repositories
 # with it once; revoke it, and record the revocation's status. A token or a JWT is held in a shell variable only,
 # reaches curl on its standard input, and is never printed, logged or written to a file. Each response is captured
-# in a scratch directory outside the repo, redacted there by tools/redact_trial.py, and deleted on exit, unless
-# --keep-raw keeps it and says where; OUT receives only the redacted response (clean-N), what was asked (requests.json)
-# and when the run started (ran_at). A session then builds trials/P-39.reach.json from OUT alone.
+# in a scratch directory outside the repo, redacted there by tools/redact_trial.py, and deleted; OUT receives only
+# the redacted response (clean-N), what was asked (requests.json) and when the run started (ran_at). A session then
+# builds trials/P-39.reach.json from OUT alone.
 #
 # A mint, or a read, that curl fails or GitHub refuses, or a revocation that does not return 204, stops the script
 # with a non-zero exit: what was read is not kept, a refused mint shows its status and GitHub's answer, redacted,
