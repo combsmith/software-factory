@@ -7683,6 +7683,18 @@ class Decisions(unittest.TestCase):
             FIRST: plain + "| Another thing | waiting on `roles/x.py` |\n", "tools/mutants.py": "MUTANTS = [\n"},
             commit=True)), [])
 
+    def test_a_row_main_holds_fails_when_any_mutant_it_names_is_gone(self):  # issue 1242
+        # A row of two mutants, held on main and in a record another replaces, names each: either one taken from the
+        # mutants fails the row, as both do.
+        two = RECORD.replace(ONE_ROW, '| One thing | `tools/check_x.py`, `tests/test_x.py::test_y`, `tests/test_x.py::test_z`, '
+                                      'mutant: "one thing is undone", mutant: "another thing is undone" |')
+        for files in ({FIRST: two}, {FIRST: two, LATER: REPLACING}):
+            self.assertEqual(check_decisions.run(history(files)), [], files)
+            for gone in ("one thing is undone", "another thing is undone"):
+                with self.subTest(gone=gone, files=sorted(files)):
+                    root = edited(history(files), {"tools/mutants.py": RECORD_MUTANTS.replace('"%s"' % gone, '"%s, once"' % gone)})
+                    self.assertTrue(caught(check_decisions.run(root), 'mutant "%s", which tools/mutants.py does not hold' % gone))
+
     def test_a_row_main_holds_names_no_mutant_until_its_check_changes(self):  # issue 590
         plain = RECORD.replace(ONE_ROW, "| One thing | `tests/test_x.py` |")
         self.assertEqual(check_decisions.run(history({FIRST: plain})), [])

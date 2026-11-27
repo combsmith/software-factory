@@ -141,4 +141,8 @@ MUTANTS = [
      'PATH = r"`(%s/([0-9]{4,})-', 'PATH = r"`(%s/([0-9]{4})-', ("tests.test_tools.Decisions.test_a_record_of_five_digits_comes_after_one_of_four",)),
     ("a record's own number of five digits is not read", "tools/check_decisions.py",
      'NUMBER = re.compile(r"^([0-9]{4,})-")', 'NUMBER = re.compile(r"^([0-9]{4})-")', ("tests.test_tools.Decisions.test_a_record_of_five_digits_comes_after_one_of_four",)),
+    # Issue 1242: a row of several mutants names each.
+    ("a row's mutants after its first are not read", "tools/check_decisions.py",
+     '    for name in named:\n', '    for name in named[:1]:\n',
+     ("tests.test_tools.Decisions.test_a_row_main_holds_fails_when_any_mutant_it_names_is_gone",)),
 ]
