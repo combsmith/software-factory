@@ -55,6 +55,9 @@ SCHEDULE, OWN_REPO, DISPATCHED = "schedule", "workflow_run", "workflow_dispatch"
 # FACTORY_PAUSED, read exactly as GitHub holds a variable: any other value is unreadable (L-58).
 PAUSED, NOT_PAUSED = "true", "false"
 CAPACITY, ENVIRONMENT = health_.CAPACITY, health_.ENVIRONMENT
+# A Run GitHub limited, and the moment its reset counts from, in seconds since (decision 1269).
+GITHUB_CAPACITY = "github_capacity"
+EPOCH = "1970-01-01T00:00:00Z"
 NOT_RUN = "not_run"
 NEVER_STARTED = "runs_never_started"
 ISSUE_APPS = "issue_apps_unreadable"
@@ -187,6 +190,31 @@ def capacity_until(runs: list, now: str, window: int):
     return until if until > now else None
 
 
+def github_deferred(runs: list, now: str, rule: dict) -> list:
+    """Where Runs wait for GitHub's limit to reset (decision 1269): for each Role and owner a Run of which ended
+    `github_capacity`, `{"role", "owner", "until"}`, the latest of their waits, sorted, and none that is past; an owner
+    is one in any case, as GitHub counts it. A wait is until the reset the Run gave, held to between `least_seconds`
+    and `most_seconds` after the Run ended, the most never below the least; its start stands in for an end GitHub gave
+    none of, and the pass's `now` for an end said to be after it. One that gave no whole number is `most_seconds`. The
+    reset is a number from GitHub's header, never text, and the clamp bounds the worst a wrong one does."""
+    epoch = moment(EPOCH)
+    found = {}
+    for r in runs:
+        end = r.get("ended_at") if moment(r.get("ended_at")) is not None else r["started_at"]
+        if r["status"] != "completed" or r["outcome"] != GITHUB_CAPACITY or moment(end) is None or moment(now) is None:
+            continue
+        ended = int((moment(min(end, now)) - epoch).total_seconds())
+        least = ended + rule["least_seconds"]
+        most = ended + max(rule["least_seconds"], rule["most_seconds"])
+        reset = r.get("github_reset")
+        wait = min(max(reset, least), most) if type(reset) is int else most
+        key = (r["role"], r["item"]["repo"].partition("/")[0].casefold())
+        found[key] = max(found.get(key, wait), wait)
+    waits = [{"role": role, "owner": owner, "until": text(epoch + datetime.timedelta(seconds=wait))}
+             for (role, owner), wait in sorted(found.items())]
+    return [w for w in waits if w["until"] > now]
+
+
 def passes_since(before: list, previous, now: str, gap: int):
     """The first pass after the last gap of the not-run alert's second reading, read from the pass records: a chain
     that ended with nothing due breaks nothing (decision 0043). With no record before it, a chain starts now; with
@@ -221,6 +249,7 @@ def context_of(records, pause_read, repos, rules: dict, now: str, before=(), pre
         "model_deferred_until": max([u for u in (capacity, automatic) if u is not None], default=None),
         "passes_since": passes_since(list(before), previous, now, rules["not_run_seconds"]),
         "unidentified_runs": list(records["unidentified"]) if listed else None,
+        "github_deferred": github_deferred(runs, now, rules["github_capacity"]) if whole else None,
     }
     return listed, whole, runs, pause, automatic, capacity, context
 

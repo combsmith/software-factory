@@ -1,11 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "advice-cost/1: what one review Run's advisory reads cost, summed over its readers, as the advise step writes it for the Controller's pass (decision 0224). The Controller reads this and never a Lens's Result. `asks` is how many requests were sent that create a response or a completion; `cost_usd` is the Harness's own sum, from the tokens the transport's answers counted and the configured prices, and null where any reader that was asked gave no count. Nothing in it is a reader's text.",
+  "title": "advice-cost/1: what one review Run's advisory reads cost, summed over its readers, as the advise step writes it for the Controller's pass (decision 0224), one for each attempt, which `attempt` names as GitHub numbers it, since a re-run keeps its run's id (the Solution Architect, 2026-11-27). The Controller reads this and never a Lens's Result. `asks` is how many requests were sent that create a response or a completion; `cost_usd` is the Harness's own sum, from the tokens the transport's answers counted and the configured prices, and null where any reader that was asked gave no count. Nothing in it is a reader's text.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schema",
     "run",
+    "attempt",
     "release",
     "asks",
     "cost_usd"
@@ -17,6 +18,11 @@
     "run": {
       "type": "string",
       "pattern": "^r_[0-9A-Z]{6,26}$"
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
     },
     "release": {
       "type": "string",

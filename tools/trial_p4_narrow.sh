@@ -2,7 +2,8 @@
 # Trial P-4 (combsmith/software-factory#187, design section 6): can an installation token be minted with a subset of
 # the App's permissions and repos, and is it held to them?
 #
-#   tools/trial_p4_narrow.sh OUT KEY OWNER/REPO OTHER_OWNER/REPO
+#   tools/trial_p4_narrow.sh [--keep-raw] OUT KEY OWNER/REPO OTHER_OWNER/REPO
+#   --keep-raw, given first, keeps the raw answers in a private scratch directory and says where; delete it once read.
 #
 # The Maintainer runs it at his own terminal, from anywhere; no session runs it, since it mints a credential. OUT is a
 # directory that does not exist yet, outside this repo. KEY is the path of the trial-author App's private key file,
@@ -146,6 +147,10 @@ finish() {
         echo "trial_p4_narrow: stopped with a token live; revoking it returned $last" >&2
         [ "$last" = 204 ] || unrevoked "$last"
         token=""
+    elif [ -n "${minting:-}" ]; then
+        # Stopped while the mint was asked: its answer never came back here, and GitHub may have minted one (issue 1215).
+        echo "trial_p4_narrow: stopped while a token was being minted; GitHub may have minted one, live for up to" \
+            "an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation." >&2
     fi
     [ -n "$keep" ] || rm -rf "$scratch"
     [ -z "$keep" ] || printf '%s: the raw answers are kept in %s, as --keep-raw asked; delete it once read\n' trial_p4_narrow "$scratch" >&2
@@ -220,10 +225,11 @@ asked="{\"n\": 1, \"call\": \"GET /repos/$repo/installation\", \"body\": null, \
 # variable, never a file, since the minted token is in the answer; python keeps the answer without its token.
 n=2
 printf '{"repositories":["%s"],"permissions":{"contents":"read"}}' "${repo#*/}" > "$scratch/mint.json"
+minting=1
 minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- \
     -H "$ACCEPT" -H "$VERSION" -H "$JSON" --data-binary "@$scratch/mint.json" \
     "$API/app/installations/$installation/access_tokens" || true)
-jwt=""
+jwt="" minting=""
 rm -f "$scratch/mint.json"
 minted_status=$(printf '%s\n' "$minted" | tail -n 1)
 token=$(printf '%s\n' "$minted" | sed '$d' | tr -d '\r' | python3 -I -c '

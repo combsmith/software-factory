@@ -114,6 +114,15 @@
       ],
       "minimum": 0,
       "maximum": 100000
+    },
+    "advisory_attempt": {
+      "description": "Present on a review Run's re-run alone: the attempt its advisory fields are of, each one before it counted at the worst case; null where GitHub gives no attempt that can be read, counted then as the most a Run may have (decision 0224)",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 2,
+      "maximum": 100
     }
   },
   "$defs": {

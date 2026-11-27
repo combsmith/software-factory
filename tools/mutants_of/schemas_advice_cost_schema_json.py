@@ -9,4 +9,10 @@ MUTANTS = [
     ('an advisory cost may be more than a record holds', 'schemas/advice-cost.schema.json',
      '"minimum": 0,\n      "maximum": 100000\n',
      '"minimum": 0,\n      "maximum": 100001\n', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
+    ('an advisory cost may name no attempt', 'schemas/advice-cost.schema.json',
+     '    "run",\n    "attempt",\n',
+     '    "run",\n', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
+    ('an advisory cost may name an attempt GitHub never numbers', 'schemas/advice-cost.schema.json',
+     '"type": "integer",\n      "minimum": 1,',
+     '"type": "integer",\n      "minimum": 0,', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
 ]

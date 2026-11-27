@@ -161,8 +161,8 @@ class Record(unittest.TestCase):
         out = passed(reads(pulls=[pr(7), pr(42)], runs=[run(number=42)]))
         record = out["record"]
         self.assertEqual(shared.errors(record, "pass"), [])
-        self.assertEqual(sorted(record["context"]), ["active_runs", "model_deferred_until", "passes_since", "paused",
-                                                     "unidentified_runs"])
+        self.assertEqual(sorted(record["context"]), ["active_runs", "github_deferred", "model_deferred_until",
+                                                     "passes_since", "paused", "unidentified_runs"])
         self.assertEqual(record["runs"], [run(number=42)])
         self.assertEqual([r["read"] for r in record["reads"]], ["runs", "facts"])
         self.assertEqual((record["pass"], record["started_by"], record["release"]), ("p_000001A", "schedule",
@@ -750,6 +750,72 @@ class Context(unittest.TestCase):
         other = passed(reads(runs=[dict(fault, outcome="item")]))
         self.assertIsNone(other["record"]["context"]["model_deferred_until"])
 
+    def test_a_github_limit_defers_a_pushing_roles_runs_in_its_installation_until_its_reset(self):  # decision 1269
+        rule = CONTROLLER["github_capacity"]
+        def epoch(at: str) -> int:
+            return int((shared.moment(at) - shared.moment("1970-01-01T00:00:00Z")).total_seconds())
+        def limited(reset="none", ended="2026-10-11T12:59:30Z", **over) -> dict:
+            r = dict(run("r_00000G", conclusion="failure", outcome="github_capacity", at="2026-10-11T12:40:00Z"),
+                     ended_at=ended, **over)
+            return r if reset == "none" else dict(r, github_reset=reset)
+        def until(*runs_, now=NOW):
+            return pass_.github_deferred(list(runs_), now, rule)
+        least, most = "2026-10-11T13:00:30Z", "2026-10-11T13:59:30Z"
+        self.assertEqual((rule["least_seconds"], rule["most_seconds"]), (60, 3600))
+        # GitHub's reset, held between the least and the most wait after the Run ended: past the cap it is the cap, in
+        # the past the least wait, and a value that is no whole number, or none, the cap.
+        self.assertEqual(until(limited(epoch("2026-10-11T13:30:00Z"))),
+                         [{"role": "pr-review", "owner": "combsmith", "until": "2026-10-11T13:30:00Z"}])
+        for reset, want in ((epoch("2026-10-11T15:00:00Z"), most), (10 ** 30, most), (epoch(least) + 1, "2026-10-11T13:00:31Z"),
+                            (epoch("2026-10-11T12:00:00Z"), least), (-1, least), ("1760190000", most), (True, most),
+                            (1760190000.5, most), (None, most), ("none", most)):
+            self.assertEqual([w["until"] for w in until(limited(reset))], [want], reset)
+        # The Run's start stands in for an end GitHub gave none of, and the pass's now for one said to be after it, and
+        # at the end itself the wait holds; once it is past, nothing waits. The latest of a scope's waits holds in either
+        # order, each Role and owner apart, an owner in any case; no other outcome waits.
+        self.assertEqual([w["until"] for w in until(limited(ended=None))], ["2026-10-11T13:40:00Z"])
+        self.assertEqual(until(limited(), now=most), [])
+        self.assertEqual([w["until"] for w in until(limited(ended="2026-10-11T13:00:01Z"))], ["2026-10-11T14:00:00Z"])
+        self.assertEqual([w["until"] for w in until(limited(epoch("2026-10-11T13:15:00Z"), ended=NOW))],
+                         ["2026-10-11T13:15:00Z"])
+        early, late = limited(epoch("2026-10-11T13:10:00Z")), limited(epoch("2026-10-11T13:50:00Z"))
+        for order in ((early, late), (late, early)):
+            self.assertEqual([w["until"] for w in until(*order)], ["2026-10-11T13:50:00Z"])
+        elsewhere = dict(limited(), item=dict(support.ITEM, repo="combsmith-labs/x"))
+        other = dict(early, role="dev-lead")
+        upper = dict(early, item=dict(support.ITEM, repo="CombSmith/x"))
+        self.assertEqual(until(early, limited(), elsewhere, other, upper),
+                         [{"role": "dev-lead", "owner": "combsmith", "until": "2026-10-11T13:10:00Z"},
+                          {"role": "pr-review", "owner": "combsmith", "until": most},
+                          {"role": "pr-review", "owner": "combsmith-labs", "until": most}])
+        self.assertEqual(until(dict(limited(), outcome="capacity"), dict(limited(), status="in_progress")), [])
+        # The configuration's own waits are read, and a most below the least is the least.
+        for policy, past, none in (({"least_seconds": 300, "most_seconds": 900}, "13:04:30", "13:14:30"),
+                                   ({"least_seconds": 3600, "most_seconds": 1}, "13:59:30", "13:59:30")):
+            got = [pass_.github_deferred([limited(reset)], NOW, policy)[0]["until"] for reset in (-1, None)]
+            self.assertEqual(got, ["2026-10-11T%sZ" % past, "2026-10-11T%sZ" % none], policy)
+        # The pass gives the Kernel the waits, the reset among them, and never the model's deferral, so a Role that
+        # pushes waits alone; it is no attempt, raises no alert, and Runs of it on two items pause nothing.
+        cfg = config()
+        cfg["kernel"]["pushers"] = ["pr-review"]
+        unended = {k: v for k, v in limited().items() if k != "ended_at"}
+        for r, want in ((limited(), most), (unended, "2026-10-11T13:40:00Z"),
+                        (limited(epoch("2026-10-11T13:05:00Z")), "2026-10-11T13:05:00Z")):
+            out = passed(reads(runs=[r]), cfg=cfg)
+            context = out["record"]["context"]
+            self.assertEqual((context["github_deferred"], context["model_deferred_until"]),
+                             ([{"role": "pr-review", "owner": "combsmith", "until": want}], None))
+            self.assertEqual((decisions(out)[0]["reason"], out["alerts"]), ("github_capacity", []))
+        many = [dict(limited(), run="r_0000G%d" % i, item=dict(support.ITEM, number=7 + i % 2)) for i in range(3)]
+        out = passed(reads(runs=many))
+        self.assertEqual((out["record"]["context"]["model_deferred_until"], out["alerts"],
+                          out["view"]["health"]["pause"]["state"]), (None, [], "none"))
+        self.assertEqual(decisions(passed(reads(runs=[limited()])))[0]["outcome"], "admit")
+        short = passed(reads(runs=[limited()], complete=False), cfg=cfg)["record"]["context"]
+        self.assertEqual((short["github_deferred"], short["active_runs"]), (None, None))
+        empty = passed(reads(runs=[]), cfg=cfg)
+        self.assertEqual((empty["record"]["context"]["github_deferred"], decisions(empty)[0]["outcome"]), ([], "admit"))
+
     def test_runs_that_never_ran_pause_admission_and_are_named_as_themselves(self):  # decision 0116
         # A Run GitHub started no job of writes no outcome, so one cause doing it to every dispatch would run each open
         # item to a Hold naming nothing. It counts toward the automatic pause, by the same rule, under its own name.
@@ -1121,6 +1187,23 @@ class Feed(unittest.TestCase):
             (pathlib.Path(d) / "config" / "hooks.json").write_text(
                 json.dumps({key: value for key, value in hooks.items() if key != "person_only"}))
             self.assertEqual(configuration.kernel(pathlib.Path(d))["person_only_paths"], [])
+
+    def test_the_kernel_is_given_the_roles_granted_the_push_from_their_manifests(self):  # issue 838
+        # One list: a Role whose Intent permits push_commits, the grant tools/check_authority.py holds; none yet.
+        live = configuration.pushers(ROOT)
+        self.assertEqual((configuration.kernel(ROOT)["pushers"], support.CONFIG["pushers"]), (live, live))
+        with unittest.mock.patch.object(configuration, "pushers", lambda root: ["dev-lead"] if root == ROOT else None):
+            self.assertEqual(configuration.kernel(ROOT)["pushers"], ["dev-lead"])
+        manifest = json.loads((ROOT / "roles" / "pr-review.json").read_text())
+        with tempfile.TemporaryDirectory() as d:
+            (pathlib.Path(d) / "roles").mkdir()
+            for name, effects in (("dev-lead", ["comment"]), ("pr-review", ["submit_review"]), ("qa-lead", [])):
+                pushing = dict(manifest["intents"][0], permitted_effects=effects + ["push_commits"])
+                plain = dict(manifest["intents"][0], permitted_effects=effects)
+                intents = {"dev-lead": [plain, pushing], "pr-review": [pushing, plain], "qa-lead": [plain]}[name]
+                (pathlib.Path(d) / "roles" / ("%s.json" % name)).write_text(json.dumps(dict(manifest, name=name,
+                                                                                         intents=intents)))
+            self.assertEqual(configuration.pushers(pathlib.Path(d)), ["dev-lead", "pr-review"])
 
     def test_a_path_a_model_lens_reads_is_never_given_as_a_persons_alone(self):  # decision 0207
         # No path is on both lists today. Were one, a model Lens's input is the stricter name and is not masked: the
@@ -1793,7 +1876,7 @@ class Entry(unittest.TestCase):
             code, _, files, _ = self.run_entry(Hub(table))
         self.assertEqual(code, 0)
         run_ = kept["runs"][0]
-        self.assertEqual(asked, [(files["pass.json"]["now"][:10], {(run_["run"], run_["started_at"]): {"advisory_asks": 1, "advisory_cost_usd": 0.5}})])
+        self.assertEqual(asked, [(files["pass.json"]["now"][:10], {(run_["run"], run_["started_at"], 1): {"advisory_asks": 1, "advisory_cost_usd": 0.5}})])
         self.assertEqual(configuration.load(ROOT, "factory/v0.3.1", "controller")["harness"],
                          json.loads((ROOT / "config" / "harness.json").read_text()))
         real = configuration._json
@@ -3427,8 +3510,20 @@ class Advisory(unittest.TestCase):
                                (ran(advisory_asks=1, advisory_cost_usd="0.93"), 2), (ran(advisory_asks=1, advisory_cost_usd=True), 2),
                                (ran(advisory_asks=True, advisory_cost_usd=0.5), 2), (ran(advisory_asks=-1, advisory_cost_usd=0.5), 2),
                                (ran(advisory_asks="1", advisory_cost_usd=0.5), 2), (ran(advisory_asks=101, advisory_cost_usd=0.5), 2),
-                               (ran(advisory_asks=0, advisory_cost_usd=float("nan")), 2), (None, 2), ("a run", 2), ([], 2)):
+                               (ran(advisory_asks=0, advisory_cost_usd=float("nan")), 2), (None, 2), ("a run", 2), ([], 2),
+                               (ran(advisory_asks=0, advisory_cost_usd=True), 2), (ran(advisory_asks=0, advisory_cost_usd=False), 2),
+                               (ran(advisory_asks=0, advisory_cost_usd=-1), 2), (ran(advisory_asks=0, advisory_cost_usd="0"), 2)):
             self.assertEqual(advisory.counted(record, 2), counts, record)
+        # A re-run's record is of its latest attempt: each attempt before it counts the worst case, and one whose attempt
+        # cannot be read counts as many as a Run may have, a hundred (the Solution Architect, 2026-11-27).
+        for record, counts in ((ran(advisory_asks=1, advisory_cost_usd=0.5, advisory_attempt=2), 2.5),
+                               (ran(advisory_asks=1, advisory_cost_usd=0.5, advisory_attempt=3), 4.5),
+                               (ran(advisory_asks=0, advisory_attempt=100), 198), (ran(status="in_progress", advisory_attempt=2), 4),
+                               (ran(advisory_asks=1, advisory_cost_usd=0.5, advisory_attempt=None), 198.5),
+                               (ran(status="in_progress", advisory_attempt=None), 200)):
+            self.assertEqual(advisory.counted(record, 2), counts, record)
+        for attempt in (1, 0, -2, 101, True, "2", 2.0, [2]):
+            self.assertEqual(advisory.counted(ran(advisory_asks=1, advisory_cost_usd=0.5, advisory_attempt=attempt), 2), 198.5, attempt)
         # The day is the UTC date of the pass's now. A review Run that started on another day counts nothing, and so does
         # a Run of another Intent; one whose start cannot be read is not shown to be another day's, and counts.
         records = [ran(advisory_asks=1, advisory_cost_usd=1.5), ran("2026-11-18T00:00:00Z", advisory_asks=1, advisory_cost_usd=0.25),
@@ -3436,6 +3531,17 @@ class Advisory(unittest.TestCase):
                    ran("2026-11-19T00:00:00Z", advisory_asks=1, advisory_cost_usd=100),
                    ran(intent="fix-findings", advisory_asks=1, advisory_cost_usd=100), ran("2026-11-18T23:59:59Z")]
         self.assertEqual(advisory.spent(records, self.NOW, 2), 3.75)
+        # A finished Run counts on every day it touched, from its start to its end, read as its start where it gives none
+        # that can be read: one that ran across midnight counts on both days (the Solution Architect, 2026-11-27).
+        for start, end, counts in (("2026-11-17T23:00:00Z", "2026-11-18T00:30:00Z", 7), ("2026-11-18T23:00:00Z", "2026-11-19T00:30:00Z", 7),
+                                   ("2026-11-16T23:00:00Z", "2026-11-19T00:30:00Z", 7), ("2026-11-16T23:00:00Z", "2026-11-17T23:59:59Z", 0),
+                                   ("2026-11-19T00:00:00Z", "2026-11-19T00:30:00Z", 0), ("2026-11-17T23:00:00Z", None, 0),
+                                   ("2026-11-17T23:00:00Z", "2026-11-18", 0), ("2026-11-17T23:00:00Z", "2026-11-18T00:30:00Zx", 0),
+                                   ("2026-11-17T23:00:00Z", "2026-11-31T00:30:00Z", 0), ("2026-11-18T09:00:00Z", "2026-11-17T00:00:00Z", 7),
+                                   ("2026-11-19T09:00:00Z", "2026-11-17T00:00:00Z", 0)):
+            self.assertEqual(advisory.spent([ran(start, advisory_asks=1, advisory_cost_usd=7, ended_at=end)], self.NOW, 2), counts, (start, end))
+        self.assertEqual(advisory.spent([ran("2026-11-17T23:00:00Z", advisory_asks=1, advisory_cost_usd=7, advisory_attempt=2,
+                                             ended_at="2026-11-18T00:30:00Z")], self.NOW, 2), 9)
         # A Run still in flight counts on today's sum whatever day it started: what runs across midnight is carried.
         for start in ("2026-11-17T23:59:59Z", "2026-11-10T00:00:00Z", "2026-11-19T00:00:00Z"):
             for status in ("in_progress", "queued", None):
@@ -3443,7 +3549,8 @@ class Advisory(unittest.TestCase):
                                  (start, status))
         self.assertEqual(advisory.spent([ran("2026-11-17T23:59:59Z", intent="fix-findings", status="in_progress")], self.NOW, 2), 0)
         for start in (None, "", 1795000000, "20261118T090000Z", " 2026-11-18T09:00:00Z", "2026-11-17", "2026-11-17T23:59:59+00:00",
-                      "2026-99-99T00:00:00Z", "2026-02-30T12:00:00Z", "2026-11-17T25:00:00Z", "2026-11-17T23:60:00Z"):
+                      "2026-99-99T00:00:00Z", "2026-02-30T12:00:00Z", "2026-11-17T25:00:00Z", "2026-11-17T23:60:00Z",
+                      "2026-11-17T23:59:59Zx", "2026-11-17T23:59:59Z\n"):
             self.assertEqual(advisory.spent([ran(start, advisory_asks=1, advisory_cost_usd=7)], self.NOW, 2), 7, start)
         self.assertEqual(advisory.spent([{"intent": "review-change"}, None, "x"], self.NOW, 2), 6)
         # One whose Intent cannot be read is not shown to be another Intent's either, and counts.
@@ -3499,7 +3606,8 @@ class Advisory(unittest.TestCase):
         # names no day, and a configuration or run records that are none.
         spent_ = [ran(advisory_asks=1, advisory_cost_usd=100)]
         for when in ("20261118T130000Z", "1795006800", " 2026-11-18T13:00:00Z", "2026-11-19T01:00:00+02:00", "", "2026-11",
-                     "2026-02-30T12:00:00Z", "2026-11-18T24:00:00Z", "2026-13-01T00:00:00Z",
+                     "2026-02-30T12:00:00Z", "2026-11-18T24:00:00Z", "2026-13-01T00:00:00Z", "2026-11-18T13:00:00Zx",
+                     "2026-11-18T13:00:00Z\n", "2026-11-18T13:00:00.5Z",
                      None, 1795006800, b"2026-11-18T13:00:00Z"):
             self.assertIs(advisory.admits([], True, when, harness), False, when)
             self.assertIs(advisory.admits(spent_, True, when, harness), False, when)
@@ -3521,8 +3629,14 @@ class Advisory(unittest.TestCase):
         self.assertEqual(validate(dict(example, advisory_asks=2, advisory_cost_usd=1.42), record, schemas=held.SCHEMAS), [])
         self.assertEqual(validate(dict(example, advisory_asks=1, advisory_cost_usd=None), record, schemas=held.SCHEMAS), [])
         for change in ({"advisory_asks": -1}, {"advisory_asks": 1.5}, {"advisory_asks": None}, {"advisory_cost_usd": -1},
-                       {"advisory_cost_usd": "1"}, {"advisory_cost_usd": float("inf")}, {"advisory_asks": 101}):
+                       {"advisory_cost_usd": "1"}, {"advisory_cost_usd": float("inf")}, {"advisory_asks": 101},
+                       {"advisory_cost_usd": 100000.01}, {"advisory_asks": "1"}, {"advisory_attempt": 1}, {"advisory_attempt": 101},
+                       {"advisory_attempt": 2.5}, {"advisory_attempt": "2"}):
             self.assertTrue(validate(dict(example, **change), record, schemas=held.SCHEMAS), change)
+        for attempt in (2, 100, None):
+            self.assertEqual(validate(dict(example, advisory_attempt=attempt), record, schemas=held.SCHEMAS), [], attempt)
+        for edge in ({"advisory_asks": 0}, {"advisory_asks": 100}, {"advisory_cost_usd": 0}, {"advisory_cost_usd": 100000}):
+            self.assertEqual(validate(dict(example, **edge), record, schemas=held.SCHEMAS), [], edge)
         self.assertEqual(entry["properties"]["advisory_ask"], {"type": "boolean"})
         self.assertNotIn("advisory_ask", entry["required"])
 

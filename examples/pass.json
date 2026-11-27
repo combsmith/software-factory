@@ -9,7 +9,14 @@
     "active_runs": 0,
     "model_deferred_until": null,
     "passes_since": "2026-10-11T12:55:00Z",
-    "unidentified_runs": []
+    "unidentified_runs": [],
+    "github_deferred": [
+      {
+        "role": "pr-review",
+        "owner": "combsmith",
+        "until": "2026-10-11T13:30:00Z"
+      }
+    ]
   },
   "runs": [
     {
