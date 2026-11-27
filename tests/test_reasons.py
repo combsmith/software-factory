@@ -136,9 +136,10 @@ def _flows(value, foreign: bool = True) -> bool:
 
 
 def _binds_reason(node) -> bool:
-    """Whether `node` binds the name `reason` by no Name node: an import, an exception handler, or a definition."""
+    """Whether `node` binds the name `reason` by no Name node: an import, a wildcard one among them, an exception
+    handler, or a definition."""
     if isinstance(node, (ast.Import, ast.ImportFrom)):
-        return any((a.asname or a.name.split(".")[0]) == "reason" for a in node.names)
+        return any((a.asname or a.name.split(".")[0]) in ("reason", "*") for a in node.names)
     return isinstance(node, (ast.ExceptHandler, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) \
         and node.name == "reason"
 
@@ -413,6 +414,11 @@ class Written(unittest.TestCase):
             ('import reason', [], [1]),
             ('import kernel.reason', [], []),
             ('import kernel as reason', [], [1]),
+            ('import os, reason', [], [1]),
+            ('from kernel import terms, derive as reason', [], [1]),
+            ('import reason.codes', [], [1]),
+            ('from kernel.terms import reason as other', [], []),
+            ('from kernel.terms import *', [], [1]),
             ('try:\n    pass\nexcept E as reason:\n    pass', [], [3]),
             ('def reason():\n    pass', [], [1]),
             ('async def reason():\n    pass', [], [1]),
