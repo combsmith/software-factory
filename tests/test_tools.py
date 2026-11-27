@@ -16723,7 +16723,7 @@ class ReviewOrderTrial(IssueLookupTrial):
         sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\n\\r\\n{\\"cut")
         sys.exit(0)
     if os.path.exists(os.path.join(here, "odd.status")):
-        sys.stdout.write("HTTP/2 200x\\r\\ncontent-type: application/json\\r\\n\\r\\n[]")
+        sys.stdout.write("HTTP/2 600\\r\\ncontent-type: application/json\\r\\n\\r\\n[]")
         sys.exit(0)
     if body and body.startswith("@"):
         with open(os.path.join(here, "sent"), "a") as kept:
@@ -16833,12 +16833,13 @@ elif "/issues/" in url:""", 1)
         self.assertEqual([c["method"] for c in self.calls()][-3:], ["SLEEP", "POST", "DELETE"])
 
     def test_a_status_that_is_no_number_is_not_kept_and_its_token_is_revoked(self):
+        # Three digits that no answer has: a status that is not three digits awk keeps as none (issue 1215).
         (self.stand_in / "odd.status").write_text("")
         ran = self.run_script()
         self.assertNotEqual(ran.returncode, 0, ran.stdout)
         self.assertIn("answered no status of three digits; nothing of it reaches OUT", ran.stderr)
         self.assertEqual([c["method"] for c in self.calls()], ["POST", "GET", "DELETE"])
-        self.assertNotIn("200x", ran.stdout + ran.stderr)
+        self.assertNotIn(": 600", ran.stdout)
         self.assertFalse((self.out / "requests.json").exists())
 
     def test_the_status_kept_is_the_last_heads(self):
