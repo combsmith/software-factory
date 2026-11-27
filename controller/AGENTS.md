@@ -3,7 +3,7 @@
 The Controller. `pass_.py` is one pass as a function of what it read, the configuration, `now`, the pass records before it and a mint for ids: it builds the context, asks `kernel.decide` and `kernel.issue.decide` about every item, and returns the pass record,
 the Runs to dispatch by run-name, the acts, the view's three files, the alerts and whether a successor starts. It reads no clock, writes nothing and decides nothing itself. `reads.py` holds what it reads to the schemas, `feed.py` and `health.py` write the
 view, `writes.py` plans writes, `configuration.py` what a pass is told, `shared.py` the schemas, `credentials.py` the credential alert. `__main__.py` is the pass job's entry (decision 0060). `reconcile.py` matches writes to Effects.
-Not built yet, by the stories that hold their rules: relay.py, backpressure.py, notify.py, brakes.py, advisory.py. Built for decision 0232: `issue_holds.py`, which tells a pull request how its issue stands.
+Not built yet, by the stories that hold their rules: relay.py, backpressure.py, notify.py, brakes.py. Built for decisions 0232 and 0224: `issue_holds.py`, how a pull request's issue stands, and `advisory.py`, whether the day's advisory ceiling admits a read.
 
 | Rule | Held by |
 |---|---|
