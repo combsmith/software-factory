@@ -12,6 +12,7 @@
 #   read:pass.pause is written in config/apps.json.
 #
 #   tools/trial_p52_pause.sh [--keep-raw] OUT CONTROLLER_KEY
+#   --keep-raw, given first, keeps the raw answers in a private scratch directory and says where; delete it once read.
 #
 # The Maintainer runs it at his own terminal, as tools/trial_p39_reach.sh, after granting the controller Variables at
 # repository read; no session runs it, since it mints a credential. OUT is a directory that does not exist yet,
@@ -23,12 +24,12 @@
 # makes the three reads with it once each, and revokes it. A token or a JWT is held in a shell variable only, reaches
 # curl on its standard input, and is never printed, logged or written to a file. Of the mint's answer it keeps the
 # token's permissions and repository selection alone. Each read is captured in a scratch directory outside the repo,
-# redacted there by tools/redact_trial.py, and deleted on exit, unless --keep-raw keeps it and says where; OUT receives
-# only the redacted answers (clean-N), the token's permissions (token.json), what was asked (requests.json) and when the
-# run started (ran_at). A read GitHub refuses is kept as it was answered: the refusal is the record. A mint that fails,
-# or a revocation that does not return 204, stops the script with a non-zero exit, and a token that may be live is told
-# to the Maintainer. A mint GitHub answered 201 whose token cannot be read is written nowhere: its token is revoked if
-# it can be found in the answer, and the Maintainer is told it may be live if not.
+# redacted there by tools/redact_trial.py, and deleted; OUT receives only the redacted answers (clean-N), the token's
+# permissions (token.json), what was asked (requests.json) and when the run started (ran_at). A read GitHub refuses is
+# kept as it was answered: the refusal is the record. A mint that fails, or a revocation that does not return 204,
+# stops the script with a non-zero exit, and a token that may be live is told to the Maintainer. A mint GitHub answered
+# 201 whose token cannot be read is written nowhere: its token is revoked if it can be found in the answer, and the
+# Maintainer is told it may be live if not.
 set -eu
 # Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
 # (issue 1215).

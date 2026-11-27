@@ -3,6 +3,7 @@
 # the App's permissions and repos, and is it held to them?
 #
 #   tools/trial_p4_narrow.sh [--keep-raw] OUT KEY OWNER/REPO OTHER_OWNER/REPO
+#   --keep-raw, given first, keeps the raw answers in a private scratch directory and says where; delete it once read.
 #
 # The Maintainer runs it at his own terminal, from anywhere; no session runs it, since it mints a credential. OUT is a
 # directory that does not exist yet, outside this repo. KEY is the path of the trial-author App's private key file,
@@ -19,9 +20,8 @@
 # everything but the token itself (the permissions and the repository selection are what the trial is about) and
 # hands the token to this shell alone. A token or a JWT is held in a shell variable only, reaches curl on its standard
 # input, and is never printed, logged or written to a file. Each response is captured in a scratch directory outside
-# the repo, redacted there by tools/redact_trial.py, and deleted on exit, unless --keep-raw keeps it and says where; OUT
-# receives only the redacted responses (clean-N), what was asked (requests.json) and when the run started (ran_at). A
-# session then builds trials/P-4.json from OUT.
+# the repo, redacted there by tools/redact_trial.py, and deleted; OUT receives only the redacted responses (clean-N),
+# what was asked (requests.json) and when the run started (ran_at). A session then builds trials/P-4.json from OUT.
 #
 # A mint that curl fails or GitHub refuses, or a revocation that does not return 204, stops the script with a non-zero
 # exit; a read's status, whatever it is, is the trial's answer and is kept. A token that may be live is told to the

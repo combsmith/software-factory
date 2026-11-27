@@ -3,6 +3,7 @@
 # in place, as #193's ruling 12 widened the row.
 #
 #   tools/trial_p12_status.sh [--keep-raw] OUT CONTROLLER_KEY REPO HEAD
+#   --keep-raw, given first, keeps the raw answers in a private scratch directory and says where; delete it once read.
 #
 # The Maintainer runs it at his own terminal, from anywhere; no session runs it, since it mints a credential.
 # OUT is a directory that does not exist yet, outside this repo. CONTROLLER_KEY is the path of the Controller App's
@@ -21,10 +22,10 @@
 # (trials/P-39.grants.json), on REPO alone, narrowed to checks: write and metadata: read; makes the writes and reads
 # below in order; and revokes the token, recording the revocation's status. A token or a JWT is held in a shell variable
 # only, reaches curl on its standard input, and is never printed, logged or written to a file. Each response is captured
-# in a scratch directory outside the repo, redacted there by tools/redact_trial.py, and deleted on exit, unless
-# --keep-raw keeps it and says where; OUT receives only the redacted response (clean-N), what was asked (requests.json)
-# and when the run started (ran_at). A call GitHub refuses is kept with its status, but for the first create, whose run
-# every later call needs. A session then builds the fixture from OUT alone, each long string kept as its length.
+# in a scratch directory outside the repo, redacted there by tools/redact_trial.py, and deleted; OUT receives only the
+# redacted response (clean-N), what was asked (requests.json) and when the run started (ran_at). A call GitHub refuses
+# is kept with its status, but for the first create, whose run every later call needs. A session then builds the fixture
+# from OUT alone, each long string kept as its length.
 #
 # A mint that curl fails or GitHub refuses, or a revocation that does not return 204, stops the script with a
 # non-zero exit; a refused mint shows its status and GitHub's answer, redacted, and a token that may be live is told
