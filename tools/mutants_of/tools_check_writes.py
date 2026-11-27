@@ -764,6 +764,16 @@ MUTANTS = [
      'for m, c in self.below.get((mod.name, cls), ())', 'for m, c in ()', ('tests.test_tools.Writes.test_a_writer_is_reached_by_any_name_it_goes_by',)),
     ("a nested function's import is read as an outer parameter", 'tools/check_writes.py',
      'for n in ast.walk(fn) if isinstance(n, (ast.Import, ast.ImportFrom))', 'for n in own if isinstance(n, (ast.Import, ast.ImportFrom))', ('tests.test_tools.Writes.test_a_writer_is_reached_by_any_name_it_goes_by',)),
+    # Issue 1176: a file that imports tools/mutants.py, which hands on the text of the mutants' data, is a runner.
+    ("any file may import the mutants' loader", 'tools/check_writes.py',
+     'for line, names in _imported(mod) if loaders.intersection(names)]', 'for line, names in _imported(mod) if False]',
+     ('tests.test_tools.Writes.test_only_a_runner_imports_the_mutants_loader',)),
+    ("a runner may not import the mutants' loader", 'tools/check_writes.py',
+     '        if mod.rel not in RUNNERS and mod.rel not in NAME_LOADERS:\n', '        if mod.rel not in NAME_LOADERS:\n',
+     ('tests.test_tools.Writes.test_only_a_runner_imports_the_mutants_loader',)),
+    ("the mutants' loader may not import itself", 'tools/check_writes.py',
+     '        if mod.rel not in RUNNERS and mod.rel not in NAME_LOADERS:\n', '        if mod.rel not in RUNNERS:\n',
+     ('tests.test_tools.Writes.test_only_a_runner_imports_the_mutants_loader',)),
     ("the mutation runner's own load by name fails", 'tools/check_writes.py',
      '        if mod.rel not in NAME_LOADERS:\n', '        if True:\n', ('tests.test_tools.Writes.test_on_main_only_the_callers_listed_reach_a_write_and_each_what_it_lists',)),
 ]

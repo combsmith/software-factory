@@ -65,9 +65,9 @@ RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.p
 # REACHERS, nor a name of two underscores. Only its assignments may name one; any other file there is read as any other.
 # Only another such file, or one RUNNERS names, may import from one that names a command so; tools/mutants.py loads each
 # by its name, the one way past, held by NAME_LOADERS, and reads the text as a patch to make, never a command to run.
-# Its limit: text taken through tools.mutants's names (MUTANTS, OUTSIDE, AREAS) is not followed. Each file that imports
-# tools.mutants is a runner, and reads those names as attributes, which no model of imported names could follow
-# (the Solution Architect, 2026-11-21).
+# It hands the text on through its names (MUTANTS, OUTSIDE, AREAS), read as attributes, which no model of imported
+# names could follow; so each file that imports it is a runner (the Solution Architect, 2026-11-21), and one RUNNERS
+# does not name fails (issue 1176). Its limit: what a runner takes from it and hands on is not followed.
 # It is read in good faith, as the rest of this check is: every other rule here still reads it.
 MUTANT_DATA = "tools/mutants_of/"
 # A command's name as a string, in any case, by a path or not, `.exe` or not: gh or git alone or opening a command line;
@@ -1070,6 +1070,7 @@ def run(root: pathlib.Path = ROOT) -> list:
     problems += reading.problems
     inert = {}      # each file of the mutants read once in a run, whichever file names from it
     texting = _texting(mods, inert)
+    loaders = {_name(rel) for rel in NAME_LOADERS}
     writers, commanding, patching = set(), set(), set()
     for mod in mods.values():
         if mod.name != GITHUB:
@@ -1091,6 +1092,10 @@ def run(root: pathlib.Path = ROOT) -> list:
             problems += ["%s:%d imports from a file of the mutants' data that names a command as text, which only "
                          "another such file, or one tools/check_writes.py's RUNNERS names, may do" % (mod.rel, line)
                          for line, names in _imported(mod) if texting.intersection(names)]
+        if mod.rel not in RUNNERS and mod.rel not in NAME_LOADERS:
+            problems += ["%s:%d imports tools/mutants.py, which hands on the text of every file of the mutants' data; "
+                         "only a file tools/check_writes.py's RUNNERS names may" % (mod.rel, line)
+                         for line, names in _imported(mod) if loaders.intersection(names)]
         if mod.rel not in RUNNERS:
             data = _mutant_data(mod, mods, inert)
             problems += ["%s:%d names gh or git as a command, which may write to GitHub past adapters/; a write is an "

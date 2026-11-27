@@ -13723,6 +13723,28 @@ class Writes(unittest.TestCase):
                     "tools/shared.py", "tools/untested.py"):
             self.assertFalse(caught(problems, rel + ":"), (rel, problems))
 
+    def test_only_a_runner_imports_the_mutants_loader(self):
+        # Issue 1176 (a Muse read of pull request 1118): tools/mutants.py loads every file of the mutants' data by its
+        # name and hands their text on through names read as attributes, so a file that imports it is a runner: by any
+        # import, plain, of the module, of a name, relative, or inside a function. A file of the data imported, and the
+        # runners and the loader itself, pass.
+        files = {"tools/takes.py": "from tools import mutants\n",
+                 "tools/takes_name.py": "import os\nfrom tools.mutants import OUTSIDE\n",
+                 "tools/plain.py": "import tools.mutants\n",
+                 "tools/near.py": "from .mutants import AREAS\n",
+                 "tools/lazy.py": "def listed():\n    from tools import mutants\n    return mutants.MUTANTS\n",
+                 "tools/beside.py": "from tools.mutants_of import common\n"}
+        problems = check_writes.run(clone(files))
+        taken = "imports tools/mutants.py, which hands on the text of every file of the mutants' data"
+        for rel, line in (("tools/takes.py", 1), ("tools/takes_name.py", 2), ("tools/plain.py", 1), ("tools/near.py", 1),
+                          ("tools/lazy.py", 2)):
+            self.assertTrue(caught(problems, "%s:%d %s" % (rel, line, taken)), (rel, problems))
+        for rel in ("tools/beside.py", "tools/untested.py", "tools/check_decisions.py", "tools/mutants.py"):
+            self.assertFalse(caught(problems, rel + ":"), (rel, problems))
+        # A runner may import it.
+        with mock.patch.object(check_writes, "RUNNERS", check_writes.RUNNERS + ("tools/takes.py",)):
+            self.assertFalse(caught(check_writes.run(clone(files)), "tools/takes.py:1 " + taken))
+
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
             "    return effects.role_write(transport, item, 'review', req, 'me')\n"
