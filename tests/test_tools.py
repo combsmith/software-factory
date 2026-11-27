@@ -8001,6 +8001,14 @@ class Trials(unittest.TestCase):
                  "P-186.md": (good % "186").replace("Is it asked?", '> [it]: /url "Is it asked?"'),
                  "P-187.md": (good % "187").replace("Is it asked?", "- [it]: /url"),
                  "P-188.md": (good % "188").replace("Yes", "[ ]: unchecked"),
+                 "P-189.md": (good % "189").replace("Yes", "-    [it]: /url"),
+                 "P-190.md": (good % "190").replace("Yes", ">    [it]: /url"),
+                 "P-191.md": (good % "191").replace("Yes", "> 1) [Yes]: <x>"),
+                 "P-192.md": (good % "192").replace("Yes", "   > - [it]: /url"),
+                 "P-193.md": (good % "193").replace("Yes", "[  \\]ok]: /url"),
+                 "P-194.md": (good % "194").replace("Yes", "[\u00a0it]: /url"),
+                 "P-195.md": (good % "195").replace("Yes", "-[ok]: /url"),
+                 "P-196.md": (good % "196").replace("Yes", ">     [it]: /url"),
                  "P-86.md\n": good % "86"}
         planted = clone({check_trials.PAGES + "/" + k: v for k, v in files.items()})
         (planted / check_trials.PAGES / "P-89.md").symlink_to(planted / check_trials.PAGES / "P-90.md")
@@ -8008,10 +8016,15 @@ class Trials(unittest.TestCase):
         for name in ("P-98.md", "P-99.md"):
             self.assertTrue(caught(problems, "%s/%s: holds a fence or an HTML comment" % (check_trials.PAGES, name)), name)
         # So does a link reference definition, which shows as nothing (issue 1179).
-        for name in ("P-84.md", "P-83.md", "P-184.md", "P-185.md", "P-186.md", "P-187.md"):
+        # A marker takes four blanks after it, an ordered list's too, markers nest, and a label may open with blanks,
+        # an escape or a blank of no ASCII.
+        for name in ("P-84.md", "P-83.md", "P-184.md", "P-185.md", "P-186.md", "P-187.md", "P-189.md", "P-190.md",
+                     "P-191.md", "P-192.md", "P-193.md", "P-194.md"):
             self.assertTrue(caught(problems, "%s/%s: holds a link reference definition" % (check_trials.PAGES, name)), name)
-        # A label of blanks is no label, and the line is shown.
-        self.assertFalse(caught(problems, "P-188.md: holds a link reference definition"), problems)
+        # A label of blanks is no label, a list's marker that touches its label is text, and five blanks after a quote's
+        # marker are code: each line is shown.
+        for name in ("P-188.md", "P-195.md", "P-196.md"):
+            self.assertFalse(caught(problems, "%s: holds a link reference definition" % name), name)
         for name in ("README.md", "P-095.md", "deep/P-96.md", "P-89.md", "P-86.md\n"):
             self.assertTrue(caught(problems, "%s/%s: only a trial's page" % (check_trials.PAGES, name)), name)
         self.assertTrue(caught(problems, "P-90.md: is headed P-91"), problems)
