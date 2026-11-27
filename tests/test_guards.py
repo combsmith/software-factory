@@ -2095,6 +2095,13 @@ class Settings(unittest.TestCase):
         # Every job is read: a second job's scan is held to the list as the first's is.
         twice = SCAN + "  again:\n    runs-on: ubuntu-24.04\n    steps:\n      - name: Scan\n" + SCAN_STEP
         self.assertIsNone(settings(twice))
+        # The scan's file is held whichever job, and whichever step, reads it: before or after one that reads none.
+        checkout = "        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n"
+        first = SCAN + "  again:\n    runs-on: ubuntu-24.04\n    steps:\n      - name: Out\n" + checkout
+        after = changed(SCAN_STEP, SCAN_STEP + "      - name: Out\n" + checkout)
+        for text in (first, after):
+            self.assertIsNone(settings(text))
+            self.assertEqual(settings(text, listed=[".github/"]), workflows.UNLISTED)
         self.assertEqual(settings(twice.replace(SCAN_STEP, "        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n", 1),
                                   listed=[".github/"]), workflows.UNLISTED)
 
@@ -2143,6 +2150,12 @@ class Settings(unittest.TestCase):
             "a key among the steps": changed("      - name: Checkout repository\n", "      x: y\n      - name: Checkout repository\n"),
             "a step that uses nothing": changed("      - name: SonarCloud Scan\n", "      - name: Nothing\n      - name: SonarCloud Scan\n"),
             "a job with no steps": SCAN + "  other:\n    runs-on: x\n",
+            "a job whose steps are none": SCAN + "  other:\n    runs-on: x\n    steps:\n",
+            "steps of a mapping": SCAN + "  other:\n    runs-on: x\n    steps:\n      a:\n" + SCAN_STEP,
+            "a key given twice where it is not read": changed("      contents: read\n", "      contents: read\n      contents: write\n"),
+            "an input from an expression": changed("          java-version: '21'\n",
+                                                   "          java-version: ${{ hashFiles('ci/jdk17') != '' && '17' || '21' }}\n"),
+            "a double-quoted escape": changed("    name: SonarCloud\n", "    name: \"label\\\"\n"),
             "a job of a value": SCAN + "  other: x\n",
             "steps of a value": SCAN.split("    steps:\n")[0] + "    steps: x\n",
             "a key of no table": changed("permissions: {}\n", "permissions: {}\nother: x\n"),
@@ -2153,7 +2166,10 @@ class Settings(unittest.TestCase):
         for why, text in refused.items():
             self.assertEqual(settings(text, listed=LISTED + ["x/"]), workflows.UNREADABLE, why)
         # What is no exact kind, or no workflow, reads nothing.
-        for path, text, listed in ((".github/x.yml", SCAN, LISTED), (Odd(SCAN_AT), SCAN, LISTED), (SCAN_AT, Odd(SCAN), LISTED),
+        for path, text, listed in ((".github/x.yml", SCAN, LISTED), (".github/workflows/../../x.yml", SCAN, LISTED),
+                                   (".github/workflows/a/x.yml", SCAN, LISTED), (".github/workflows/", SCAN, LISTED),
+                                   (".github/workflows/..", SCAN, LISTED),
+                                   ("docs/abcdefghijklmx.yml", SCAN, LISTED + ["docs/"]), (Odd(SCAN_AT), SCAN, LISTED), (SCAN_AT, Odd(SCAN), LISTED),
                                    (SCAN_AT, SCAN, tuple(LISTED)), (SCAN_AT, SCAN, [".github/", Odd("sonar-project.properties")]),
                                    (None, SCAN, LISTED), (SCAN_AT, None, LISTED), (SCAN_AT, SCAN, None)):
             self.assertEqual(workflows.refusal(path, text, listed), workflows.UNREADABLE, (path, listed))

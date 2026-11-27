@@ -8,9 +8,9 @@ Decision 0239 refuses `push_commits` where a job that holds a secret takes its c
 
 `guards/workflows.py` holds the clause. It fails closed: a key, an action at its pin, an input or an `env:` name its table does not name is refused. So is every route that points the scan at another settings file: the scan's `args` and `projectBaseDir`, the scanner's variables, a checkout of another commit or folder, and a line's end YAML reads where the guard reads none.
 
-The rest of 0239's first row is unchanged, and still waits on the settings port: which jobs hold a secret, what runs a file a patch may change, and what the read cannot see.
+The rest of 0239's first row still waits on the settings port.
 
-Limits: every job read is taken to hold a secret, so a job with no secret is refused with one that has. The runner is taken to be GitHub's own. What a listed file says is a person's: a properties file that names modules points the scanner at files this does not hold.
+Limits: every job read is taken to hold a secret, so a job with no secret is refused with one that has. The runner is taken to be GitHub's own, and a listed file a plain file, not a link. What a listed file says is a person's: a properties file that names modules points the scanner at files this does not hold.
 
 ## Why
 

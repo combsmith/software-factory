@@ -9,13 +9,15 @@ says is refused, never passed.
 
 - `refusal(path, text, listed)`: None where every job of the workflow at `path`, of text `text`, takes its settings
   only from files `listed` holds, or the one reason, a code, why not:
-  - `UNREADABLE`: a path, a text or a list of no exact kind; a control character but the line feed, a tab among them,
+  - `UNREADABLE`: a path, a text or a list of no exact kind, or a path of no file right in the folder; a control character but the line feed, a tab among them,
     or what YAML may read as a line's end, a carriage return, U+0085, U+2028 or U+2029, or the byte order mark,
     anywhere; a line outside the narrow form (an anchor, an alias, a tag, a block scalar, a flow form, a quote left
     open, a key of another spelling, a key or a job given twice, a dash alone, or a line of no key, wherever it
     stands); a key the table does not name, at the top, in a job or in a step; a job that calls another workflow or
     runs in a container; a step that runs a command (`run:`) or uses an action, at its pin, that `ACTIONS` does not
-    name; an input of an action its row does not name; an `env:` name outside `ENV`.
+    name; an input of an action its row does not name, or one whose value holds an expression, `${{`, which may read
+    a file; a job whose steps are no list of items, or none; an `env:` name outside `ENV`; a double-quoted value that
+    holds an escape.
   - `UNLISTED`: a file the job takes its settings from, its own workflow among them, that the list holds neither word
     for word nor under a directory it names.
 
@@ -35,8 +37,11 @@ Its stated limits:
   row names it.
 - What a listed file says is a person's: a `sonar-project.properties` that names modules points the scanner at files
   of their folders, and this reads no file's text.
-- The events and the runner are not read: a runner is taken to be GitHub's own, which keeps nothing of an earlier job
-  and sets no variable of its own.
+- The events and the runner are not read: a runner is taken to be GitHub's own, on Linux, which keeps nothing of an
+  earlier job, sets no variable of its own, and reads a file's name in its case.
+- That a listed file is a plain file, not a link to an unlisted one, is the caller's to read in the tree. A file
+  `.gitattributes` may change how a listed file's bytes land, never what a person wrote in it.
+- What an analyser reads as source to analyse is not settings, as decision 0239 says: a `tsconfig.json` among them.
 - That `listed` is the base's list, never the head's, is the caller's: `adapters/rules.py` reads it at the base commit.
 
 The caller gives all three arguments; this reads nothing itself.
@@ -88,7 +93,8 @@ def _value(said: str):
     first = plain[:1]
     if first in ("'", '"'):
         inner = plain[1:-1]
-        return inner if len(plain) > 1 and plain[-1:] == first and first not in inner else None
+        whole = len(plain) > 1 and plain[-1:] == first and first not in inner
+        return inner if whole and not (first == '"' and "\\" in inner) else None
     return None if first and first in MARKS else plain
 
 
@@ -123,7 +129,7 @@ def _node(key, value, at) -> dict:
 
 def _tree(lines: list):
     """The lines as a tree of nodes, each a key, its value and its kids, a list item's key None; or None where a node's
-    kids stand at more than one column, or a node that has a value has kids too."""
+    kids stand at more than one column, a node that has a value has kids too, or a key is given twice beside itself."""
     root = _node(None, "", None)
     stack = [root]
     for column, item, key, value in lines:
@@ -134,7 +140,8 @@ def _tree(lines: list):
             while stack[-1]["at"] is not None and stack[-1]["at"] >= node["at"]:
                 stack.pop()
             kids = stack[-1]["kids"]
-            if stack[-1]["value"] or kids and kids[0]["at"] != node["at"]:
+            if stack[-1]["value"] or kids and kids[0]["at"] != node["at"] \
+                    or node["key"] is not None and any(kid["key"] == node["key"] for kid in kids):
                 return None
             kids.append(node)
             stack.append(node)
@@ -142,10 +149,10 @@ def _tree(lines: list):
 
 
 def _keys(node: dict, allowed: tuple):
-    """`{key: node}` of a mapping's kids, or None where one is a list item, given twice or not among `allowed`."""
+    """`{key: node}` of a mapping's kids, or None where one is a list item or not among `allowed`."""
     out = {}
     for kid in node["kids"]:
-        if kid["key"] is None or kid["key"] in out or kid["key"] not in allowed:
+        if kid["key"] is None or kid["key"] not in allowed:
             return None
         out[kid["key"]] = kid
     return out
@@ -165,7 +172,8 @@ def _job(node: dict):
     """The files of the repo a job takes its settings from, or None where it is not read as the table says."""
     keys = _keys(node, JOB + ("env", "steps"))
     steps = keys.get("steps") if keys else None
-    if steps is None or steps["value"] or not _env(keys.get("env")):
+    if steps is None or steps["value"] or not steps["kids"] or not _env(keys.get("env")) \
+            or any(kid["key"] is not None for kid in steps["kids"]):
         return None
     files = []
     for step in steps["kids"]:
@@ -173,7 +181,8 @@ def _job(node: dict):
         uses = held.get("uses") if held else None
         rows = [(inputs, read) for name, inputs, read in ACTIONS if uses and not uses["kids"] and uses["value"] == name]
         given = held.get("with") if rows else None
-        if not rows or not _env(held.get("env")) or given is not None and not _flat(given, rows[0][0]):
+        if not rows or not _env(held.get("env")) or given is not None and (
+                not _flat(given, rows[0][0]) or any("${{" in kid["value"] for kid in given["kids"])):
             return None
         files += rows[0][1]
     return files
@@ -186,16 +195,15 @@ def _listed(name: str, listed: list) -> bool:
 def refusal(path, text, listed):
     """None where every job of the workflow at `path`, of `text`, takes its settings only from files on `listed`, the
     base's protected list, or the one reason why not."""
-    if type(path) is not str or not path.startswith(FOLDER) or type(text) is not str or type(listed) is not list \
+    name = path[len(FOLDER):] if type(path) is str and path.startswith(FOLDER) else ""
+    if "/" in name or name in ("", ".", "..") or type(text) is not str or type(listed) is not list \
             or not all(type(entry) is str for entry in listed):
         return UNREADABLE
     lines = _lines(text)
     root = _tree(lines) if lines is not None else None
     top = _keys(root, TOP + ("env", "jobs")) if root is not None else None
     jobs = top.get("jobs") if top else None
-    names = [job["key"] for job in jobs["kids"]] if jobs else []
-    if jobs is None or jobs["value"] or not names or len(dict.fromkeys(names)) != len(names) \
-            or not _env(top.get("env")):
+    if jobs is None or jobs["value"] or not jobs["kids"] or not _env(top.get("env")):
         return UNREADABLE
     files = [path]
     for job in jobs["kids"]:

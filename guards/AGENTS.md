@@ -37,4 +37,4 @@ A guard binds the Role that writes this repo's code. So it lives here, never in 
 | One blob of each written content, and one tree naming exactly the changes | `tests/test_guards.py::test_a_blob_is_made_once_of_each_written_content`, `tests/test_guards.py::test_the_one_tree_names_exactly_the_changes_by_the_blobs_made` |
 | A draft's title and body, as GitHub renders them, link no issue by its syntax, mention no one, close nothing | `tests/test_guards.py::test_a_drafts_title_and_body_are_text_this_reads`, `tests/test_guards.py::test_a_draft_links_mentions_and_closes_nothing` |
 | A job's settings files and its workflow are on the base's list, word for word or under a folder | `tests/test_guards.py::Settings.test_a_jobs_settings_on_the_bases_list_pass_and_off_it_are_refused` |
-| What its table does not name is refused, never passed, every route that points the scan elsewhere among it | `tests/test_guards.py::Settings.test_what_the_table_does_not_name_is_refused` |
+| What a job's table of keys, actions at their pins, inputs and `env:` names does not name is refused, never passed | `tests/test_guards.py::Settings.test_what_the_table_does_not_name_is_refused` |
