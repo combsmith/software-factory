@@ -3485,9 +3485,10 @@ class Repo(unittest.TestCase):
             odd = dict(harness, advisory=["coderabbit", name], readers={name: block})
             self.assertTrue(caught(check_examples._readers(odd), "has a name advice/1 cannot hold"), name)
         self.assertEqual(check_examples._readers(dict(harness, advisory=["a" * 31], readers={"a" * 31: block})), [])
-        # A reader is a second family: one of the Engine's own family, by its model or its deployment, is refused.
+        # A reader is a second family: one of the Engine's own family, by its model or its deployment, is refused, its
+        # family named anywhere in either.
         for pin in ("model", "deployment"):
-            for engines in ("claude-" + "opus-5-5", "Claude-Reader"):
+            for engines in ("claude-" + "opus-5-5", "Claude-Reader", "anthropic.claude-" + "opus-5-5", "prod-claude", "prod-CLAUDE-1", "prodclaude1"):
                 own = dict(named, readers={"astra": dict(block, **{pin: engines})})
                 self.assertTrue(caught(check_examples._readers(own), "the reader astra is of the Engine's own family"), (pin, engines))
 
