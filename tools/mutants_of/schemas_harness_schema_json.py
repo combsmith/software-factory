@@ -12,4 +12,7 @@ MUTANTS = [
     ("the day's ceiling may be nought", 'schemas/harness.schema.json',
      '"type": "number",\n      "minimum": 0.01,\n      "maximum": 10000',
      '"type": "number",\n      "minimum": 0,\n      "maximum": 10000', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
+    ("a reader's model is held to lower case", 'schemas/harness.schema.json',
+     '"pattern": "^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$"',
+     '"pattern": "^[a-z0-9][a-z0-9.-]{0,127}$"', ('tests.test_tools.Repo.test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else',)),
 ]

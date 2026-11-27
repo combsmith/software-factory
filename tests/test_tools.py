@@ -3474,6 +3474,11 @@ class Repo(unittest.TestCase):
             odd = dict(harness, advisory=["coderabbit", name], readers={name: block})
             self.assertTrue(caught(check_examples._readers(odd), "has a name advice/1 cannot hold"), name)
         self.assertEqual(check_examples._readers(dict(harness, advisory=["a" * 31], readers={"a" * 31: block})), [])
+        # A reader is a second family: one of the Engine's own family, by its model or its deployment, is refused.
+        for pin in ("model", "deployment"):
+            for engines in ("claude-" + "opus-5-5", "Claude-Reader"):
+                own = dict(named, readers={"astra": dict(block, **{pin: engines})})
+                self.assertTrue(caught(check_examples._readers(own), "the reader astra is of the Engine's own family"), (pin, engines))
 
         def run_on(config: dict) -> list:
             return check_examples.run(clone({"config/harness.json": json.dumps(config)}))
@@ -3485,7 +3490,7 @@ class Repo(unittest.TestCase):
         # it has no default: the pin's file holds none until a person writes one, and nought is no figure.
         self.assertNotIn("advisory_ceiling_usd_per_day", schema["required"])
         self.assertEqual(validate(dict(named, advisory_ceiling_usd_per_day=30), schema), [])
-        for figure in (0, -1, 0.001, "30", None, True, 10001, float("inf")):
+        for figure in (0, -1, 0.001, "30", None, True, 10001, float("inf"), float("nan")):
             self.assertTrue(validate(dict(named, advisory_ceiling_usd_per_day=figure), schema), figure)
         self.assertTrue(validate(dict(named, readers={"astra": dict(block, advisory_ceiling_usd_per_day=30)}), schema))
         self.assertTrue(validate(dict(named, readers={"astra": dict(block, ceiling_usd_per_day=30)}), schema))
@@ -3527,7 +3532,14 @@ class Repo(unittest.TestCase):
                      {"reader": {"astra": {"model": model}}}, {"readers": {"astra": {"model": model, "api": name}}},
                      {"engine": {"model": name, "readers": {"astra": {"model": model}}}}):
             self.assertEqual(problems(config(**more)), ["examples/invalid/harness.a-copy.json" + misplaced], more)
-            self.assertTrue(any(p.startswith("config/harness.json: names a model") for p in problems(config(), config(**more))), more)
+            # In the pin's file a block that holds no pin of either kind leaves no reader pinned, so each of their
+            # names is a model named by its full id; where both pins stand, the name is refused for its path.
+            readers = more.get("readers", {"astra": {}})
+            intact = isinstance(readers, dict) and all(isinstance(b, dict) and not {"model", "deployment"} - set(b)
+                                                       and all(type(b[k]) is str for k in ("model", "deployment"))
+                                                       for b in readers.values()) or "readers" not in more
+            pinned_file = [p for p in problems(config(), config(**more)) if p.startswith("config/harness.json")]
+            self.assertEqual(pinned_file, ["config/harness.json" + (misplaced if intact else full)], more)
         # A name is read at its path as the file is read, not as it is written: one written with an escape, which the
         # text does not show, is refused where it is no pin, and the Engine's pin is no reader's.
         escaped = config().replace('"model": "%s"' % model, '"model": "gpt-\\u0036-other"')
@@ -3537,6 +3549,13 @@ class Repo(unittest.TestCase):
                          ["examples/invalid/harness.a-copy.json" + misplaced])
         self.assertEqual(problems(config(engine={"model": model})), ["examples/invalid/harness.a-copy.json" + misplaced])
         self.assertEqual(problems("[" * 100000), [])
+        # One that is JSON but nested too deep to walk is read as one that is no JSON, never a crash of the check; a
+        # pin's file nested too deep to read pins nothing.
+        self.assertIn("config/harness.json" + full, check_repo.run(tree({"config/harness.json": "[" * 100000 + json.dumps(model)})))
+        self.assertEqual(problems("[" * 1200 + "1" + "]" * 1200), [])
+        with mock.patch.object(check_repo, "_named_at", side_effect=RecursionError):
+            self.assertEqual(problems(config()), ["config/harness.json" + misplaced, "examples/invalid/harness.a-copy.json" + misplaced])
+            self.assertEqual(problems('{"engine": {"model": "%s"}}' % name, json.dumps({"engine": {"model": name}})), [])
         # A copy that cannot be read as JSON has no paths, so it copies no reader's pin; the Engine's it may, as before.
         self.assertEqual(problems('{"engine": {"model": "%s"}' % name), [])
         self.assertEqual(problems('{"readers": {"astra": {"model": "%s"}}' % model), ["examples/invalid/harness.a-copy.json" + misplaced])
@@ -3550,6 +3569,8 @@ class Repo(unittest.TestCase):
                   "seconds": 900, "usd_per_million": {"input": 2.5, "output": 20}}
         self.assertEqual(validate(dict(whole, readers={"astra": reader, "kimi": dict(reader, api="chat")}), schema), [])
         self.assertEqual(validate(dict(whole, readers={}), schema), [])
+        # A model is pinned as its vendor writes it, capitals and all (trial P-75).
+        self.assertEqual(validate(dict(whole, readers={"kimi": dict(reader, api="chat", model="Kimi-Model-3.1")}), schema), [])
         for change in ({"host": "example.com"}, {"host": "factory.openai.azure.com:8443"}, {"host": "a.b.openai.azure.com"},
                        {"deployment": "a deployment"}, {"model": "A Model"}, {"api": "assistants"}, {"effort": "max"},
                        {"effort": {"critical": "max"}}, {"effort": {"critical": "most", "elsewhere": "xhigh"}}, {"output_tokens": 0},
@@ -3558,6 +3579,7 @@ class Repo(unittest.TestCase):
                        {"usd_per_million": {"input": 2.5, "output": -1}}, {"usd_per_million": {"input": 0, "output": 20}},
                        {"usd_per_million": {"input": 2.5, "output": 0}}, {"usd_per_million": {"input": 2.5, "output": 10001}},
                        {"usd_per_million": {"input": 10001, "output": 20}}, {"output_tokens": 1000001},
+                       {"usd_per_million": {"input": float("nan"), "output": 20}},
                        {"prompt_characters": 10000001}):
             self.assertTrue(validate(dict(whole, readers={"astra": dict(reader, **change)}), schema), change)
         for field in reader:

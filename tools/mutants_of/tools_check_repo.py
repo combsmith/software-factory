@@ -191,4 +191,13 @@ MUTANTS = [
     ('a file nested past reading ends the check', 'tools/check_repo.py',
      '    except (ValueError, RecursionError):\n        return bool(models_named(text) & readers)\n',
      '    except ValueError:\n        return bool(models_named(text) & readers)\n', ('tests.test_tools.Repo.test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else',)),
+    ("a pin's file nested too deep to read ends the check", 'tools/check_repo.py',
+     'AttributeError, RecursionError):\n        return set()\n',
+     'AttributeError):\n        return set()\n', ('tests.test_tools.Repo.test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else',)),
+    ("the Engine's pin in a file nested too deep ends the check", 'tools/check_repo.py',
+     '    except (OSError, ValueError, KeyError, TypeError, RecursionError):\n        return None\n',
+     '    except (OSError, ValueError, KeyError, TypeError):\n        return None\n', ('tests.test_tools.Repo.test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else',)),
+    ("a copy nested too deep to walk ends the check", 'tools/check_repo.py',
+     '                   for path, value in _named_at(json.loads(text)))\n    except (ValueError, RecursionError):\n',
+     '                   for path, value in _named_at(json.loads(text)))\n    except ValueError:\n', ('tests.test_tools.Repo.test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else',)),
 ]

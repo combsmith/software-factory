@@ -251,4 +251,13 @@ MUTANTS = [
     ("a counter-example of the pin's file is not held to its readers' names", 'tools/check_examples.py',
      '        if kind == "harness" and not errors:\n            errors = _readers(value)\n        if not errors:\n',
      '        if not errors:\n', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
+    ("a reader may be of the Engine's own family", 'tools/check_examples.py',
+     '        elif any(str(harness["readers"][name].get(pin, "")).casefold().startswith("claude") for pin in ("model", "deployment")):\n',
+     '        elif False:\n', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
+    ("a reader's deployment may be of the Engine's own family", 'tools/check_examples.py',
+     '.casefold().startswith("claude") for pin in ("model", "deployment")):',
+     '.casefold().startswith("claude") for pin in ("model",)):', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
+    ("a reader of the Engine's family is told by its case", 'tools/check_examples.py',
+     '.get(pin, "")).casefold().startswith("claude")',
+     '.get(pin, "")).startswith("claude")', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
 ]

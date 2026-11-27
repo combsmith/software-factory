@@ -338,13 +338,16 @@ def _table(feed, decision_schema) -> list:
 
 def _readers(harness) -> list:
     """What harness/1 cannot say of its readers, since a schema here has no rule on a key: each is an advisory Lens of
-    the same file, by a name advice/1 can hold (decision 0224)."""
+    the same file, by a name advice/1 can hold, and of another family than the Engine's (decision 0224)."""
     out = []
     for name in sorted(harness.get("readers", {})):
         if name not in harness["advisory"]:
             out.append("harness: the reader %s is no advisory Lens; name it under advisory, or take its block out" % name)
         elif not re.fullmatch(r"[a-z]{1,31}", name):
             out.append("harness: the reader %s has a name advice/1 cannot hold: letters alone, 31 at most" % name)
+        elif any(str(harness["readers"][name].get(pin, "")).casefold().startswith("claude") for pin in ("model", "deployment")):
+            # A second family's read is never the Engine's own family's (decision 0224).
+            out.append("harness: the reader %s is of the Engine's own family; an advisory Lens reads with a second family" % name)
     return out
 
 
