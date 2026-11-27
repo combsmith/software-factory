@@ -2142,6 +2142,8 @@ class Settings(unittest.TestCase):
             "an item among the jobs": SCAN + "  - runs-on: x\n    steps:\n      - name: x\n" + SCAN_STEP,
             "a checkout of another commit": changed(CHECKOUT_WITH, CHECKOUT_WITH + "          ref: refs/pull/1/head\n"),
             "a key and its colon run together": changed("    name: SonarCloud\n", "    name:SonarCloud\n"),
+            "an empty key": changed("    name: SonarCloud\n", "    name: SonarCloud\n    : x\n"),
+            "an empty job key": SCAN + "  :\n    runs-on: x\n    steps:\n      - name: x\n" + SCAN_STEP,
             "a line of no key": changed("    name: SonarCloud\n", "    name: SonarCloud\n    stray\n"),
             "a kid off its column": changed("      contents: read\n", "      contents: read\n     x: y\n"),
             "a job named in quotes": SCAN + "  \"other\":\n    runs-on: x\n    steps:\n      - name: x\n" + SCAN_STEP,

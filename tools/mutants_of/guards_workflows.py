@@ -69,6 +69,9 @@ MUTANTS = [
     ("a key of any spelling is read", 'guards/workflows.py',
      ' and (not key or any(c not in KEY for c in key))',
      ' and not key', UNNAMED),
+    ("an empty key is read", 'guards/workflows.py',
+     ' and (not key or any(c not in KEY for c in key))',
+     ' and (any(c not in KEY for c in key))', UNNAMED),       # Carbon
     ("a mark may begin a value", 'guards/workflows.py',
      '    return None if first and first in MARKS else plain\n',
      '    return plain\n', UNNAMED),
