@@ -30,6 +30,7 @@ CONFIG = dict(json.loads((ROOT / "config" / "defaults.json").read_text()), lifec
               protected_paths=protected.protected_paths())
 CONFIG["model_lens_inputs"] = protected.model_lens_inputs(CONFIG["required_lenses"]["model"])
 CONFIG["person_only_paths"] = configuration.person_only(protected.load(), CONFIG["required_lenses"]["model"])
+CONFIG["pushers"] = configuration.pushers(ROOT)
 # The world models the Factory once its author Role exists, as the authority table names it: the live configuration
 # names none until roles/dev-lead.json does, and defers each fix to a person meanwhile (issue 675).
 CONFIG["author_role"] = json.loads((ROOT / "config" / "authority.json").read_text())["author_role"]
@@ -510,7 +511,7 @@ class World:
         """What the Controller knows beside the facts. Every Run is named here; a pass may read one unnamed (UNNAMED)."""
         active = len([r for r in self.runs if r["status"] != "completed"])
         ctx = {"paused": False, "active_runs": active, "model_deferred_until": None,
-               "passes_since": self.at(self.chain), "unidentified_runs": []}
+               "passes_since": self.at(self.chain), "unidentified_runs": [], "github_deferred": []}
         if self.pausing():
             # GitHub: the_pause_is_read_with_the_controllers_token
             if self.pause_reading is None:
