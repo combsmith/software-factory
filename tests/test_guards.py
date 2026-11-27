@@ -1759,7 +1759,7 @@ class Opening(unittest.TestCase):
         # What shows nothing alone is blank: each default-ignorable character, the first and the last of each range,
         # and the Braille blank. Inside a word, as an emoji's joiner or its variation selector is, it is text, and so
         # are the characters either side of the tags.
-        blanks = [c for pair in patch.IGNORABLE for c in pair] + ["\u2800", " \u200b\u200d ", "\ufe0f\u2800"]
+        blanks = [c for pair in patch.IGNORABLE for c in pair] + ["\u2800", "\u180f", " \u200b\u200d ", "\ufe0f\u2800"]
         for blank in blanks:
             self.assertEqual(draft(title=blank), opening.UNREADABLE, repr(blank))
             self.assertEqual(draft(body=blank), opening.UNREADABLE, repr(blank))
@@ -1806,12 +1806,18 @@ class Opening(unittest.TestCase):
         # A dot segment a browser takes out leads where its path without it does, a backslash read as a slash.
         self.assertEach(opening.LINKS, ["https://github.com/o/r/issues/./12", "https://github.com/o/r/pull/x/../3",
                                         "www.github.com/o/r/issues/./1", "issues\\.\\12", "a/./b", "a/./.github",
-                                        "x/..", "x/.. y", "x/. y"])
+                                        "x/..", "x/.. y", "x/. y", "https://example.test/a/..?view=1", "a/.?b"])
         self.assertNone(["see ../docs", "./run.sh", "a.b/c", "e.g. a/b", "a/.../b", "a/.b", "a/..b"])
         # A character that folds to letters joins no keyword to a longer word.
         self.assertEach(opening.CLOSES, ["\u212afixes it", "\u00dffixes it", "\u017fclose it", "\u212aFIXES",
                                          "\u212a\ufb01xes", "\u212aclo\\sed", "fix\u212a"])
         self.assertNone(["pre\ufb01x", "\ufb01xture"])
+        # A path folded in case reads as its letters: two long s are `ss`; and a path's slashes are taken out.
+        self.assertEach(opening.LINKS, ["i\u017f\u017fues/12", "pu/ll2"])
+        # A mention or a keyword on a later line, and a digit before a keyword, which joins it to no word.
+        self.assertEqual(draft(body="Summary\n\ncc @reader"), opening.MENTIONS)
+        self.assertEqual(draft(body="Summary\n\nIt fixes that."), opening.CLOSES)
+        self.assertEach(opening.CLOSES, ["2fix", "_fixes"])
         # The first of a mark's places may be harmless and a later one not.
         self.assertEach(opening.LINKS, ["See #notes, then #12", "GH-x, GH-1", "issues/x issues/1"])
         self.assertEach(opening.MENTIONS, ["the sign @, then @a"] + ["@" + c for c in opening.LETTERS + opening.UPPER])

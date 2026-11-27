@@ -37,4 +37,4 @@ A guard binds the Role that writes this repo's code. So it lives here, never in 
 | The tree's listing is the port's, marked whole, at the tree the commit names | `tests/test_guards.py::test_a_listing_the_port_did_not_mark_whole_or_read_at_another_tree_is_refused` |
 | Every stop of a read gives the code of its class | `tests/test_guards.py::test_each_read_says_whose_a_stop_is` |
 | A push writes after its reads, a blob of each content once, then one tree | `tests/test_guards.py::test_nothing_is_written_before_the_branch_and_the_listing_were_read`, `tests/test_guards.py::test_the_one_tree_names_exactly_the_changes_by_the_blobs_made` |
-| A draft's title and body are text read as GitHub renders it, and link no issue, mention no one, close nothing | `tests/test_guards.py::test_a_drafts_title_and_body_are_text_this_reads`, `tests/test_guards.py::test_a_draft_links_mentions_and_closes_nothing` |
+| A draft's title and body, as GitHub renders them, link no issue by its syntax, mention no one, close nothing | `tests/test_guards.py::test_a_drafts_title_and_body_are_text_this_reads`, `tests/test_guards.py::test_a_draft_links_mentions_and_closes_nothing` |

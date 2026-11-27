@@ -11,7 +11,7 @@ the draft, and the Result's text links nothing, mentions no one and closes nothi
     U+DFFF, which is no character, so no UTF-8 can carry it to GitHub; a title that is empty or blank, or holds a
     line break, a tab or another control character; a body that is empty or blank, or holds a control character
     but a line break or a tab; a title or a body of characters that show nothing alone: Unicode's default-ignorable
-    ones, as `guards/patch.py`'s `IGNORABLE` lists them, and the Braille blank U+2800; a bidi control, U+200E,
+    ones, as `guards/patch.py`'s `IGNORABLE` lists them, U+180F, and the Braille blank U+2800; a bidi control, U+200E,
     U+200F, U+061C, U+202A to U+202E or U+2066 to U+2069, or a format control of their kind, U+206A to U+206F or
     U+FFF9 to U+FFFB, anywhere, which shows text in an order or a shape other than its own, or hides it; a tag
     character, U+E0000 to U+E007F, anywhere, an ASCII character that shows nothing, so text of them is hidden; or text
@@ -19,10 +19,10 @@ the draft, and the Result's text links nothing, mentions no one and closes nothi
     percent-escape (`%` before a hex digit) or raw HTML (`<` before a letter, `/`, `!` or `?`).
   - `LINKS`: a reference GitHub could read as a link to an issue, a pull request or a discussion: `#` before a digit,
     so also `owner/repo#12`; `GH-` before a digit; a path whose part `issue`, `issues`, `pull`, `pulls` or
-    `discussions` is followed by a digit, whatever its host or scheme; a dot segment, `.` or `..` after a slash, which a
-    browser takes out of a path, so `issues/x/../12` leads to issue 12; a Markdown link or image, inline (`](`) or by a
-    reference or a footnote (`]:`), whose target may be relative: on a pull request's page, `[see](12)` is a link to
-    pull request 12.
+    `discussions` is followed by a digit, whatever its host or scheme; a dot segment, `.` or `..` after a slash and
+    before a space, a slash or a query, which a browser takes out of a path, so `issues/x/../12` leads to issue 12; a
+    Markdown link or image, inline (`](`) or by a reference or a footnote (`]:`), whose target may be relative: on a
+    pull request's page, `[see](12)` is a link to pull request 12.
   - `MENTIONS`: `@` before a character a GitHub login may begin with, a letter or a digit.
   - `CLOSES`: a closing keyword as a word of its own: close, closes, closed, fix, fixes, fixed, resolve, resolves or
     resolved, in any case.
@@ -59,6 +59,11 @@ Its stated limits:
   mention, so a full-width number sign before a digit is let through.
 - That `apply`'s own line reads as written is `apply`'s, and not this guard's: written after the Result's text, an
   unclosed code fence there would make it code; written before, nothing that follows changes how it reads.
+- Blank is read of characters, not of what Markdown renders: a body of its marks alone, `#`, `**` or `-`, with or
+  without what shows nothing between them, is let through. It links, mentions and closes nothing.
+- A variation selector inside text is let through, as an emoji needs one, and so is a run of them, which may carry
+  bytes no one sees: what shows is all a reader of the page is given, and a model that reads the body is the
+  reader's to bound.
 - How long a title and a body may be is `effect/1`'s schema's to bound: a guard writes no number. The issue's
   `(#N)` after the title is `apply`'s too, and so is refusing a title too long to carry it.
 
@@ -82,8 +87,9 @@ CONTROL = ("\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0b\x0c\r\x0e\x0f\x10\x11\x12\x
            # and the format controls of the same kind: how brackets mirror and digits are shaped, and the marks of an
            # annotation a renderer may hide.
            "\u206a\u206b\u206c\u206d\u206e\u206f\ufff9\ufffa\ufffb")
-# What shows nothing alone, beside white space and `guards/patch.py`'s `IGNORABLE`: a title or a body of these is blank.
-INVISIBLE = "\u2800"
+# What shows nothing alone, beside white space and `guards/patch.py`'s `IGNORABLE` (Unicode 13.0's): Unicode 14.0's
+# fourth Mongolian variation selector, and the Braille blank. A title or a body of these is blank.
+INVISIBLE = "\u180f\u2800"
 # Unicode's tag characters, first and last: each is an ASCII character that shows nothing, so text of them is hidden.
 TAG_FIRST = "\U000e0000"
 TAG_LAST = "\U000e007f"
@@ -133,7 +139,7 @@ def _links(text: str) -> bool:
     path = "/".join(text.split("\\"))
     return (_follows(text, "#", DIGITS) or _follows(text, "gh-", DIGITS) or "](" in text or "]:" in text
             or any(_follows(bare, segment, DIGITS) for segment in SEGMENTS)
-            or any(part.split()[:1] in ([".."], ["."]) for part in path.split("/")[1:]))
+            or any(part.split("?")[0].split()[:1] in ([".."], ["."]) for part in path.split("/")[1:]))
 
 
 def _seen(said: str) -> list:
