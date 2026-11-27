@@ -3556,6 +3556,8 @@ class Advisory(unittest.TestCase):
                        {"advisory_ceiling_usd_per_day": -30}, {"advisory_worst_case_usd": -2},
                        {"advisory_ceiling_usd_per_day": 10 ** 400}, {"advisory_ceiling_usd_per_day": 10001},
                        {"advisory_worst_case_usd": 5e-324}, {"advisory_worst_case_usd": 0.009},
+                       {"advisory_ceiling_usd_per_day": 10000.0000004}, {"advisory_worst_case_usd": 0.0099999996},
+                       {"advisory_worst_case_usd": float("inf")}, {"advisory_worst_case_usd": 10 ** 400},
                        {"readers": {}}, {"readers": None}, {"readers": True}, {"readers": ["astra"]}, {"readers": "astra"},
                        {"readers": {"astra": None}}, {"readers": {"astra": {}, "kimi": "kimi"}}):
             self.assertIs(advisory.admits([], True, now, dict(harness, **change)), False, change)
@@ -3582,7 +3584,8 @@ class Advisory(unittest.TestCase):
         spent_ = [ran(advisory_asks=1, advisory_cost_usd=100)]
         for when in ("20261118T130000Z", "1795006800", " 2026-11-18T13:00:00Z", "2026-11-19T01:00:00+02:00", "", "2026-11",
                      "2026-02-30T12:00:00Z", "2026-11-18T24:00:00Z", "2026-13-01T00:00:00Z", "2026-11-18T13:00:00Zx",
-                     "2026-11-18T13:00:00Z\n", "2026-11-18T13:00:00.5Z",
+                     "2026-11-18T13:00:00Z\n", "2026-11-18T13:00:00.5Z", "2026-11-1\uff18T13:00:00Z", "2026-11-18 13:00:00Z",
+                     "2026-11- 8T13:00:00Z",
                      None, 1795006800, b"2026-11-18T13:00:00Z"):
             self.assertIs(advisory.admits([], True, when, harness), False, when)
             self.assertIs(advisory.admits(spent_, True, when, harness), False, when)
@@ -3592,13 +3595,16 @@ class Advisory(unittest.TestCase):
             self.assertIs(advisory.admits(odd, True, now, harness), False, odd)
         self.assertIs(advisory.admits([None] * 15, True, now, harness), False)
         self.assertIs(advisory.admits([ran(advisory_asks=1, advisory_cost_usd=10 ** 400)] * 15, True, now, harness), False)
+        self.assertIs(advisory.admits([ran(advisory_asks=1, advisory_cost_usd=10 ** 400)], True, now,
+                                      dict(harness, advisory_ceiling_usd_per_day=10000, advisory_worst_case_usd=0.01)), False)
         # The schemas hold the three places the answer and its figures lie.
         from controller import shared as held
         from tools.jsonschema_lite import validate
         harness_schema, record, entry = (held.SCHEMAS["harness"]["properties"], held.SCHEMAS["run-record"],
                                          held.SCHEMAS["pass"]["properties"]["pull_requests"]["items"])
         self.assertNotIn("advisory_worst_case_usd", held.SCHEMAS["harness"]["required"])
-        for figure, ok in ((1.91, True), (0, False), (-1, False), ("2", False), (None, False), (10001, False)):
+        for figure, ok in ((1.91, True), (0, False), (-1, False), ("2", False), (None, False), (10001, False),
+                           (0.01, True), (0.009, False), (10000, True)):
             self.assertEqual(validate(figure, harness_schema["advisory_worst_case_usd"]) == [], ok, figure)
         example = json.loads((ROOT / "examples" / "pass.json").read_text())["runs"][0]
         self.assertEqual(validate(dict(example, advisory_asks=2, advisory_cost_usd=1.42), record, schemas=held.SCHEMAS), [])
