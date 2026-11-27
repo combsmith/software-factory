@@ -36,7 +36,8 @@ failure, or GitHub's limit on the token; or none's, `superseded`, where someone 
 
 `harness/push.py`, by hand, owes this port: every request sent by `transport`'s sender; its writers in
 `tools/check_writes.py`'s CALLERS; one request given unchanged to `permits` and `send`; `content` asked for the name
-the admitted tree's listing gives; and P-71 replayed through `send` into `seen`.
+the admitted tree's listing gives; the branch read again after a branch write's 422, which `seen` judges; and P-71
+replayed through `send` into `seen`.
 """
 from __future__ import annotations
 

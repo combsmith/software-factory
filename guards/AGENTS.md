@@ -1,6 +1,6 @@
 # guards/
 
-Pure guards on a Role's own writes: each says what such a write may land, or a code for why not. `patch.py` applies a Role's patch byte for byte. `push.py` holds a push up to its tree. `opening.py` keeps a draft from linking; the rest is to come.
+Pure guards on a Role's own writes: each says what a write may land, or a code for why not. `patch.py` applies a patch byte for byte. `push.py` holds a push through to the branch read again. `opening.py` keeps a draft from linking; the rest is to come.
 A guard binds the Role that writes this repo's code. So it lives here, never in `kernel/` or `adapters/`, where that Role may push; a port hands a guard what it read, and the Harness calls it. A guard reads nothing itself.
 
 | Rule | Held by |
@@ -35,6 +35,6 @@ A guard binds the Role that writes this repo's code. So it lives here, never in 
 | A push reads its branch, its commit, the commit's tree and any of its files, once each and in order | `tests/test_guards.py::test_a_push_reads_its_branch_commit_tree_and_files_once_each_in_order` |
 | The tree's listing is the port's, marked whole, at the tree the commit names | `tests/test_guards.py::test_a_listing_the_port_did_not_mark_whole_or_read_at_another_tree_is_refused` |
 | Every stop of a read or a write gives the code of its class: a 429 its own, a write's 401 the port's | `tests/test_guards.py::test_each_read_says_whose_a_stop_is`, `tests/test_guards.py::test_each_write_says_whose_a_stop_is` |
-| Writes may start after the branch and the listing were read, and a write ends the reads | `tests/test_guards.py::test_nothing_is_written_before_the_branch_and_the_listing_were_read` |
+| Writes follow and end the branch and listing reads; tree, commit and branch read back | `tests/test_guards.py::test_nothing_is_written_before_the_branch_and_the_listing_were_read`, `tests/test_guards.py::test_a_push_lands_its_commit_and_branch_read_back` |
 | One blob of each written content, and one tree naming exactly the changes | `tests/test_guards.py::test_a_blob_is_made_once_of_each_written_content`, `tests/test_guards.py::test_the_one_tree_names_exactly_the_changes_by_the_blobs_made` |
 | A draft's title and body, as GitHub renders them, link no issue by its syntax, mention no one, close nothing | `tests/test_guards.py::test_a_drafts_title_and_body_are_text_this_reads`, `tests/test_guards.py::test_a_draft_links_mentions_and_closes_nothing` |
