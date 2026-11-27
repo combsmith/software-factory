@@ -7997,6 +7997,13 @@ class Linked(unittest.TestCase):
         got = linked.listing(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router),
                              {26: [{"seen_at": minute(1), "gone_at": None}]})
         self.assertEqual((got[0], got[1], got[3]), ([], False, True))
+        # So does a closer of the present life that no reference names now; one of a life before counts nothing (issue 1179).
+        router = Router(github.Replay([linked_read(ref(*range(1, 26)), [closed_by(5, 26)])]), {})
+        got = linked.listing(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), {})
+        self.assertEqual((got[0], got[1], got[3]), ([], False, True))
+        router = Router(github.Replay([linked_read(ref(*range(1, 26)), [closed_by(-90, 26)])] + many(25)[1:]), {})
+        got = linked.listing(router, "o/r", 41, UPDATED, CREATED, IDENTITIES, self.accounts(router), {})
+        self.assertEqual((len(got[0]), got[1], got[3]), (25, True, False))
         # One pull request's timeline cut, another's whole: both are read and listed, the list cut (Astra).
         cut_pages = [pull_timeline(5, [issue_event("commented", 1)], more=True)] + [
             rest_answer("/repos/o/r/issues/5/timeline?per_page=100&page=%d" % n, [issue_event("commented", n)],
