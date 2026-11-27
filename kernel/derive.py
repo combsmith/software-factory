@@ -1298,9 +1298,9 @@ def reading(facts: dict, runs: list, config: dict, past: tuple) -> dict:
     if facts.get("timeline_bounded") is True:
         return {"state": None, "reason": "timeline_bounded", "evidence": cut_reads(facts)}
     gaps = incomplete(facts)
-    if facts.get("acceptance_bounded", False) is not False and "acceptance" not in gaps:
-        gaps = ["acceptance"] + gaps
     if facts.get("closes_another_issue", False) is not False and "acceptance" not in gaps:
+        gaps = ["acceptance"] + gaps
+    if facts.get("acceptance_bounded", False) is not False and "acceptance" not in gaps:
         gaps = ["acceptance"] + gaps
     if facts.get("timeline_bounded", False) is not False:
         cut = cut_reads(facts)
