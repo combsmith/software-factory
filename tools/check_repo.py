@@ -145,7 +145,7 @@ CODEOWNERS_SHA256 = "64da42e5c2edba9d9c92680f5b106be149ed4c5336b2b2e5c0beeec9340
 PYTHON = (3, 9)    # the oldest Python this must run on; newer syntax is refused, as far as this interpreter can tell
 # Named in documents only. No code or data reaches into the proof-of-concept repo.
 FOREIGN = ".github-" + "private"
-# A model is named in one place, the Engine's pin, and nowhere else but the documents. The pin's file names that model and
+# A model is named in the pin's file, by the Engine's pin and its readers' (below), and nowhere else but the documents. The pin's file names that model and
 # no other, and the counter-examples of its schema copy it and name no other either (L-34).
 MODEL_ID = re.compile(r"claude-[a-z0-9.-]*\d|gpt-\d[\w.-]*|gemini-\d[\w.-]*")
 # A model as a file names it: a run of the characters a name is joined to on either side, with any suffix in brackets,
@@ -192,6 +192,11 @@ def models_named(text: str) -> set:
 
 
 PIN = "config/harness.json"
+# Decision 0224 lists a second place a model is named: the block of each advisory Lens's reader in the same file, its
+# `model` and its `deployment`, which is a model's name too where Azure names a deployment after one. So a pin's file
+# and its copies may name a model at three paths and no other: `engine.model`, `readers.<lens>.model` and
+# `readers.<lens>.deployment`.
+READERS, READER_PINS = "readers", ("model", "deployment")
 # A pin is a full id, as `schemas/harness.schema.json` holds it; any other string pins nothing.
 PIN_FORM = re.compile(r"claude-[a-z]+(-[0-9]+)+")
 PIN_COPIES = re.compile(r"\A(config/harness|examples/invalid/harness\.[a-z0-9-]+)\.json\Z")
@@ -309,9 +314,47 @@ def _pinned(root: pathlib.Path):
     return model if isinstance(model, str) and PIN_FORM.fullmatch(model) else None
 
 
+def _reader_pins(root: pathlib.Path) -> set:
+    """What the pin's file names as its readers' models and deployments, or nothing where it cannot be read."""
+    try:
+        readers = json.loads((root / PIN).read_text()).get(READERS, {})
+        return {block[name] for block in readers.values() for name in READER_PINS if isinstance(block[name], str)}
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return set()
+
+
+def _named_at(value, path: tuple = ()):
+    """The path of each string of a JSON value, a key or a text, that names a model."""
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if models_named(key):
+                yield path + (key, None), key
+            yield from _named_at(item, path + (key,))
+    elif isinstance(value, list):
+        for item in value:
+            yield from _named_at(item, path + (None,))
+    elif isinstance(value, str) and models_named(value):
+        yield path, value
+
+
+def _misplaced(text: str, readers: set, pinned) -> bool:
+    """Whether a pin's file, or a copy, names a model anywhere but at the three paths, or names there, as the file is
+    read and not as it is written, one that is no pin: an escape in a string is read here, where the text is not. One
+    that cannot be read as JSON has no paths, so it may copy no reader's pin at all."""
+    try:
+        data = json.loads(text)
+    except (ValueError, RecursionError):
+        return bool(models_named(text) & readers)
+    return any(not (path == ("engine", "model") and value == pinned)
+               and not (len(path) == 3 and path[0] == READERS and type(path[1]) is str and path[2] in READER_PINS
+                        and value in readers)
+               for path, value in _named_at(data))
+
+
 def run(root: pathlib.Path = ROOT) -> list:
     problems = []
     pinned = _pinned(root)
+    readers = _reader_pins(root)
     ignore = root / ".gitignore"
     block = BASELINE.search(ignore.read_text(errors="replace")) if ignore.exists() else None
     if block is None:
@@ -375,9 +418,12 @@ def run(root: pathlib.Path = ROOT) -> list:
         recorded = len(rel.parts) == 2 and rel.parts[0] == "trials" and path.suffix == ".json"
         # A model is read for in every file, whatever it is called, as a credential is (Muse's read of 1762f89), but
         # not in docs/ or a fixture, which may name one, so neither is read for it at all (Argon's read of 1762f89).
+        named = models_named(text) - (readers if PIN_COPIES.match(rel.as_posix()) else set())
         if rel.parts[0] != "docs" and not recorded and \
-                models_named(text) - ({pinned} if PIN_COPIES.match(rel.as_posix()) else set()):
+                named - ({pinned} if PIN_COPIES.match(rel.as_posix()) else set()):
             problems.append("%s: names a model by its full id" % rel)
+        elif PIN_COPIES.match(rel.as_posix()) and _misplaced(text, readers, pinned):
+            problems.append("%s: names a model outside the Engine's pin and a reader's model and deployment" % rel)
         if path.suffix not in TEXT:
             continue
         if path.suffix != ".md" and FOREIGN in text and not recorded:

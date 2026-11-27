@@ -1077,6 +1077,11 @@ class Parser(unittest.TestCase):
         for answer, reason in chats:
             status = "failed" if reason in ("unparsed", "not_the_model") else "incomplete"
             self.assertEqual(outcome(answer, KIMI), (status, reason, 0), (reason, answer))
+        # A model is named as its vendor writes it, capitals and all (trial P-75: Kimi-K3.1), and compared exactly.
+        pinned = dict(KIMI, model="Kimi-K3.1")
+        self.assertEqual(read(chatted(said(), model="Kimi-K3.1"), pinned)["status"], "completed")
+        self.assertEqual(read(chatted(said(), model="Kimi-K3.1"), pinned)["usage"]["answering_model"], "Kimi-K3.1")
+        self.assertEqual(outcome(chatted(said(), model="kimi-k3.1"), pinned), ("failed", "not_the_model", 0))
         # A number too long to be a count or a line is refused as it is read, and findings past the most an answer may
         # hold never reach the validator, which would write an error for each: neither costs what its size would.
         with mock.patch.object(advice, "_whole", wraps=advice._whole) as counted:
