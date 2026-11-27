@@ -3466,6 +3466,10 @@ class Advisory(unittest.TestCase):
             self.assertEqual(advisory.counted(record, 2), counts, record)
         for attempt in (1, 0, -2, 101, True, "2", 2.0, [2]):
             self.assertEqual(advisory.counted(ran(advisory_asks=1, advisory_cost_usd=0.5, advisory_attempt=attempt), 2), 198.5, attempt)
+        # A record that names who re-ran it is a re-run's: with no attempt named, it cannot show it is a first.
+        for rerun in (True, False, None):
+            self.assertEqual(advisory.counted(ran(advisory_asks=1, advisory_cost_usd=0.5, rerun_by_dispatcher=rerun), 2), 198.5, rerun)
+        self.assertEqual(advisory.counted(ran(advisory_asks=1, advisory_cost_usd=0.5, rerun_by_dispatcher=False, advisory_attempt=2), 2), 2.5)
         # The day is the UTC date of the pass's now. A review Run that started on another day counts nothing, and so does
         # a Run of another Intent; one whose start cannot be read is not shown to be another day's, and counts.
         records = [ran(advisory_asks=1, advisory_cost_usd=1.5), ran("2026-11-18T00:00:00Z", advisory_asks=1, advisory_cost_usd=0.25),
@@ -3535,6 +3539,13 @@ class Advisory(unittest.TestCase):
         flying = ran(status="in_progress")
         self.assertIs(advisory.admits([flying] * 14, True, now, harness), True)
         self.assertIs(advisory.admits([flying] * 15, True, now, harness), False)
+        # One in flight since yesterday counts on today's sum, and the day's sum is rounded to a millionth, not cut.
+        self.assertIs(advisory.admits([ran("2026-11-17T22:00:00Z", status="in_progress")], True, now,
+                                      dict(harness, advisory_ceiling_usd_per_day=2, advisory_worst_case_usd=2)), False)
+        self.assertIs(advisory.admits([flying], True, now,
+                                      dict(harness, advisory_ceiling_usd_per_day=2.000001, advisory_worst_case_usd=1.0000006)), False)
+        self.assertIs(advisory.admits([flying], True, now,
+                                      dict(harness, advisory_ceiling_usd_per_day=2.000002, advisory_worst_case_usd=1.0000006)), True)
         self.assertIs(advisory.admits([ran(status="in_progress", advisory_asks=1, advisory_cost_usd=0.01)] * 15, True, now, harness), False)
         # Neither figure has a default: with no ceiling, no worst case, or one that is no figure its schema would hold,
         # the answer is no; and with no reader, or readers that are no object of them.
@@ -3545,14 +3556,20 @@ class Advisory(unittest.TestCase):
                        {"advisory_ceiling_usd_per_day": -30}, {"advisory_worst_case_usd": -2},
                        {"advisory_ceiling_usd_per_day": 10 ** 400}, {"advisory_ceiling_usd_per_day": 10001},
                        {"advisory_worst_case_usd": 5e-324}, {"advisory_worst_case_usd": 0.009},
-                       {"readers": {}}, {"readers": None}, {"readers": True}, {"readers": ["astra"]}, {"readers": "astra"}):
+                       {"readers": {}}, {"readers": None}, {"readers": True}, {"readers": ["astra"]}, {"readers": "astra"},
+                       {"readers": {"astra": None}}, {"readers": {"astra": {}, "kimi": "kimi"}}):
             self.assertIs(advisory.admits([], True, now, dict(harness, **change)), False, change)
         self.assertIs(advisory.admits([], True, now, dict(harness, advisory_ceiling_usd_per_day=10000, advisory_worst_case_usd=0.01)), True)
+        for figure in (10000, 0.01):
+            self.assertIs(advisory.admits([], True, now, dict(harness, advisory_ceiling_usd_per_day=figure, advisory_worst_case_usd=figure)), True)
         for key in harness:
             self.assertIs(advisory.admits([], True, now, {k: v for k, v in harness.items() if k != key}), False, key)
         # A worst case above the ceiling admits nothing, and run records not read whole admit nothing.
         self.assertIs(advisory.admits([], True, now, dict(harness, advisory_worst_case_usd=31)), False)
-        # A worst case above the ceiling by less than a millionth is above it, and one equal to it is not.
+        # A worst case above the ceiling by any amount is above it, and one equal to it is not: both as written.
+        self.assertIs(advisory.admits([], True, now, dict(harness, advisory_ceiling_usd_per_day=2, advisory_worst_case_usd=2.0000000004)), False)
+        self.assertIs(advisory.admits([], True, now, dict(harness, advisory_ceiling_usd_per_day=2.0000004, advisory_worst_case_usd=2.0000004)), True)
+        self.assertIs(advisory.admits([], True, now, dict(harness, advisory_ceiling_usd_per_day=30, advisory_worst_case_usd=29.99)), True)
         self.assertIs(advisory.admits([], True, now, dict(harness, advisory_ceiling_usd_per_day=2.14, advisory_worst_case_usd=2.1400004)), False)
         self.assertIs(advisory.admits([], True, now, dict(harness, advisory_ceiling_usd_per_day=2.14, advisory_worst_case_usd=2.14)), True)
         self.assertIs(advisory.admits([], True, now, dict(harness, advisory_ceiling_usd_per_day=2.1399996, advisory_worst_case_usd=2.13)), True)
