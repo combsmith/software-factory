@@ -253,7 +253,7 @@ MUTANTS = [
      '        if not errors:\n', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
     # Decision 0224: the day's advisory ceiling, held by the Controller's pass.
     ('the worst case may be under what a read may cost', 'tools/check_examples.py',
-     '        if worst < round(most, 6):\n',
+     '        if worst < least:\n',
      '        if False:\n', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
     ("the worst case counts a reader's prompt alone", 'tools/check_examples.py',
      ' + r["output_tokens"] * r["usd_per_million"]["output"])\n',
@@ -270,4 +270,7 @@ MUTANTS = [
     ("a reader of the Engine's family is told by its case", 'tools/check_examples.py',
      '.get(pin, "")).casefold().startswith("claude")',
      '.get(pin, "")).startswith("claude")', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
+    ('the least worst case is rounded to the nearest millionth', 'tools/check_examples.py',
+     'least = -(-round(most * 1000000, 3) // 1) / 1000000',
+     'least = round(most, 6)', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
 ]
