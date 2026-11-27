@@ -10,15 +10,15 @@ The pass gives the Kernel `github_deferred`: each Role and repo owner whose Run 
 
 The Kernel defers a pushing Role's Run, while its Role and owner wait, as `github_capacity` (`kernel/derive.py`). A Role pushes where its manifest permits `push_commits`, as `tools/check_authority.py` holds (`configuration.pushers`). No other Run waits. It spends no attempt, counts toward the Run ceiling, and never sets `model_deferred_until`. It is no whole-scope deferral, so its items may go stale.
 
-The scope is what GitHub counts the push token against. P-71 asked with a person's token, but the push sends the Role App's installation token (`adapters/identity.py`). Each Role has its own App, so the Role and the owner name it.
+The scope is what GitHub counts the push token against: the Role App's installation token (`adapters/identity.py`). Each Role has its own App, so the Role and the owner name it.
 
-Limits: no Role pushes, and nothing writes the fault, until the Harness's push step does. A list of pushers that cannot be read defers every Run. A Run with no end waits from its start; a later `updated_at` moves the wait. The approving act's reread sees its own item's Runs alone (decision 0199).
+Limits: no Role pushes, and nothing writes the fault, until the Harness's push step does. A list of pushers that cannot be read defers every Run. A Run with no end waits from its start; a later `updated_at` moves the wait. The approving act's reread sees its own item's Runs alone (decision 0199). P-71 ran on the Maintainer's login, so the installation-token case is not yet grounded by a trial.
 
 ## Why
 
 A rate limit is GitHub's, not the item's or the model's. Retried at once, each push spends a Run; under `capacity` every model Run would wait five hours.
 
-The reset is no outside text reaching a decision. It is a number, never text, and reaches only the Controller's clamp, never a Kernel reason. `outcome/1` refuses one that is no whole number, and the Harness then writes `environment` (`harness/outcome.py`). The clamp bounds the worst a wrong value does.
+The reset is no outside text reaching a decision: a number, never text, it reaches only the Controller's clamp, never a Kernel reason. `outcome/1` refuses one that is no whole number, and the Harness then writes `environment` (`harness/outcome.py`). The clamp bounds the worst a wrong value does.
 
 ## Boundaries
 
