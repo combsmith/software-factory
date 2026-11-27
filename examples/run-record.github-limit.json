@@ -1,0 +1,17 @@
+{
+  "run": "r_01JA6Z",
+  "item": {
+    "repo": "combsmith/software-factory",
+    "type": "pull_request",
+    "number": 42
+  },
+  "role": "pr-review",
+  "intent": "review-change",
+  "content_id": "sha256:5d0c",
+  "status": "completed",
+  "conclusion": "failure",
+  "outcome": "github_capacity",
+  "started_at": "2026-10-11T12:05:00Z",
+  "ended_at": "2026-10-11T12:09:00Z",
+  "github_reset": 1760187600
+}
