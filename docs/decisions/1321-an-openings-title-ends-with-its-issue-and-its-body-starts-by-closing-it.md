@@ -4,19 +4,19 @@ Status: accepted. 2026-11-27, the Solution Architect; issue 838. Narrows decisio
 
 ## Decision
 
-`draft` in `harness/draft.py` builds what `apply` writes of a Result's `open_pull_request`, from the issue the Decision admitted.
+`draft` in `harness/draft.py` builds the draft of a Result's `open_pull_request` from the admitted issue.
 
-The title is the model's text, then ` (#N)`, the issue's number. The guard reads the model's text first (`guards/opening.py`), so the model writes no number. The whole title is then held to `problems` in `tools/pr_title.py`, the rule CI's `commits` job holds it to, by that same code. A title with any problem is refused by that problem's code, never cut.
+The title is the model's text, then ` (#N)`, the issue's number. The guard reads the model's text first (`guards/opening.py`). The whole title is then held to `problems` in `tools/pr_title.py`, CI's own code. Any problem refuses it by that problem's code; it is never cut.
 
 The body is `Closes #N`, a blank line, then the model's text. The line comes first, not last.
 
-`apply` refuses a draft among its Effect checks, before any token is minted, and an opening on no issue's Run (`opening_not_on_issue`). Each code is the Role's, so a refused draft counts toward its attempts.
+`apply` refuses a draft before any token is minted, and an opening on no issue's Run (`opening_not_on_issue`). Each code is the Role's attempt.
 
 A Run whose Task permits an opening is told the title's rule, the room the suffix leaves and what the guard refuses (`harness/engine.py`).
 
 `effect/1` still bounds the title at 256, what an Effect may carry. The 72 is a style rule, `LONGEST` in `tools/pr_title.py`.
 
-This amends the closing line's wording in `schemas/effect.schema.json`'s `$comment` and description, which still say `apply` appends it.
+This amends the wording of `schemas/effect.schema.json`, which still says `apply` appends the line.
 
 Limits: the draft is held, not yet written: the writer port, which must open it in the issue's own repo, `apply`'s dispatch, the push loop and GitHub's bounds in bytes are to come. The body is not held to the template's headings.
 
@@ -24,7 +24,7 @@ Limits: the draft is held, not yet written: the writer port, which must open it 
 
 A title that breaks the rule fails CI's `commits` job after the push, so the draft could never merge. One copy of the rule keeps the writer and CI from drifting. Cutting a long title was rejected: it changes what the model wrote.
 
-A closing line after the model's text can be swallowed by a code fence the model left open. Before it, nothing that follows changes how it reads, and no fence need be parsed. `trials/P-46.json` shows GitHub reads a body's first line as a closing reference, and `trials/P-67.json` that the merge then closes its issue.
+A closing line after the model's text can be swallowed by a code fence the model left open. Before it, nothing that follows changes how it reads. `trials/P-46.json` shows GitHub reads a body's first line as a closing reference, and `trials/P-67.json` that the merge then closes its issue.
 
 ## Boundaries
 
