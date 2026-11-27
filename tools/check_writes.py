@@ -68,7 +68,8 @@ RUNNERS = ("harness/steps.py", "tools/check_decisions.py", "tools/check_trials.p
 # It hands the text on through its names (MUTANTS, OUTSIDE, AREAS), read as attributes, which no model of imported
 # names could follow; so each file that imports it is a runner (the Solution Architect, 2026-11-21), and one RUNNERS
 # does not name fails, as does one that imports a module that imports it when imported, which sets it on `tools` and
-# may hand it on (issue 1176). Its limit: an import inside a function, which runs only when called, is not followed.
+# may hand it on (issue 1176). Its limits: an import inside a function, which runs only when called, is not followed,
+# even when the module calls it at its top level; nor is `tools.mutants` read off the package where another module set it.
 # It is read in good faith, as the rest of this check is: every other rule here still reads it.
 MUTANT_DATA = "tools/mutants_of/"
 # A command's name as a string, in any case, by a path or not, `.exe` or not: gh or git alone or opening a command line;
@@ -1048,7 +1049,7 @@ def _loading(mods: dict) -> set:
     """The names of the modules that import tools/mutants.py: the loader, and each module that imports one of them
     when it is itself imported, which sets the loader on the package as an attribute and may hand it on, to a fixed
     point (issue 1176)."""
-    found = {_name(rel) for rel in NAME_LOADERS}
+    found = {"tools.mutants"}
     while True:
         more = {mod.name for mod in mods.values() if mod.name not in found
                 and any(n in found for _, names in _imported(mod, _run_on_import(mod.tree)) for n in names)}
