@@ -6,7 +6,8 @@ None. In this order, so that each has its own code: the item closed, its content
 held, or the Kernel, asked again with this Run left out, not admitting this Run's Intent on this content, all a change
 under the Run (`superseded`); then the Result: not this Run's or this Release's, giving a reason its status may not
 give (decision 0146), not completed, uncovered (decision
-0049), asking for an Effect the Task does not permit or naming one twice, posting a raised Finding other than once, a
+0049), asking for an Effect the Task does not permit or naming one twice, an opening's draft `harness/draft.py`
+refuses or one on no issue's Run, posting a raised Finding other than once, a
 Finding that does not gate on a thread or one that gates on an annotation, a Finding where it has no place, on a path
 the change does not hold, or adopted from a reviewer the configuration does not name advisory or from a surface other
 than that reviewer's thread on this item (decision 0145); a Disposition that gives neither half or both, or the half this
