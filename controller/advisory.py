@@ -23,7 +23,8 @@ The answer is yes only where the configuration holds a reader, a ceiling and a w
 would hold, `now` is a time in the one form, the run records were read whole, and the day's sum and this Run's own
 worst case together do not pass the ceiling. Neither figure has a default: with either missing, no reader is asked.
 Whatever it is handed, it answers, and what it cannot read it answers no to. A caller that admits more than one review
-in a pass hands each the ones before it, as records still running, so that each counts the others' worst case.
+in a pass hands each the ones before it, as records still running, so that each counts the others' worst case; and so
+too each Run the records read but cannot name yet (issue 932).
 """
 from __future__ import annotations
 
@@ -63,10 +64,11 @@ def _another(intent) -> bool:
 
 
 def _earlier(record) -> int:
-    """How many attempts before the record's own it counts: none for a first, which names no attempt, and as many as a
-    Run may have for one whose attempt cannot be read."""
+    """How many attempts before the record's own it counts: none for a first, which names no attempt and no re-runner,
+    and as many as a Run may have for one whose attempt cannot be read."""
     if ATTEMPT not in record:
-        return 0
+        # A re-run's record names who re-ran it: one that does and names no attempt cannot show it is a first.
+        return ATTEMPTS - 1 if "rerun_by_dispatcher" in record else 0
     attempt = record[ATTEMPT]
     return attempt - 1 if type(attempt) is int and 2 <= attempt <= ATTEMPTS else ATTEMPTS - 1
 
@@ -116,16 +118,26 @@ def spent(records: list, now: str, worst: float) -> float:
     return total
 
 
+def _exact(figure) -> tuple:
+    """A figure as written, as whole units of a tenth to the power of its places: a float's shortest form, which is the
+    text JSON gave it. A figure from a hundredth to ten thousand, which repr writes with no power of ten."""
+    whole, _, part = repr(figure).partition(".")
+    return int(whole + part), len(part)
+
+
 def admits(records, whole, now, harness) -> bool:
     """Whether one more review Run may ask its readers today."""
     if not isinstance(harness, dict) or not isinstance(records, list) or whole is not True \
             or not _placed(now):
         return False
     ceiling, worst, readers = harness.get(CEILING), harness.get(WORST), harness.get("readers")
-    if not _number(ceiling, LEAST, MOST) or not _number(worst, LEAST, MOST) or not isinstance(readers, dict) or not readers:
+    if not _number(ceiling, LEAST, MOST) or not _number(worst, LEAST, MOST) or not isinstance(readers, dict) or not readers \
+            or not all(isinstance(block, dict) for block in readers.values()):
         return False
-    # In millionths of a dollar, as a cost is written: the sum to the nearest, so that it is not refused for the error
-    # of adding floats; this Run's own worst case rounded up and the ceiling down, past a float's noise alone, so that
-    # a worst case above the ceiling by less than a millionth is still above it.
-    return round(spent(records, now, worst) * 1000000) + -(-round(worst * 1000000, 3) // 1) \
-        <= round(ceiling * 1000000, 3) // 1
+    # The day's sum to the nearest millionth of a dollar, as a cost is written, so that it is not refused for the error
+    # of adding floats; this Run's own worst case and the ceiling exactly as written, so that a worst case above the
+    # ceiling by any amount is above it, and one equal to it is not.
+    figures = [(round(spent(records, now, worst) * 1000000), 6), _exact(worst), _exact(ceiling)]
+    places = max(place for _, place in figures)
+    total, own, most = (digits * 10 ** (places - place) for digits, place in figures)
+    return total + own <= most
