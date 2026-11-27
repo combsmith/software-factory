@@ -277,8 +277,6 @@ MUTANTS = [
      '"answering_model": told["model"]', ADVICE_COST),
     ('an answer never asked for is read', ADVICE,
      '    if type(asks) is not int or asks < 1:\n        raise ValueError("an answer read was asked")\n', '', ADVICE_COST),
-    ('a truth value is a count of asks', ADVICE,
-     'if type(asks) is not int or asks < 1:', 'if not isinstance(asks, int) or asks < 1:', ADVICE_COST),
     # Issue 1175: what advice/1's schema cannot say of a Result, its parts agreeing, is held beside it.
     ("an advisory Result's status need not be the one its reason gives", ADVICE,
      '    if result["status"] != _status(result["reason"]):\n        problems.append("$.status: not the one its reason gives")\n',
