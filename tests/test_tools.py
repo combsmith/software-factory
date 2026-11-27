@@ -16139,7 +16139,9 @@ esac
         out, err = running.communicate(timeout=60)
         self.assertEqual(begun, b"m", err)
         self.assertNotEqual(running.returncode, 0)
-        self.assertIn("stopped while a token was being minted", err)
+        self.assertIn("%s: stopped while a token was being minted; GitHub may have minted one, live for up to an hour; no one "
+                      "holds it to revoke, so to end it sooner the Maintainer suspends the App's installation.\n" % self.SCRIPT.stem, err)
+        self.assertNotIn("gh" + "s_", out + err)
         self.assertNotIn("DELETE", [c["method"] for c in self.calls()])
 
     def test_a_second_signal_does_not_cut_the_revocation_short(self):  # issue 1215, cubic on pull request 1212
