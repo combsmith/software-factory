@@ -180,7 +180,7 @@ MUTANTS = [
      'not (path == ("engine", "model") and value == pinned)',
      'not (path == ("engine", "model"))', ('tests.test_tools.Repo.test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else',)),
     ("a name written with an escape is no name at a reader's path", 'tools/check_repo.py',
-     '\n                        and value in readers)',
+     '\n                            and value in readers)',
      ')', ('tests.test_tools.Repo.test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else',)),
     ('a key may name a model', 'tools/check_repo.py',
      '            if models_named(key):\n                yield path + (key, None), key\n',
