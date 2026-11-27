@@ -3512,6 +3512,15 @@ class Repo(unittest.TestCase):
                                      (2.289998, {"astra": odd}, True), (2.289997, {"astra": odd}, False)):
             found = check_examples._readers(dict(named, readers=readers, advisory_worst_case_usd=worst))
             self.assertEqual(not caught(found, "is under what the readers' caps and prices let one Run cost"), held, (worst, sorted(readers)))
+        # Each reader at its own caps; and a figure between the cost and its round up to a millionth is under it.
+        wide = dict(block, prompt_characters=2 * block["prompt_characters"], output_tokens=block["output_tokens"] // 2)
+        both = most + (wide["prompt_characters"] * wide["usd_per_million"]["input"]
+                       + wide["output_tokens"] * wide["usd_per_million"]["output"]) / 1000000
+        for worst, readers, held in ((round(both, 6), {"astra": block, "kimi": wide}, True),
+                                     (round(both, 6) - 0.000001, {"astra": block, "kimi": wide}, False),
+                                     (2.2899975, {"astra": odd}, False)):
+            found = check_examples._readers(dict(named, readers=readers, advisory_worst_case_usd=worst))
+            self.assertEqual(not caught(found, "is under what the readers' caps and prices let one Run cost"), held, (worst, sorted(readers)))
         self.assertEqual(check_examples._readers(dict(named, readers={"astra": block})), [])       # with none, no reader is asked
         # The schema holds the figure from a cent up, never nought, and never past the ceiling's own most.
         figure = json.loads((ROOT / "schemas" / "harness.schema.json").read_text())["properties"]["advisory_worst_case_usd"]

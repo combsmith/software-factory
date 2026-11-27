@@ -3455,7 +3455,7 @@ class Advisory(unittest.TestCase):
         # The day is the UTC date of the pass's now. A review Run that started on another day counts nothing, and so does
         # a Run of another Intent; one whose start cannot be read is not shown to be another day's, and counts.
         records = [ran(advisory_asks=1, advisory_cost_usd=1.5), ran("2026-11-18T00:00:00Z", advisory_asks=1, advisory_cost_usd=0.25),
-                   ran("2026-11-17T23:59:59Z", advisory_asks=1, advisory_cost_usd=100),
+                   ran("2026-11-17T23:59:59Z", advisory_asks=1, advisory_cost_usd=100, ended_at="2026-11-17T23:59:59Z"),
                    ran("2026-11-19T00:00:00Z", advisory_asks=1, advisory_cost_usd=100),
                    ran(intent="fix-findings", advisory_asks=1, advisory_cost_usd=100), ran("2026-11-18T23:59:59Z")]
         self.assertEqual(advisory.spent(records, self.NOW, 2), 3.75)
@@ -3463,11 +3463,26 @@ class Advisory(unittest.TestCase):
         # that can be read: one that ran across midnight counts on both days (the Solution Architect, 2026-11-27).
         for start, end, counts in (("2026-11-17T23:00:00Z", "2026-11-18T00:30:00Z", 7), ("2026-11-18T23:00:00Z", "2026-11-19T00:30:00Z", 7),
                                    ("2026-11-16T23:00:00Z", "2026-11-19T00:30:00Z", 7), ("2026-11-16T23:00:00Z", "2026-11-17T23:59:59Z", 0),
-                                   ("2026-11-19T00:00:00Z", "2026-11-19T00:30:00Z", 0), ("2026-11-17T23:00:00Z", None, 0),
-                                   ("2026-11-17T23:00:00Z", "2026-11-18", 0), ("2026-11-17T23:00:00Z", "2026-11-18T00:30:00Zx", 0),
-                                   ("2026-11-17T23:00:00Z", "2026-11-31T00:30:00Z", 0), ("2026-11-18T09:00:00Z", "2026-11-17T00:00:00Z", 7),
-                                   ("2026-11-19T09:00:00Z", "2026-11-17T00:00:00Z", 0)):
+                                   ("2026-11-19T00:00:00Z", "2026-11-19T00:30:00Z", 0), ("2026-11-18T09:00:00Z", "2026-11-17T00:00:00Z", 7),
+                                   ("2026-11-19T09:00:00Z", "2026-11-17T00:00:00Z", 0),
+                                   # One whose end cannot be read may have ended on any day since its start, today among them.
+                                   ("2026-11-17T23:00:00Z", None, 7), ("2026-11-16T23:00:00Z", "2026-11-17", 7),
+                                   ("2026-11-17T23:00:00Z", "2026-11-18T00:30:00Zx", 7), ("2026-11-16T23:00:00Z", "2026-11-31T00:30:00Z", 7),
+                                   ("2026-11-19T09:00:00Z", None, 0)):
             self.assertEqual(advisory.spent([ran(start, advisory_asks=1, advisory_cost_usd=7, ended_at=end)], self.NOW, 2), counts, (start, end))
+        record = ran("2026-11-17T23:00:00Z", advisory_asks=1, advisory_cost_usd=7)
+        self.assertEqual([advisory.spent([dict(record, ended_at=None)], d, 2) for d in ("2026-11-16T12:00:00Z", "2026-11-20T00:00:00Z")], [0, 7])
+        # Across a month's end and a year's, a day is its whole date.
+        record = ran("2026-12-31T23:59:59Z", advisory_asks=1, advisory_cost_usd=7, ended_at="2027-01-01T00:00:01Z")
+        for day, counts in (("2026-12-31T12:00:00Z", 7), ("2027-01-01T12:00:00Z", 7), ("2027-01-02T00:00:00Z", 0),
+                            ("2026-12-30T23:59:59Z", 0), ("2026-11-30T12:00:00Z", 0)):
+            self.assertEqual(advisory.spent([record], day, 2), counts, day)
+        # A `now` that names no day shows no Run another day's: each counts.
+        for when in ("", "2026-13-45T00:00:00Z", None, 7, "2026-11-19"):
+            self.assertEqual(advisory.spent([ran("2026-11-01T09:00:00Z", advisory_asks=1, advisory_cost_usd=7)], when, 2), 7, when)
+        # The worst case counted is the one handed, whatever it is.
+        for worst in (0.01, 1.5, 9.99):
+            self.assertEqual(advisory.spent([ran(status="in_progress"), ran(advisory_asks=1)], self.NOW, worst), 2 * worst, worst)
         self.assertEqual(advisory.spent([ran("2026-11-17T23:00:00Z", advisory_asks=1, advisory_cost_usd=7, advisory_attempt=2,
                                              ended_at="2026-11-18T00:30:00Z")], self.NOW, 2), 9)
         # A Run still in flight counts on today's sum whatever day it started: what runs across midnight is carried.
@@ -3478,11 +3493,12 @@ class Advisory(unittest.TestCase):
         self.assertEqual(advisory.spent([ran("2026-11-17T23:59:59Z", intent="fix-findings", status="in_progress")], self.NOW, 2), 0)
         for start in (None, "", 1795000000, "20261118T090000Z", " 2026-11-18T09:00:00Z", "2026-11-17", "2026-11-17T23:59:59+00:00",
                       "2026-99-99T00:00:00Z", "2026-02-30T12:00:00Z", "2026-11-17T25:00:00Z", "2026-11-17T23:60:00Z",
-                      "2026-11-17T23:59:59Zx", "2026-11-17T23:59:59Z\n"):
+                      "2026-11-17T23:59:59Zx", "2026-11-17T23:59:59Z\n", "2026-1-1T00:00:00Z", "2026-11-1T09:00:00Z"):
             self.assertEqual(advisory.spent([ran(start, advisory_asks=1, advisory_cost_usd=7)], self.NOW, 2), 7, start)
         self.assertEqual(advisory.spent([{"intent": "review-change"}, None, "x"], self.NOW, 2), 6)
-        # One whose Intent cannot be read is not shown to be another Intent's either, and counts.
-        for intent in (None, 7, ["review-change"]):
+        # One whose Intent cannot be read is not shown to be another Intent's either, and counts: an empty or ill-formed
+        # name among them.
+        for intent in (None, 7, ["review-change"], "", "-", "Review-change", "fix-findings ", "a"):
             self.assertEqual(advisory.spent([ran(intent=intent, advisory_asks=1, advisory_cost_usd=7)], self.NOW, 2), 7, intent)
             self.assertEqual(advisory.spent([ran(intent=intent, status="in_progress")], self.NOW, 2), 2, intent)
         self.assertEqual(advisory.spent([{"status": "in_progress"}], self.NOW, 2), 2)
