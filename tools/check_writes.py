@@ -1049,15 +1049,12 @@ def _loading(mods: dict) -> set:
     when it is itself imported, which sets the loader on the package as an attribute and may hand it on, to a fixed
     point (issue 1176)."""
     found = {_name(rel) for rel in NAME_LOADERS}
-    grown = True
-    while grown:
-        grown = False
-        for mod in mods.values():
-            if mod.name not in found and any(n in found for _, names in _imported(mod, _run_on_import(mod.tree))
-                                             for n in names):
-                found.add(mod.name)
-                grown = True
-    return found
+    while True:
+        more = {mod.name for mod in mods.values() if mod.name not in found
+                and any(n in found for _, names in _imported(mod, _run_on_import(mod.tree)) for n in names)}
+        if not more:
+            return found
+        found |= more
 
 
 def _texting(mods: dict, known: dict) -> set:
