@@ -2741,10 +2741,16 @@ class Entry(unittest.TestCase):
         self.assertIn(("issue", 41, entry.seen_.LEFT), spied)
         # The last pass's record says what it served and left out, never an older one's (pull request 1124).
         earlier = dict(before, now="2026-10-12T10:57:00Z", issues=[issue(5)], left_out=[])
+        earlier["pass"] = "p_01JA7N"
         entry_with(before, older=(earlier,))
         self.assertIn(("issue", 41, entry.seen_.LEFT), spied)
         entry_with(unread, older=(earlier,))
         self.assertIn(("issue", 41, entry.seen_.LEFT), spied)
+        # Nor is what an older pass served, or left out, read again: the last pass read it as served.
+        for older in (dict(earlier, issues=[issue(5), issue(41)]),
+                      dict(earlier, left_out=[{"item": issue(41)["facts"]["item"], "code": "facts_unanswered"}])):
+            entry_with(dict(before, issues=[issue(5)]), older=(older,))
+            self.assertEqual([s for s in spied if s[1] == 41], [], older)
         # Read short, it is owed as well as kept as left, as a pull request is, and reconciliation is short; the next pass
         # reads it again, as gone while the window holds its stamp, or as left where only owed.
         record = entry_with(before, short=(41,))
