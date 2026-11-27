@@ -73,6 +73,7 @@ ISSUE_PERSON_RUN = ('tests.test_issue.Investigation.test_an_issues_run_that_ende
 PERSON_IN_FLIGHT = ('tests.test_decide.Ceilings.test_a_run_that_ended_person_holds_the_item_while_another_run_is_in_flight',)
 ISSUE_PERSON_IN_FLIGHT = ('tests.test_issue.Investigation.test_an_issues_run_that_ended_person_holds_the_issue_while_another_run_is_in_flight',)
 HOLD_BEFORE_LABEL = ('tests.test_issue.WhatARunWrites.test_an_issues_hold_is_read_before_an_uncounted_label_is_removed',)
+CEILING_LABEL = ('tests.test_issue.RemoveLabel.test_an_uncounted_label_waits_at_the_act_ceiling',)
 STANDS_UNREAD = ('tests.test_issue.Stands.test_what_cannot_be_read_gives_none',)
 F849_KERNEL = ("tests.test_issue.Unreadable.test_a_timeline_past_the_ports_bound_defers_on_its_own_code_and_calls_a_person",)
 STALE = "tests.test_decide.Staleness."
@@ -874,7 +875,7 @@ ISSUE = [
     ("a role comment's App is not read", ISSUE_PY,
      'isinstance(c.get("by"), str) and c["by"] != "" and ', "", ISSUE_TESTS),
     ("a writer's times that cannot be read are trusted", ISSUE_PY,
-     "    if not readable_writer(facts):\n", "    if False:\n", ISSUE_TESTS),
+     "    if not readable_writer(facts):\n        return", "    if False:\n        return", ISSUE_TESTS),
     ("a writer's time left out is read as none", ISSUE_PY,
      'facts.get(name, "") is None', "facts.get(name) is None", ISSUE_TESTS),
     # Acceptance, at row 10.
@@ -3413,10 +3414,32 @@ MUTANTS = ISSUE + OUTSIDE + [
     # Issue 1216: a Hold the Run wanted places is read before an uncounted label's removal, which waits for the release.
     ("an uncounted label is removed before an issue's Hold", 'kernel/issue.py',
      '        if _run_holds(after):\n            return after\n', '', HOLD_BEFORE_LABEL),
-    ("the act ceiling keeps an uncounted label", 'kernel/issue.py',
-     '    return d["state"] == t.HELD and d["outcome"] == t.HOLD and d["reason"] != "act_ceiling"\n',
-     '    return d["state"] == t.HELD and d["outcome"] == t.HOLD\n',
-     ('tests.test_issue.RemoveLabel.test_removing_a_label_is_stopped_by_the_pause_and_waits_for_a_run_in_flight',)),
+    # Issue 1251: removing an uncounted label is braked as any act (decision 1255 narrows 0003), and while it waits
+    # the issue reads as if the label did not stand.
+    ("an uncounted label is removed at the act ceiling", 'kernel/issue.py',
+     '        if _waits(brake):\n', '        if False:\n', CEILING_LABEL),
+    ("an uncounted label is removed with the act count unread", 'kernel/issue.py',
+     '    return d is not None and (d["reason"] == "act_ceiling" or d["reason"] == "acts_unreadable")\n',
+     '    return d is not None and d["reason"] == "act_ceiling"\n', CEILING_LABEL),
+    ("the Pause alone makes an uncounted label's removal wait", 'kernel/issue.py',
+     '    return d is not None and (d["reason"] == "act_ceiling" or d["reason"] == "acts_unreadable")\n',
+     '    return d is not None\n', CEILING_LABEL),
+    ("a waiting removal stops what the issue admits once the label is gone", 'kernel/issue.py',
+     '            return then\n', '            return brake\n', CEILING_LABEL),
+    ("a waiting label's reading loses the run records", 'kernel/issue.py',
+     '            then = _decide(_removed(facts, label), runs, context, config, now)\n',
+     '            then = _decide(_removed(facts, label), [], context, config, now)\n', CEILING_LABEL),
+    ("a waiting label is read as never added", 'kernel/issue.py',
+     '    return dict(facts, label_events=facts["label_events"] + [gone])\n',
+     '    return dict(facts, label_events=[ev for ev in facts["label_events"] if ev not in latest_adds(facts["label_events"], label)])\n',
+     CEILING_LABEL),
+    ("a waiting label's removal counts acts since a writer's time unread", 'kernel/issue.py',
+     '        if not readable_writer(facts):\n            return after\n', '',
+     ('tests.test_issue.RemoveLabel.test_a_waiting_label_with_the_writers_time_unread_defers',)),
+    ("a Run that adds a waiting label is admitted", 'kernel/issue.py', '            if _adds(then, label):\n',
+     '            if False:\n', ('tests.test_issue.RemoveLabel.test_no_run_that_adds_a_waiting_label_is_admitted',)),
+    ("a Run that adds a waiting label defers on the act ceiling with the count unread", 'kernel/issue.py',
+     '"act_ceiling" if brake["outcome"] == t.HOLD else "acts_unreadable",\n', '"act_ceiling",\n', ('tests.test_issue.RemoveLabel.test_no_run_that_adds_a_waiting_label_is_admitted',)),
     ("any Run of the Role that ended person holds the item", 'kernel/derive.py',
      'return sorted(r["run"] for r in last if r.get("outcome") == t.ENDED_PERSON)[:1]',
      'return sorted(r["run"] for r in done if r.get("outcome") == t.ENDED_PERSON)[:1]', PERSON_RUN + ISSUE_PERSON_RUN),

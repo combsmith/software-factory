@@ -315,7 +315,7 @@ class Reader(unittest.TestCase):
         failed = dict(tc.run(status="completed", conclusion="failure", outcome="environment"), engine_started=False)
         key = (failed["run"], failed["started_at"])
         self.assertEqual(self.go(record=dict(RECORD, runs=[failed]))[4]["listed"],
-                         [(["run.yml", "approve.yml"], {"kept": {key: "environment"}, "engines": {key: False}})])
+                         [(["run.yml", "approve.yml"], {"kept": {key: "environment"}, "engines": {key: {"engine_started": False}}})])
         self.assertEqual(calls["asked"], [{"repo": HOME, "numbers": [42], "lenses": {"pr-review"}, "authority": AUTHORITY}])
         # A list read short holds them to nothing recorded, not whole: the Task is refused rather than built on it.
         self.assertEqual(self.go(complete=False)[4]["recorded"], [({}, False, [])])
@@ -1195,7 +1195,7 @@ class Reread(unittest.TestCase):
         self.assertEqual(shared.errors(record, "pass"), [])
         key, key2 = (done["run"], done["started_at"]), (other["run"], other["started_at"])
         self.assertEqual(reread.held(record), {"kept": {key: "environment", key2: "item"},
-                                               "engines": {key: True, key2: False}})
+                                               "engines": {key: {"engine_started": True}, key2: {"engine_started": False}}})
         # Nothing is kept from what is no whole pass record, however much like one it holds runs.
         for nothing in (None, False, {"schema": "pass/1"}, {"schema": "pass/1", "runs": [done]},
                         dict(record, schema="pass/2")):
@@ -1210,7 +1210,8 @@ class Reread(unittest.TestCase):
             reread.item("t", config, 42, support.NOW, lambda: support.NOW, record=record)
             reread.item("t", config, 42, support.NOW, lambda: support.NOW)
         self.assertEqual([(k["kept"], k["engines"]) for k in told],
-                         [({key: "environment", key2: "item"}, {key: True, key2: False}), ({}, {})])
+                         [({key: "environment", key2: "item"},
+                           {key: {"engine_started": True}, key2: {"engine_started": False}}), ({}, {})])
         # Given a record, the read again still asks no job and only this item's Runs, as without one (decision 0199).
         self.assertEqual([(k["began"], k["on"]) for k in told], [({}, {"repo": HOME, "type": "pull_request", "number": 42})] * 2)
 
