@@ -783,6 +783,11 @@ class Examples(unittest.TestCase):
         deeper["properties"]["next_actor"]["properties"]["sentences"] = shaped
         self.assertTrue(caught(check_examples._free(deeper, schemas, deeper, "feed", "$", set()),
                                "schema feed admits text at $.next_actor.sentences.*"))
+        # Nor the feed brought below its top by a reference to itself: it is swept again there (issue 1179).
+        itself = copy.deepcopy(feed)
+        itself["properties"]["next_actor"]["properties"]["again"] = {"$ref": "feed.schema.json"}
+        found = check_examples._free(itself, dict(schemas, feed=itself), itself, "feed", "$", set())
+        self.assertTrue(caught(found, "schema feed admits text at $.next_actor.again.sentences.*"), found)
         named = {"type": "object", "additionalProperties": False, "properties": {"phrases": shaped}}
         self.assertTrue(caught(check_examples._free(named, {}, named, "feed", "$", set()),
                                "schema feed admits text at $.phrases.*"))

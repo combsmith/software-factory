@@ -269,9 +269,11 @@ def _free(schema, schemas: dict, root, kind: str, path: str, seen: set, active: 
                     "whole; hold it to codes, or name it there by a reviewed change" % (kind, path, named.group(1))]
         return _free(target, schemas, target_root, named.group(1) if named else kind, path, seen, active + (id(target),),
                      owner)
-    if (kind, id(schema)) in seen:
+    # A schema is swept once of each kind, and once more where it stands at the top: what the top alone exempts, the
+    # feed's sentences, is swept wherever a reference brings it below (issue 1179).
+    if (kind, id(schema), path == "$") in seen:
         return []
-    seen.add((kind, id(schema)))
+    seen.add((kind, id(schema), path == "$"))
     out = []
     kinds = schema.get("type")
     kinds = kinds if isinstance(kinds, list) else [kinds]
