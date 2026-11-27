@@ -562,17 +562,20 @@ def _sibling(mod: Module, sources: set) -> list:
     """Each line that imports, by its bare name, a file or a folder of Python beside the file, `__init__.py` among them:
     run as a script, the file has its own folder first on its path, so the name may load that file, which this check
     reads under another name, if at all (issue 1276). Read by path, so a folder whose name holds a dot is its own. A
-    file at the root has no other folder: its bare names are the repo's own."""
+    file at the root has no other folder: its bare names are the repo's own, and no path names one beside it.
+    `tools/check_repo.py` refuses a bare name it does not list; this also holds a name it lists, Python's `json` beside
+    a `json.py` of the repo's."""
     folder = mod.rel.rpartition("/")[0]
     out = []
-    for n in mod.nodes if folder else ():
+    for n in mod.nodes:
         names = [a.name for a in n.names] if isinstance(n, ast.Import) else \
             [n.module] if isinstance(n, ast.ImportFrom) and not n.level and n.module else []
         for name in names:
             near = "%s/%s" % (folder, name.split(".")[0])
             if near + ".py" in sources or any(rel.startswith(near + "/") for rel in sources):
                 out.append("%s:%d imports %s by its bare name, which run as a script may load %s beside it in its place, "
-                           "so what it reaches cannot be read; import it from the root" % (mod.rel, n.lineno, name, near))
+                           "so what it reaches cannot be read; import it from the root, or rename the file beside it"
+                           % (mod.rel, n.lineno, name, near))
     return out
 
 
