@@ -1,12 +1,12 @@
-# 0000. A job's settings on the base's protected list pass the push grant
+# 1311. A job's settings on the base's protected list pass the push grant
 
 Status: accepted. 2026-11-27, the Solution Architect; issue 1177. Narrows decision 0239's first Decision row and its first Boundary row: a settings file on the base's protected list is not one a Factory patch may change.
 
 ## Decision
 
-Decision 0239 refuses `push_commits` where a job that holds a secret takes its configuration from a file a Factory patch may change. A file on the base's protected list is not such a file: a Role's push that touches it is refused, and the list is read again at each push (decision 0188). So a job passes the clause where every file it takes its settings from, its own workflow among them, is on that list. Today `sonar-project.properties` is on it, so this repo's scan passes.
+Decision 0239 refuses `push_commits` where a job that holds a secret takes its configuration from a file a Factory patch may change. A file on the base's protected list is not one: a Role's push that touches it is refused (decision 0188). So a job passes the clause where every file it takes its settings from, its own workflow among them, is on that list. Today `sonar-project.properties` is on it, so this repo's scan passes.
 
-`guards/workflows.py` holds the clause. It fails closed: a key, an action at its pin, an input or an `env:` name its table does not name is refused. Every route that points the scan at another settings file is refused with them: the scan's `args` and `projectBaseDir`, the scanner's variables, a checkout of another commit or folder, and a line's end YAML reads where the guard reads none.
+`guards/workflows.py` holds the clause. It fails closed: a key, an action at its pin, an input or an `env:` name its table does not name is refused. So is every route that points the scan at another settings file: the scan's `args` and `projectBaseDir`, the scanner's variables, a checkout of another commit or folder, and a line's end YAML reads where the guard reads none.
 
 The rest of 0239's first row is unchanged, and still waits on the settings port: which jobs hold a secret, what runs a file a patch may change, and what the read cannot see.
 
