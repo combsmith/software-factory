@@ -19,4 +19,11 @@ MUTANTS = [
     ("a reader's model is held to lower case", 'schemas/harness.schema.json',
      '"pattern": "^[A-Za-z0-9][A-Za-z0-9.-]{0,127}$"',
      '"pattern": "^[a-z0-9][a-z0-9.-]{0,127}$"', ('tests.test_tools.Repo.test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else',)),
+    # Decision 0243: a reader's share of the advise step.
+    ("a reader's share may be under a minute", 'schemas/harness.schema.json',
+     '"type": "integer",\n            "minimum": 60,\n            "maximum": 1440',
+     '"type": "integer",\n            "minimum": 1,\n            "maximum": 1440', ('tests.test_tools.Repo.test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else',)),
+    ("a reader's share may pass the step's whole", 'schemas/harness.schema.json',
+     '"type": "integer",\n            "minimum": 60,\n            "maximum": 1440',
+     '"type": "integer",\n            "minimum": 60,\n            "maximum": 1441', ('tests.test_tools.Repo.test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else',)),
 ]
