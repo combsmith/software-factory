@@ -1334,6 +1334,13 @@ def http_date(sent: str) -> str:
     return "%s-%02d-%02dT%sZ" % (year, months.index(month) + 1, int(day), clock)
 
 
+def shared_errors(run: dict) -> list:
+    """Where a run record breaks run-record/1."""
+    from controller import shared
+    from tools.jsonschema_lite import validate
+    return validate(run, shared.SCHEMAS["run-record"], schemas=shared.SCHEMAS)
+
+
 NAME = "sf combsmith/software-factory#264 review-change pr-review sha256:5d0c r_01JA6Z"
 
 
@@ -1405,7 +1412,7 @@ class Records(unittest.TestCase):
         slept = []
         got = records.runs(github.Replay(list(found)), canary(), "main", [WORKFLOW], kw.get("dispatcher", DISPATCHER),
                            per_page=kw.get("per_page", 10), sleep=slept.append, kept=kw.get("kept"),
-                           began=kw.get("began"), engines=kw.get("engines"))
+                           began=kw.get("began"), engines=kw.get("engines"), advised=kw.get("advised"), day=kw.get("day"))
         return got, slept
 
     def test_a_run_listed_under_its_workflows_name_is_unidentified_after_one_more_read(self):
@@ -1578,6 +1585,136 @@ class Records(unittest.TestCase):
             got, _ = self.read(failed, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item")),
                                                expired=None))
             self.assertEqual((got["runs"][0]["outcome"], got["complete"]), (None, False), conclusion)
+
+    def test_a_finished_review_runs_advisory_cost_is_read_once_for_the_day_and_never_guessed(self):  # decision 0224
+        # One file for each finished review Run of the pass's day, read once and kept by Run and attempt; one unread now
+        # is asked for again, and the list stays whole.
+        rows = listing("P-17", 3, rows={"status": "completed", "conclusion": "success"})
+        template = rows["response"]["body"]["workflow_runs"][0]
+        names = [NAME.replace("r_01JA6Z", "r_%06dZ" % n) for n in range(4)]
+        rows["response"]["body"].update(total_count=4, workflow_runs=[
+            dict(template, id=700 + n, name=names[n], run_started_at="2026-10-21T0%d:00:00Z" % n) for n in range(4)])
+
+        def cost(n: int, zipped) -> list:
+            found = stored(canary(), 700 + n, zipped, name=artifacts.ADVICE_COST)
+            found[0]["request"]["call"] = found[0]["request"]["call"].replace("name=outcome", "name=advice-cost")
+            return found
+        good = {"schema": "advice-cost/1", "run": "r_000000Z", "release": "factory/v0.3.1", "asks": 2, "cost_usd": 1.42}
+        costs = [cost(0, outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER)), cost(1, None),
+                 cost(2, outcome_zip(dict(good, run="r_000002Z", cost_usd=-1), member=artifacts.ADVICE_COST_MEMBER)),
+                 cost(3, outcome_zip(dict(good, run="r_000003Z", asks=1, cost_usd=None), member=artifacts.ADVICE_COST_MEMBER))]
+
+        def said(got) -> list:
+            return [{k: r[k] for k in records.ADVISED if k in r} for r in got["runs"]]
+
+        def stamped(got) -> int:
+            return len([r for r in got["reads"] if r["read"] == "advice_cost"])
+        first, _ = self.read(rows, *costs[0], *costs[1], *costs[2], *costs[3], day="2026-10-21")
+        self.assertEqual(said(first), [{"advisory_asks": 2, "advisory_cost_usd": 1.42}, {"advisory_cost_usd": None},
+                                       {"advisory_cost_usd": None}, {"advisory_asks": 1, "advisory_cost_usd": None}])
+        self.assertEqual((stamped(first), first["complete"]), (4, True))
+        for run in first["runs"]:
+            self.assertEqual(shared_errors(run), [], run)
+        # The pass after: a cost read is kept; no file, or one that is no cost, is asked for once more, since GitHub may
+        # list an artifact late, and is kept as none after two passes.
+        kept = records.advised([{"runs": first["runs"]}])
+        self.assertEqual(sorted(key[0] for key in kept), ["r_000000Z", "r_000003Z"])
+        second, _ = self.read(rows, *costs[1], *costs[2], day="2026-10-21", advised=kept)
+        self.assertEqual((said(second), stamped(second)), (said(first), 2))
+        kept = records.advised([{"runs": first["runs"]}, {"runs": second["runs"]}])
+        self.assertEqual(sorted(key[0] for key in kept), ["r_000000Z", "r_000001Z", "r_000002Z", "r_000003Z"])
+        third, _ = self.read(rows, day="2026-10-21", advised=kept)
+        self.assertEqual((said(third), stamped(third)), (said(first), 0))
+        # One GitHub does not answer for is left off the record, and asked for again by every pass until it answers.
+        down, _ = self.read(rows, *costs[1][:0], *cost(2, outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER))[:2],
+                            day="2026-10-21", advised={k: v for k, v in kept.items() if k[0] != "r_000002Z"})
+        self.assertEqual(said(down)[2], {})
+        # One that left none and then has one is read as it is, and its cost kept.
+        late = cost(1, outcome_zip(dict(good, run="r_000001Z", asks=1, cost_usd=0.4), member=artifacts.ADVICE_COST_MEMBER))
+        found, _ = self.read(rows, *late, *costs[2], day="2026-10-21", advised=records.advised([{"runs": first["runs"]}]))
+        self.assertEqual(said(found)[2], {"advisory_cost_usd": None})
+        self.assertEqual(said(found)[1], {"advisory_asks": 1, "advisory_cost_usd": 0.4})
+        # A Run that never ran asked no reader: nothing is read for it, and it counts nothing.
+        never = copy.deepcopy(rows)
+        never["response"]["body"].update(total_count=1, workflow_runs=[dict(template, id=700, name=names[0],
+                                                                           run_started_at="2026-10-21T00:00:00Z",
+                                                                           conclusion="startup_failure")])
+        got, _ = self.read(never, stored(canary(), 700, None)[0], day="2026-10-21")      # its outcome is asked for, as ever
+        self.assertEqual((said(got), stamped(got), "never_ran" in got["runs"][0]), ([{"advisory_asks": 0}], 0, True))
+        # A second attempt that never ran says nothing of the first, which may have asked: its cost is read.
+        never["response"]["body"]["workflow_runs"][0]["run_attempt"] = 2
+        again, _ = self.read(never, stored(canary(), 700, None)[0], *costs[0], day="2026-10-21")
+        self.assertEqual((said(again), "never_ran" in again["runs"][0]), ([{"advisory_asks": 2, "advisory_cost_usd": 1.42}], True))
+        never["response"]["body"]["workflow_runs"][0]["run_attempt"] = True     # no integer: not known to be the first
+        got, _ = self.read(never, stored(canary(), 700, None)[0], *costs[0], day="2026-10-21")
+        self.assertEqual(said(got), said(again))
+        # With no day, as from a caller that sums nothing, and on another day, nothing is read.
+        for day in (None, "2026-10-22", "2026-10-20"):
+            none, _ = self.read(rows, *costs[0], *costs[3], day=day)       # there to be read, and not asked for
+            self.assertEqual((said(none), stamped(none)), ([{}, {}, {}, {}], 0), day)
+        # Only a finished Run is asked, and only a review: one still running has no cost to read, and counts the worst case.
+        for change in ({"status": "in_progress", "conclusion": None}, {"name": NAME.replace("review-change", "fix-findings")}):
+            other = copy.deepcopy(rows)
+            other["response"]["body"].update(total_count=1, workflow_runs=[dict(template, id=700, **dict(
+                {"name": names[0], "run_started_at": "2026-10-21T00:00:00Z"}, **change))])
+            got, _ = self.read(other, *costs[0], day="2026-10-21")
+            self.assertEqual((said(got), stamped(got)), ([{}], 0), change)
+        # A cost GitHub does not answer for ends nothing: the record holds none, and the list is as whole as it was.
+        unanswered = cost(0, outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER))[:2]
+        one = copy.deepcopy(rows)
+        one["response"]["body"].update(total_count=1, workflow_runs=one["response"]["body"]["workflow_runs"][:1])
+        got, _ = self.read(one, *unanswered, day="2026-10-21")
+        self.assertEqual((said(got), got["complete"]), ([{}], True))
+        # And the last asked for in that read, so that no pass waits out fifty timeouts.
+        stopped, _ = self.read(rows, *unanswered, *costs[1], *costs[3], day="2026-10-21")
+        self.assertEqual((said(stopped), stamped(stopped), stopped["complete"]), ([{}, {}, {}, {}], 1, True))
+        # What was kept of the Runs after it is still theirs: the asking ends, the list does not.
+        after = {("r_000001Z", "2026-10-21T01:00:00Z"): {"advisory_cost_usd": None},
+                 ("r_000003Z", "2026-10-21T03:00:00Z"): {"advisory_asks": 1, "advisory_cost_usd": 0.4}}
+        stopped, _ = self.read(rows, *unanswered, day="2026-10-21", advised=after)
+        self.assertEqual(said(stopped), [{}, {"advisory_cost_usd": None}, {}, {"advisory_asks": 1, "advisory_cost_usd": 0.4}])
+        # A key the record lists twice, or a record that lists no runs, keeps nothing.
+        twice = {"runs": first["runs"][:1] * 2}
+        self.assertEqual((records.advised([twice]), records.advised([{"runs": None}]), records.advised([]), records.advised(None)),
+                         ({}, {}, {}, {}))
+        # The last two records are read: the later's word wins, the earlier's stands alone, a third says nothing.
+        bare = [{k: v for k, v in r.items() if k not in records.ADVISED} for r in first["runs"]]
+        both = records.advised([{"runs": first["runs"]}, {"runs": first["runs"][:1]}])
+        self.assertEqual(sorted(key[0] for key in both), ["r_000000Z", "r_000003Z"])
+        self.assertEqual(sorted(key[0] for key in records.advised([{"runs": first["runs"]}, {"runs": bare[:1]}])), ["r_000003Z"])
+        self.assertEqual(sorted(key[0] for key in records.advised([{"runs": bare}, {"runs": first["runs"]}])), ["r_000000Z", "r_000003Z"])
+        self.assertEqual(records.advised([{"runs": first["runs"]}, {"runs": bare}]), {})
+        self.assertEqual(records.advised([{"runs": first["runs"]}, {"runs": []}, {"runs": []}]), {})
+        changed = [dict(first["runs"][0], advisory_cost_usd=9)]
+        self.assertEqual(records.advised([{"runs": first["runs"]}, {"runs": changed}])[("r_000000Z", "2026-10-21T00:00:00Z")],
+                         {"advisory_asks": 2, "advisory_cost_usd": 9})
+        # One read asks for the costs of so many Runs and no more: the rest are left off, and asked for the pass after.
+        with mock.patch.object(records, "COSTS", 2):
+            capped, _ = self.read(rows, *costs[0], *costs[1], *costs[2], *costs[3], day="2026-10-21")
+        self.assertEqual((said(capped), stamped(capped), capped["complete"]),
+                         ([{"advisory_asks": 2, "advisory_cost_usd": 1.42}, {"advisory_cost_usd": None}, {}, {}], 2, True))
+        self.assertEqual(records.COSTS, 50)
+        # A Run kept and listed after the cap is reached still has what was kept: the cap ends the asking, not the list.
+        behind = {("r_000003Z", "2026-10-21T03:00:00Z"): {"advisory_asks": 1, "advisory_cost_usd": 0.4}}
+        with mock.patch.object(records, "COSTS", 1):
+            got, _ = self.read(rows, *costs[0], day="2026-10-21", advised=behind)
+        self.assertEqual((said(got), stamped(got)),
+                         ([{"advisory_asks": 2, "advisory_cost_usd": 1.42}, {}, {}, {"advisory_asks": 1, "advisory_cost_usd": 0.4}], 1))
+        # A Run listed twice by one key takes nothing kept: each row is asked for, none counted twice.
+        doubled = copy.deepcopy(rows)
+        row = doubled["response"]["body"]["workflow_runs"][0]
+        doubled["response"]["body"].update(total_count=2, workflow_runs=[row, dict(row, id=701)])
+        kept_ = {("r_000000Z", "2026-10-21T00:00:00Z"): {"advisory_asks": 2, "advisory_cost_usd": 1.42}}
+        got, _ = self.read(doubled, *costs[0], *cost(1, None), day="2026-10-21", advised=kept_)
+        self.assertEqual(stamped(got), 2)
+        with mock.patch.object(records, "COSTS", 1):
+            later, _ = self.read(rows, *costs[1], day="2026-10-21", advised=records.advised([{"runs": capped["runs"]}]))
+        self.assertEqual(stamped(later), 1)        # what is kept is not counted against the cap
+        # A cost kept is its attempt's alone: the Run's next attempt is asked for its own.
+        one["response"]["body"]["workflow_runs"][0]["run_started_at"] = "2026-10-21T01:00:00Z"
+        got, _ = self.read(one, *cost(0, outcome_zip(dict(good, cost_usd=4), member=artifacts.ADVICE_COST_MEMBER)),
+                           day="2026-10-21", advised=kept_)
+        self.assertEqual((said(got), stamped(got)), ([{"advisory_asks": 2, "advisory_cost_usd": 4}], 1))
 
     def test_an_outcome_is_read_once_and_kept_by_its_run_and_attempt(self):
         # #285's ruling: an outcome is written once by its attempt's final step, so one a pass record read is kept by

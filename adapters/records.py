@@ -330,8 +330,43 @@ def engines(previous: list) -> dict:
     return said_in(previous[-1])[0] if isinstance(previous, list) and previous else {}
 
 
+REVIEWING = "review-change"
+ADVISED = ("advisory_asks", "advisory_cost_usd")
+COSTS = 50           # the most Runs whose advisory cost one read of the records asks for (decision 0224), as JOBS is
+
+
+def advised(previous: list) -> dict:
+    """What the pass records before this one read of each review Run's advisory cost, by its Run id and when its
+    attempt started (decision 0224): the two fields as the row holds them, from the last two records at most, and the
+    earlier's word only for a Run the later does not list, as `begun` keeps a beginning. A row that holds a count of
+    asks was read from its file, and a Run's cost is written once, so it is not read again. A row that holds a null
+    cost and no count read no file where one could be: it is kept as none only once two records in a row say so, as
+    `known` keeps an outcome that is not there, since GitHub may list an artifact a little after its Run ends. A key a
+    record lists twice is kept from neither listing, and nothing is kept from what lists no runs."""
+    def costs_in(one) -> tuple:
+        rows = one.get("runs") if isinstance(one, dict) else None
+        said, named_ = {}, []
+        for row in rows if isinstance(rows, list) else []:
+            attempt = (row.get("run"), row.get("started_at")) if isinstance(row, dict) else (None, None)
+            if type(attempt[0]) is not str or type(attempt[1]) is not str:
+                continue
+            named_.append(attempt)
+            if ADVISED[1] in row:
+                said[attempt] = {name: row[name] for name in ADVISED if name in row}
+        return {attempt: cost for attempt, cost in said.items() if named_.count(attempt) == 1}, named_
+    costs, absent = {}, {}
+    for one in (previous[-2:] if isinstance(previous, list) else []):
+        read_, named_ = costs_in(one)
+        costs = {attempt: cost for attempt, cost in costs.items() if attempt not in named_}
+        none = {attempt: cost for attempt, cost in read_.items() if ADVISED[0] not in cost}
+        costs.update({attempt: cost for attempt, cost in read_.items() if attempt not in none})
+        costs.update({attempt: cost for attempt, cost in none.items() if attempt in absent})   # the second record in a row
+        absent = none
+    return costs
+
+
 def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, per_page: int = PAGE,
-         sleep=time.sleep, kept=None, began=None, of=None, on=None, engines=None) -> dict:
+         sleep=time.sleep, kept=None, began=None, of=None, on=None, engines=None, advised=None, day=None) -> dict:
     """The run records of the Factory's Role workflows, the ids of counted Runs not yet named, whether the list was
     read whole, and each read's date and age for the pass record. `dispatcher` is the pass job's own token's account,
     by its id and type, `(id, "Bot")`: only a run it dispatched is a Run.
@@ -358,7 +393,7 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     whole. The pass hands the open pull requests, so what it asks is its live work, not the list's history
     (decision 0196). `on`, an item, asks that item's Runs alone, as an act reading its own item again does, and all
     of them: a Run keeps nothing from one read to the next, so a cap on its item's Runs would never be worked off."""
-    kept, engines = kept or {}, engines or {}
+    kept, engines, advised = kept or {}, engines or {}, advised or {}
     roles = {".github/workflows/%s" % name for name in workflows}
 
     def read() -> tuple:
@@ -427,4 +462,36 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
         found, answered = _began(transport, repo, github_id, attempt, record["status"] == "completed")
         record.update(found)
         whole = whole and answered
+    # What each finished review Run of the day says its advisory reads cost (decision 0224): one small file, read once.
+    # `day` is the UTC date of the pass's `now`, and None reads none. Nothing here makes the list less than whole or
+    # ends the pass: what is not known the pass counts at its worst case. At most COSTS are asked for in one read.
+    costs = 0
+    for record, github_id, attempt, keyed in ran if day is not None else []:
+        if record["status"] != "completed" or record["intent"] != REVIEWING or record["started_at"][:len(day)] != day:
+            continue
+        if "never_ran" in record and type(attempt) is int and attempt == 1:
+            # Its one attempt ran no step, so it asked no reader: nothing to read, and nothing spent. A later attempt
+            # that never ran says nothing of the ones before it, which may have asked: that Run is read as any other.
+            record[ADVISED[0]] = 0
+            continue
+        if keyed and (record["run"], record["started_at"]) in advised:
+            record.update(advised[(record["run"], record["started_at"])])
+            continue
+        if costs == COSTS:
+            continue
+        costs += 1
+        try:
+            cost, read_whole = artifacts.advice_cost(
+                transport, repo, github_id, record["run"],
+                lambda answer: reads.append(dict(read_at(answer), read="advice_cost")))
+        except Unanswered:
+            # GitHub is not answering for artifacts: no more are asked for in this read, so that no pass waits out a
+            # timeout for each of fifty. The Runs after it still take what was kept of them.
+            costs = COSTS
+            continue
+        if cost is not None:
+            record[ADVISED[0]], record[ADVISED[1]] = cost["asks"], cost["cost_usd"]
+        else:
+            # None, or no cost: counted at the worst case, and not asked for again once two passes in a row say so.
+            record[ADVISED[1]] = None
     return {"runs": records, "unidentified": unnamed, "complete": whole, "reads": reads, "github_ids": ids}

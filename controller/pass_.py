@@ -35,6 +35,7 @@ import copy
 import datetime
 import re
 
+from controller import advisory as advisory_
 from controller import credentials as credentials_
 from controller import feed as feed_
 from controller import health as health_
@@ -396,6 +397,14 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     made = [dict({"facts": a["facts"], "decision": a["decision"], "run": mint("r") if minting(a["decision"]) else None,
                   "active_runs": a["active_runs"]}, **status_head(a["entry"], a["kernel"])) for a in asked_]
     pull_requests, issues_ = made[:len(pulls)], made[len(pulls):]
+    # Beside the Decision, never in it: whether the day's ceiling admits each admitted review's advisory reads (decision
+    # 0224). Each review this pass admits counts the ones admitted before it, in the record's order, at the worst case.
+    asking = []
+    for e in made:
+        d = e["decision"]
+        if d["outcome"] == t.ADMIT and d["admit"]["intent"] == advisory_.REVIEWING:
+            e["advisory_ask"] = advisory_.admits(runs + asking, whole, now, config.get("harness") or {})
+            asking.append({"intent": advisory_.REVIEWING, "started_at": now})
 
     # Every write a Factory identity made, matched to an Effect the Factory recorded; one alert for any that is not, and
     # one for a reconciliation that is short (I-33, decision 0061). What it found is in the record before it is checked.

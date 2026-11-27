@@ -65,7 +65,8 @@
             "enum": [
               "runs",
               "facts",
-              "outcome"
+              "outcome",
+              "advice_cost"
             ]
           },
           "date": {

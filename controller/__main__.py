@@ -463,6 +463,7 @@ def read(transport, config: dict, run_id: str, previous, now: str, clock, starte
             runs = records.runs(transport, home, branch, run_files(controller), dispatcher(controller),
                                 kept=records.known(earlier), began=records.begun(earlier),
                                 engines=records.engines(earlier), sleep=sleep,
+                                advised=records.advised(earlier), day=now[:len("2026-01-01")],
                                 of=[{"repo": home, "type": "pull_request", "number": number} for number in numbers])
         except Unanswered:
             runs = None
