@@ -363,4 +363,7 @@ MUTANTS = [
      ' or message.get("function_call") is not None or', ' or', ADVICE_READ),
     ("a chat completion beside a sound is read", ADVICE,
      ' or message.get("audio") is not None:\n', ':\n', ADVICE_READ),
+    ('the advisory check has another name', ADVICE,
+     'CHECK = "advisory-%s"',
+     'CHECK = "advice-%s"', ('tests.test_tools.Rulesets.test_no_ruleset_and_no_required_lens_names_an_advisory_lens',)),
 ]

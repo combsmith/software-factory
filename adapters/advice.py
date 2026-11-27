@@ -37,6 +37,9 @@ COUNTED = 1000000000    # the most tokens advice/1 holds a count of; one Azure g
 MOST = 100              # the findings one answer may hold, as its schema says: more are not handed to the validator
 MILLION = 1000000
 DEAREST = 100000        # the most dollars advice/1 holds a cost of; a cost above it is not known
+# The name of the check run that shows an advisory Lens's Result. It is always neutral, and no ruleset may name it
+# (tools/check_rulesets.py), since a ruleset counts a neutral check as met.
+CHECK = "advisory-%s"
 # The reasons a chat completion's one choice may say it ended for: any other has not ended.
 ENDINGS = ("stop", "length", "content_filter", "tool_calls", "function_call")
 

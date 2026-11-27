@@ -19,12 +19,19 @@ asks for exactly one, a code owner's, of the last push, with a stale one dismiss
 no extra one for a change no person made, and `.github/CODEOWNERS` names on every line, a `*` line among them, only the
 team through which the machine user is a code owner (issue 198's ruling 2). An App is never a code owner. Whether GitHub
 reads each line as written (a team it cannot see makes a line no owner's) is no file's to say.
+
+No ruleset names an advisory Lens (decision 0224). Each one in `config/harness.json` is shown by a check run that is
+always neutral, and a ruleset counts a neutral check as met (decision 0118): one that required it would hold nothing
+and look as if it held something. So no ruleset, of a branch or of tags, active or not, requires a check or names a
+code-scanning tool that is an advisory Lens's name or its check's, in any case; and no required Lens of
+`config/defaults.json` is one, by its name or its check, so that none is made required by another road.
 """
 from __future__ import annotations
 
 import json
 import pathlib
 
+from adapters.advice import CHECK
 from tools.check_workflows import SHIMS
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -95,7 +102,47 @@ def _agree(root: pathlib.Path) -> list:
                             "owner's, of the last push, a stale one dismissed, with no required reviewer, so an "
                             "external Lens's approval could count; ask for exactly that" % BRANCH)
         problems += _code_owners(root)
-    return problems + _tags(rulesets, root) + _channel_branches(rulesets)
+    return problems + _tags(rulesets, root) + _channel_branches(rulesets) + _advisory(rulesets, root)
+
+
+def _advisory(rulesets: dict, root: pathlib.Path) -> list:
+    """No ruleset, and no required Lens, names an advisory Lens or its check."""
+    try:
+        advisory = json.loads((root / "config" / "harness.json").read_text())["advisory"]
+        required = json.loads((root / "config" / "defaults.json").read_text())["required_lenses"]
+        if not isinstance(advisory, list) or not all(isinstance(name, str) for name in advisory):
+            raise TypeError("advisory is not a list of names")
+        lenses = [lens for lens in required["deterministic"] if isinstance(lens, dict)]
+        models = [name for name in required["model"] if isinstance(name, str)]
+    except (OSError, ValueError, KeyError, TypeError) as err:
+        return ["config/harness.json or config/defaults.json cannot be read for the advisory Lenses, so no ruleset can "
+                "be shown to leave them out: %s" % err]
+    barred = {form.casefold(): name for name in advisory for form in (name, CHECK % name)}
+    problems = []
+    for title, ruleset in sorted(rulesets.items()):
+        rules = ruleset.get("rules") if isinstance(ruleset, dict) else None
+        status, scanning = (rules.get(kind) or {} for kind in ("required_status_checks", "code_scanning")) \
+            if isinstance(rules, dict) else (None, None)
+        checks = status.get("required_status_checks") or [] if isinstance(status, dict) else None
+        tools = scanning.get("code_scanning_tools") or [] if isinstance(scanning, dict) else None
+        if not isinstance(checks, list) or not isinstance(tools, list) \
+                or not all(isinstance(item, dict) and isinstance(item.get(name), str)
+                           for items, name in ((checks, "context"), (tools, "tool")) for item in items):
+            # A shape this check does not read is never read as naming nothing.
+            problems.append("config/rulesets.json: the %s ruleset cannot be read for the checks it names, so it cannot "
+                            "be shown to name no advisory Lens; make it match its schema" % title)
+            continue
+        named = [item["context"] for item in checks] + [item["tool"] for item in tools]
+        for check in named:
+            if isinstance(check, str) and check.strip().casefold() in barred:
+                problems.append("config/rulesets.json: the %s ruleset names %r, the advisory Lens %s's; an advisory "
+                                "Lens gates nothing, and a check of its own is one a ruleset counts as met: take it out"
+                                % (title, check, barred[check.strip().casefold()]))
+    for name in [form for lens in lenses for form in (lens.get("lens"), lens.get("check"))] + models:
+        if isinstance(name, str) and name.strip().casefold() in barred:
+            problems.append("config/defaults.json: a required Lens is named %r, the advisory Lens %s's; an advisory "
+                            "Lens is never required: take it out of one list" % (name, barred[name.strip().casefold()]))
+    return problems
 
 
 def _tags(rulesets: dict, root: pathlib.Path) -> list:
