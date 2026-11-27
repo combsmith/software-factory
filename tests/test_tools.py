@@ -10168,7 +10168,7 @@ if url.endswith("/access_tokens"):
     token = "ghs_" + "Q" * 30 + "%06d" % len((here / "mints").read_text())
     body = plan["mint"]["body"].replace("TOKEN", token).encode()
     sys.stdout.buffer.write(body[:-1] if plan["mint"].get("cut") else body)     # cut: inside its last character
-    sys.stdout.buffer.write(b"\n%d" % plan["mint"]["status"])
+    sys.stdout.buffer.write(("\n%s" % plan["mint"]["status"]).encode())     # "000": curl's word for no answer
 elif method == "DELETE":
     sys.stdout.write(str(plan.get("revoke", 204)))
 else:
@@ -10318,7 +10318,10 @@ else:
                     ({"status": 201, "body": "<html>gateway</html>"}, False, "the Maintainer must revoke it by hand"),
                     ({"status": 403, "body": '{"message": "Resource not accessible by integration"}'}, False, "403"),
                     ({"status": 502, "body": '{"token": "TOKEN", "expires_at": "2026-10'}, True, "held a token all the same"),
-                    ({"status": 422, "body": self.MINTED}, True, "held a token all the same")):
+                    ({"status": 422, "body": self.MINTED}, True, "held a token all the same"),
+                    # No refusal and no token: a transfer that failed with no answer, or a gateway's 5xx (issue 1245).
+                    ({"status": "000", "body": ""}, False, "GitHub may have minted one"),
+                    ({"status": 503, "body": "<html>unavailable</html>"}, False, "GitHub may have minted one")):
                 with self.subTest(script=name, plan=plan):
                     self.setUp()
                     argv = [a.replace("KEY", self.key_file) for a in args]
@@ -10328,6 +10331,8 @@ else:
                     self.assertNotIn("ermission denied", told_)
                     self.assertNotIn("ghs_", said + told_)
                     self.assertIn(told, told_)
+                    if plan["status"] == 403:
+                        self.assertNotIn("may have minted one", told_)
                     self.assertEqual(self.revoked(calls), self.minted(calls) if revoked else [])
                     self.assertFalse((self.out / "requests.json").exists())
 
@@ -15777,7 +15782,9 @@ class SignalTraps(unittest.TestCase):
 
     def test_every_token_script_tells_of_a_stop_mid_mint(self):  # issue 1215
         # A stop while the mint is asked leaves no answer to find a token in, and GitHub may have minted one: each sh script
-        # that mints marks the ask, and its clean-up tells the Maintainer the token may be live.
+        # that mints marks the ask, and its clean-up tells the Maintainer the token may be live. The mark stands until the
+        # answer is read, not only until curl returns (issue 1245): nothing on the line that clears the JWT clears it, and
+        # nothing clears it before the status is read.
         scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
                    if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
         self.assertEqual(len(scripts), 11)
@@ -15785,7 +15792,12 @@ class SignalTraps(unittest.TestCase):
             lines = [line.strip() for line in script.read_text().splitlines()]
             mint = next(n for n, line in enumerate(lines) if line.startswith("minted=$(") and '"$jwt" | curl' in line)
             self.assertEqual(lines[mint - 1], "minting=1", script.name)
-            self.assertIn('minting=""', next(line for line in lines[mint:] if line.startswith('jwt=""')), script.name)
+            self.assertNotIn('minting=""', next(line for line in lines[mint:] if line.startswith('jwt=""')), script.name)
+            read = next(n for n in range(mint, len(lines)) if lines[n].startswith("minted_status=$("))
+            cleared = next(n for n in range(mint, len(lines)) if 'minting=""' in lines[n])
+            self.assertLess(read, cleared, script.name)
+            # And the answer read, the last clear of the answer, which hands the token on, clears the mark too.
+            self.assertIn('minting=""', [line for line in lines[mint:] if line.startswith('minted=""')][-1], script.name)
             finish = lines.index("finish() {")
             told = lines.index('elif [ -n "${minting:-}" ]; then', finish)
             said = [line for line in lines[told + 1:lines.index("}", finish)] if not line.startswith("#")][:2]
@@ -15865,6 +15877,10 @@ if url.endswith("/access_tokens") and os.path.exists(os.path.join(here, "mint.sl
     told, held = (int(n) for n in open(os.path.join(here, "mint.slow")).read().split())
     os.write(told, b"m")
     os.read(held, 1)
+    sys.exit(28)
+if url.endswith("/access_tokens") and os.path.exists(os.path.join(here, "mint.dead")):
+    # A transfer that timed out with no answer at all: curl's -w gives 000 (issue 1245).
+    sys.stdout.write("\n000")
     sys.exit(28)
 if url.endswith("/access_tokens"):
     status = open(os.path.join(here, "mint.status")).read().strip()
@@ -16196,6 +16212,28 @@ esac
         calls = [line for line in script.splitlines() if "| curl " in line]
         self.assertEqual(len(calls), 3)
         self.assertTrue(all(line.split("| curl ", 1)[1].startswith("-q ") for line in calls))
+
+    def test_a_mint_with_no_token_and_no_refusal_tells_the_maintainer_one_may_be_live(self):  # issue 1245
+        # A 000 (the transfer failed with no answer) or a 5xx is no refusal: GitHub may have minted a token the script never
+        # saw. A 4xx minted nothing, and says so.
+        for flag, status, said in (("mint.dead", "201", "the mint answered 000 with no token, and GitHub may have minted one"),
+                                   (None, "502", "the mint answered 502 with no token, and GitHub may have minted one"),
+                                   (None, "401", "was minted (status 401)")):
+            with self.subTest(status=status, flag=flag):
+                self.setUp()
+                if flag:
+                    (self.stand_in / flag).write_text("")
+                (self.stand_in / "mint.status").write_text(status + "\n")
+                ran = self.run_script()
+                self.assertEqual(ran.returncode, 1, ran.stderr)
+                self.assertIn(said, ran.stderr)
+                self.assertNotIn("stopped while a token was being minted", ran.stderr)
+                if status == "401":
+                    self.assertNotIn("may have minted one", ran.stderr)
+                else:
+                    self.assertNotIn("was minted (status", ran.stderr)
+                    self.assertIn("suspends the App's installation", ran.stderr)
+                self.assertEqual([c for c in self.calls() if c["method"] in ("GET", "DELETE")], [])
 
     def test_a_refused_mint_or_revocation_stops_the_run_and_says_so(self):
         (self.stand_in / "mint.status").write_text("401\n")

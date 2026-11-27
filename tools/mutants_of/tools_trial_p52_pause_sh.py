@@ -2,6 +2,7 @@
 
 TARGETS = ("tools/trial_p52_pause.sh",)
 from tools.mutants_of.common import KEEP_1215  # noqa: E402
+MINT_REFUSED = "tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused"
 KEEP = "tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_in_a_private_directory_it_deletes"
 MUTANTS = [
     # Issue 481: the first signal stops the run, a later one stops neither the revocation nor the redaction, and the
@@ -72,8 +73,8 @@ MUTANTS = [
     ("P-52's trial reads a 201 it cannot read as no token minted", "tools/trial_p52_pause.sh",
      'if [ "$minted_status" = 201 ] && [ -z "$token" ]; then\n', 'if false; then\n', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
     ("P-52's trial leaves a token found in a mint's answer it cannot read unrevoked", "tools/trial_p52_pause.sh",
-     '    token=$(token_in "$minted")\n    minted=""\n    if [ -n "$token" ]; then\n',
-     '    token=""\n    minted=""\n    if [ -n "$token" ]; then\n', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
+     '    token=$(token_in "$minted")\n    minted="" minting=""\n    if [ -n "$token" ]; then\n',
+     '    token=""\n    minted="" minting=""\n    if [ -n "$token" ]; then\n', ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
     ("P-52's trial drops a token a refused mint held", "tools/trial_p52_pause.sh",
      '    minted=""\n    echo "trial_p52_pause: $slug: the mint answered', '    token=""\n    minted=""\n    echo "trial_p52_pause: $slug: the mint answered',
      ("tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused",)),
@@ -111,7 +112,13 @@ MUTANTS = [
     ("P-52 tells nothing of a stop mid-mint", "tools/trial_p52_pause.sh", '    elif [ -n "${minting:-}" ]; then', '    elif false; then',
      ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
     ("P-52 marks no mint", "tools/trial_p52_pause.sh", "minting=1\n", "", ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
-    ("P-52 never clears its mint mark", "tools/trial_p52_pause.sh", 'minting=""\n', "\n", ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
+    # Issue 1245: the mark stands until the answer is read; only a 4xx says no token was minted.
+    ("P-52 never clears its mint mark", "tools/trial_p52_pause.sh", '\nminted="" minting=""\n', '\nminted=""\n',
+     ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
+    ("P-52 clears its mint mark when curl returns", "tools/trial_p52_pause.sh", '\njwt=""\n', '\njwt="" minting=""\n',
+     ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
+    ("P-52 tells a mint with no answer as none minted", "tools/trial_p52_pause.sh", "4??) refused=", "*) refused=", (MINT_REFUSED,)),
+    ("P-52 tells a mint refused as one that may be live", "tools/trial_p52_pause.sh", "4??) refused=", "5??) refused=", (MINT_REFUSED,)),
     ("P-52 says nothing of a stop mid-mint", "tools/trial_p52_pause.sh", 'echo "trial_p52_pause: stopped while a token was being minted;',
      ': "trial_p52_pause: stopped while a token was being minted;', ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
 ]
