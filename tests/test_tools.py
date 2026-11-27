@@ -16000,8 +16000,12 @@ class SignalTraps(unittest.TestCase):
         # A name a script holds a credential in, exported, reaches every child; SSLKEYLOGFILE has curl write the TLS keys
         # that read a token off the wire; a .curlrc can print the Authorization header. Each script that mints unsets the
         # first two before its first curl, and every curl reads no .curlrc. A curl is one that starts a command: on its
-        # line, after a pipe or in a substitution, wherever the line breaks.
+        # line, after a pipe or in a substitution, wherever the line breaks. Nor does curl take a proxy, a certificate
+        # authority or a TLS library the shell names, which would carry the JWT and each token through it, nor openssl a
+        # configuration that loads code where the App's key is read; and gh, in the App's trial, no GODEBUG that logs
+        # each header it sends (issue 1288).
         unset = "unset SSLKEYLOGFILE token jwt signature minted minting"
+        unproxied = "unset " + " ".join(PROXY_AND_TLS)
         minting = 0
         for script in sorted((ROOT / "tools").glob("trial_*.sh")):
             lines = script.read_text().splitlines()
@@ -16013,7 +16017,16 @@ class SignalTraps(unittest.TestCase):
                 minting += 1
                 self.assertEqual(lines.count(unset), 1, script.name)
                 self.assertLess(lines.index(unset), calls[0], script.name)
+                self.assertEqual(lines.count(unproxied), 1, script.name)
+                # Before curl, and before openssl first reads the App's key.
+                signs = [n for n, line in enumerate(lines) if not line.lstrip().startswith("#")
+                         and re.search(r"(?:^|\||\$\(|&&|;)\s*openssl\s", line)]
+                self.assertLess(lines.index(unproxied), min(calls[:1] + signs[:1]), script.name)
         self.assertEqual(minting, 12)
+        app = (ROOT / "tools" / "trial_as_app.sh").read_text().splitlines()
+        gh = [n for n, line in enumerate(app) if not line.lstrip().startswith("#") and re.search(r'GH_TOKEN="\$token" gh\s', line)]
+        self.assertEqual(app.count("unset GH_DEBUG DEBUG CURL_HOME GODEBUG"), 1)
+        self.assertLess(app.index("unset GH_DEBUG DEBUG CURL_HOME GODEBUG"), gh[0])
 
     def test_every_trial_finds_its_root_as_the_file_system_does(self):  # issue 1215
         # A plain cd looks a relative path up along CDPATH, and says where it went, and takes .. past a link logically.
@@ -16039,6 +16052,13 @@ class SignalTraps(unittest.TestCase):
             self.assertEqual(then[:2], ["set +a", "unset CDPATH"], script.name)
 
 
+# What curl and openssl read from the environment to choose a proxy, a certificate authority, a TLS library or a
+# configuration: each token trial unsets them all before its first curl (issue 1288).
+PROXY_AND_TLS = ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY", "no_proxy", "NO_PROXY",
+                 "CURL_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_SSL_BACKEND", "OPENSSL_CONF", "OPENSSL_ENGINES",
+                 "OPENSSL_MODULES")
+
+
 class ReaderTrialScript(unittest.TestCase):
     """`tools/trial_reader_reads.sh`, run against a stand-in curl and openssl and never GitHub (issues 222 and 231): each
     refusal before anything is minted, two tokens each narrowed to one permission on the canary alone, every read made
@@ -16055,7 +16075,7 @@ class ReaderTrialScript(unittest.TestCase):
     CURL = r'''#!/usr/bin/env python3
 import json, os, sys
 here = os.path.dirname(os.path.abspath(__file__))
-ENV_NAMES = ("token", "jwt", "signature", "minted", "minting", "SSLKEYLOGFILE")
+ENV_NAMES = ("token", "jwt", "signature", "minted", "minting", "SSLKEYLOGFILE") + ''' + repr(PROXY_AND_TLS) + r'''
 args = sys.argv[1:]
 url = [a for a in args if a.startswith("https://")][-1]
 method = args[args.index("-X") + 1] if "-X" in args else "GET"
@@ -16389,12 +16409,13 @@ esac
 
     def test_the_maintainers_environment_steers_nothing(self):  # issue 1215
         # Run by a path relative to the repo, under a CDPATH that holds a tools/ of its own, with SSLKEYLOGFILE and each
-        # name a credential is held in exported, and the shell started exporting every assignment: the script finds its
-        # own root, and curl is handed none of them.
+        # name a credential is held in exported, a proxy and a certificate authority named (issue 1288), and the shell
+        # started exporting every assignment: the script finds its own root, and curl is handed none of them.
         decoy = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         (decoy / "tools").mkdir()
         env = {"PATH": "%s:%s" % (self.stand_in, os.environ["PATH"]), "HOME": str(self.stand_in), "LANG": "C",
                "CDPATH": str(decoy), "SSLKEYLOGFILE": str(decoy / "keys"),
+               **{name: str(decoy / name) for name in PROXY_AND_TLS},
                **{name: self.TOKEN for name in ("token", "jwt", "signature", "minted", "minting")}}
         ran = subprocess.run(["sh", "-a", str(self.SCRIPT.relative_to(ROOT)), str(self.out), str(self.key), *self.GIVEN],
                              cwd=str(ROOT), capture_output=True, text=True, env=env, timeout=120)
