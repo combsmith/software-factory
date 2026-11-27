@@ -3406,6 +3406,7 @@ class Advisory(unittest.TestCase):
                                (ran(advisory_asks=2, advisory_cost_usd=0), 2), (ran(advisory_asks=1, advisory_cost_usd=-0.0), 2),
                                (ran(advisory_asks=2, advisory_cost_usd=5e-324), 2), (ran(advisory_asks=2, advisory_cost_usd=4e-7), 2),
                                (ran(advisory_asks=2, advisory_cost_usd=0.000001), 0.000001),
+                               (ran(advisory_asks=100, advisory_cost_usd=29), 29),
                                # Its advice was not read, or it is still running, whatever it says.
                                (ran(), 2), (ran(advisory_cost_usd=0.5), 2),
                                (ran(status="in_progress", advisory_asks=1, advisory_cost_usd=0.01), 2),
@@ -3434,9 +3435,15 @@ class Advisory(unittest.TestCase):
                 self.assertEqual(advisory.spent([ran(start, status=status, advisory_asks=1, advisory_cost_usd=0.01)], self.NOW, 2), 2,
                                  (start, status))
         self.assertEqual(advisory.spent([ran("2026-11-17T23:59:59Z", intent="fix-findings", status="in_progress")], self.NOW, 2), 0)
-        for start in (None, "", 1795000000, "20261118T090000Z", " 2026-11-18T09:00:00Z", "2026-11-17", "2026-11-17T23:59:59+00:00"):
+        for start in (None, "", 1795000000, "20261118T090000Z", " 2026-11-18T09:00:00Z", "2026-11-17", "2026-11-17T23:59:59+00:00",
+                      "2026-99-99T00:00:00Z", "2026-02-30T12:00:00Z", "2026-11-17T25:00:00Z", "2026-11-17T23:60:00Z"):
             self.assertEqual(advisory.spent([ran(start, advisory_asks=1, advisory_cost_usd=7)], self.NOW, 2), 7, start)
         self.assertEqual(advisory.spent([{"intent": "review-change"}, None, "x"], self.NOW, 2), 6)
+        # One whose Intent cannot be read is not shown to be another Intent's either, and counts.
+        for intent in (None, 7, ["review-change"]):
+            self.assertEqual(advisory.spent([ran(intent=intent, advisory_asks=1, advisory_cost_usd=7)], self.NOW, 2), 7, intent)
+            self.assertEqual(advisory.spent([ran(intent=intent, status="in_progress")], self.NOW, 2), 2, intent)
+        self.assertEqual(advisory.spent([{"status": "in_progress"}], self.NOW, 2), 2)
         self.assertEqual(advisory.spent([], self.NOW, 2), 0)
         # Two records of one Run are two counts: nothing here says which is the Run's, and more is the safe way.
         self.assertEqual(advisory.spent([ran(advisory_asks=1, advisory_cost_usd=10)] * 2, self.NOW, 2), 20)
@@ -3473,12 +3480,19 @@ class Advisory(unittest.TestCase):
             self.assertIs(advisory.admits([], True, now, {k: v for k, v in harness.items() if k != key}), False, key)
         # A worst case above the ceiling admits nothing, and run records not read whole admit nothing.
         self.assertIs(advisory.admits([], True, now, dict(harness, advisory_worst_case_usd=31)), False)
+        # A worst case above the ceiling by less than a millionth is above it, and one equal to it is not.
+        self.assertIs(advisory.admits([], True, now, dict(harness, advisory_ceiling_usd_per_day=2.14, advisory_worst_case_usd=2.1400004)), False)
+        self.assertIs(advisory.admits([], True, now, dict(harness, advisory_ceiling_usd_per_day=2.14, advisory_worst_case_usd=2.14)), True)
+        self.assertIs(advisory.admits([], True, now, dict(harness, advisory_ceiling_usd_per_day=2.1399996, advisory_worst_case_usd=2.13)), True)
+        self.assertIs(advisory.admits([ran(advisory_asks=1, advisory_cost_usd=0.01)], True, now,
+                                      dict(harness, advisory_ceiling_usd_per_day=2.1399996, advisory_worst_case_usd=2.13)), False)
         for whole in (False, None, 1, "yes"):
             self.assertIs(advisory.admits([], whole, now, harness), False, whole)
         # Whatever it is handed it answers, and what it cannot read it answers no to: a time in another form, which
         # names no day, and a configuration or run records that are none.
         spent_ = [ran(advisory_asks=1, advisory_cost_usd=100)]
         for when in ("20261118T130000Z", "1795006800", " 2026-11-18T13:00:00Z", "2026-11-19T01:00:00+02:00", "", "2026-11",
+                     "2026-02-30T12:00:00Z", "2026-11-18T24:00:00Z", "2026-13-01T00:00:00Z",
                      None, 1795006800, b"2026-11-18T13:00:00Z"):
             self.assertIs(advisory.admits([], True, when, harness), False, when)
             self.assertIs(advisory.admits(spent_, True, when, harness), False, when)

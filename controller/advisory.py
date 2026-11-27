@@ -3,8 +3,8 @@
 and nothing from GitHub, and it asks the Kernel nothing: an advisory Lens changes no Decision.
 
 The day is the UTC date of the pass's `now`. Every record of a review Run counts, two records of one Run among them,
-unless it finished and started on another day; a record whose start cannot be read is counted, since it cannot be shown
-to be another day's. A finished Run is its record's day, `started_at`, which the records keep each attempt by: one run
+unless it finished and started on another day; a record whose start or Intent cannot be read is counted, since it cannot
+be shown to be another day's or another Intent's. A finished Run is its record's day, `started_at`, which the records keep each attempt by: one run
 again on a later day is counted there. A Run still in flight counts on today's sum whatever day it started, so that
 what is spent across midnight is carried and no day's reads begin from nought while yesterday's are still running
 (the Factory Builder, 2026-11-19).
@@ -24,6 +24,7 @@ in a pass hands each the ones before it, as records still running, so that each 
 """
 from __future__ import annotations
 
+import datetime
 import re
 
 REVIEWING = "review-change"
@@ -38,6 +39,22 @@ DAY = len("2026-01-01")
 def _number(value, least, most) -> bool:
     """A number, no truth value, from `least` to `most`: so no NaN, which is within no bounds, and none without end."""
     return type(value) in (int, float) and least <= value <= most
+
+
+def _placed(value) -> bool:
+    """A time in the one form, of a day and a clock that exist: `2026-02-30T12:00:00Z` names no day."""
+    if not isinstance(value, str) or TIME.fullmatch(value) is None:
+        return False
+    try:
+        datetime.datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
+    except ValueError:
+        return False
+    return True
+
+
+def _another(intent) -> bool:
+    """Whether a record is shown to be of another Intent: one whose Intent cannot be read may be a review's, and counts."""
+    return isinstance(intent, str) and intent != REVIEWING
 
 
 def counted(record, worst: float) -> float:
@@ -58,9 +75,9 @@ def spent(records: list, now: str, worst: float) -> float:
     day, total = now[:DAY], 0.0
     for record in records:
         started = record.get("started_at") if isinstance(record, dict) else None
-        placed = isinstance(started, str) and TIME.fullmatch(started) is not None
+        placed = _placed(started)
         flying = isinstance(record, dict) and record.get("status") != "completed"
-        if isinstance(record, dict) and (record.get("intent") != REVIEWING
+        if isinstance(record, dict) and (_another(record.get("intent"))
                                          or (placed and started[:DAY] != day and not flying)):
             continue
         total += counted(record, worst)
@@ -70,10 +87,13 @@ def spent(records: list, now: str, worst: float) -> float:
 def admits(records, whole, now, harness) -> bool:
     """Whether one more review Run may ask its readers today."""
     if not isinstance(harness, dict) or not isinstance(records, list) or whole is not True \
-            or not isinstance(now, str) or TIME.fullmatch(now) is None:
+            or not _placed(now):
         return False
     ceiling, worst, readers = harness.get(CEILING), harness.get(WORST), harness.get("readers")
     if not _number(ceiling, LEAST, MOST) or not _number(worst, LEAST, MOST) or not isinstance(readers, dict) or not readers:
         return False
-    # To a millionth of a dollar, as a cost is written: a sum of floats is not refused for the error of adding them.
-    return round(spent(records, now, worst) + worst, 6) <= ceiling
+    # In millionths of a dollar, as a cost is written: the sum to the nearest, so that it is not refused for the error
+    # of adding floats; this Run's own worst case rounded up and the ceiling down, past a float's noise alone, so that
+    # a worst case above the ceiling by less than a millionth is still above it.
+    return round(spent(records, now, worst) * 1000000) + -(-round(worst * 1000000, 3) // 1) \
+        <= round(ceiling * 1000000, 3) // 1

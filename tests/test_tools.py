@@ -3495,12 +3495,17 @@ class Repo(unittest.TestCase):
         self.assertTrue(validate(dict(named, readers={"astra": dict(block, advisory_ceiling_usd_per_day=30)}), schema))
         self.assertTrue(validate(dict(named, readers={"astra": dict(block, ceiling_usd_per_day=30)}), schema))
         # The worst case one read is counted at is no less than one Run may cost by its readers' caps and prices: each
-        # reader's largest prompt at a token a character and its whole output cap. With these, 2.14 for one reader.
+        # reader's largest prompt at a token a byte and its whole output cap. With these, 2.14 for one reader.
         most = (block["prompt_characters"] * block["usd_per_million"]["input"]
                 + block["output_tokens"] * block["usd_per_million"]["output"]) / 1000000
         self.assertEqual(most, 2.14)
+        dear = dict(block, usd_per_million={"input": block["usd_per_million"]["input"], "output": 40})
+        odd = dict(block, prompt_characters=599999, usd_per_million={"input": 2.75, "output": 20})
         for worst, readers, held in ((2.14, {"astra": block}, True), (2.13, {"astra": block}, False), (4.28, {"astra": block, "kimi": block}, True),
-                                     (4.27, {"astra": block, "kimi": block}, False), (0.01, {}, True), (10000, {"astra": block}, True)):
+                                     (4.27, {"astra": block, "kimi": block}, False), (0.01, {}, True), (10000, {"astra": block}, True),
+                                     # Each reader at its own prices, and a figure of more than a millionth's places rounded up.
+                                     (4.92, {"astra": block, "kimi": dear}, True), (4.91, {"astra": block, "kimi": dear}, False),
+                                     (2.289998, {"astra": odd}, True), (2.289997, {"astra": odd}, False)):
             found = check_examples._readers(dict(named, readers=readers, advisory_worst_case_usd=worst))
             self.assertEqual(not caught(found, "is under what the readers' caps and prices let one Run cost"), held, (worst, sorted(readers)))
         self.assertEqual(check_examples._readers(dict(named, readers={"astra": block})), [])       # with none, no reader is asked
