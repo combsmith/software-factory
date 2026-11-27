@@ -257,7 +257,7 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
     tr -d '\r' < "$scratch/crlf-$n" > "$scratch/raw-$n"
     rm -f "$scratch/crlf-$n"
     # The last head's status: a proxy's block, or an interim answer, comes first and is no answer to this read.
-    status=$(awk 'BEGIN { head = 1 } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9]+/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
+    status=$(awk 'BEGIN { head = 1 } head && /^HTTP\// { found = "" } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$scratch/raw-$n")
     revoked=$(revoke || true)
     if [ "$revoked" != 204 ]; then
         # The token stays set, so the exit trap tries once more to revoke it.

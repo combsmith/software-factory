@@ -3485,9 +3485,10 @@ class Repo(unittest.TestCase):
             odd = dict(harness, advisory=["coderabbit", name], readers={name: block})
             self.assertTrue(caught(check_examples._readers(odd), "has a name advice/1 cannot hold"), name)
         self.assertEqual(check_examples._readers(dict(harness, advisory=["a" * 31], readers={"a" * 31: block})), [])
-        # A reader is a second family: one of the Engine's own family, by its model or its deployment, is refused.
+        # A reader is a second family: one of the Engine's own family, by its model or its deployment, is refused, its
+        # family named anywhere in either.
         for pin in ("model", "deployment"):
-            for engines in ("claude-" + "opus-5-5", "Claude-Reader"):
+            for engines in ("claude-" + "opus-5-5", "Claude-Reader", "anthropic.claude-" + "opus-5-5", "prod-claude", "prod-CLAUDE-1", "prodclaude1"):
                 own = dict(named, readers={"astra": dict(block, **{pin: engines})})
                 self.assertTrue(caught(check_examples._readers(own), "the reader astra is of the Engine's own family"), (pin, engines))
 
@@ -8152,12 +8153,37 @@ class Trials(unittest.TestCase):
                  "P-99.md": (good % "99").replace("Is it asked?", "```hidden"), "P-41.md": page,
                  "P-88.md": (good % "88").replace("Is it asked?", "Is A | B asked?"), "P-87.md": (good % "87").replace("Yes", " "),
                  "P-85.md": (good % "85").replace("Is it asked?", " "),
+                 "P-84.md": (good % "84").replace("Is it asked?", '[it]: https://example.com "Is it asked?"'),
+                 "P-83.md": (good % "83").replace("Yes", "  [Yes]: <x>"),
+                 "P-184.md": (good % "184").replace("Yes", "[Yes]:"),
+                 "P-185.md": (good % "185").replace("Yes", "   [a\\]b]: <x>"),
+                 "P-186.md": (good % "186").replace("Is it asked?", '> [it]: /url "Is it asked?"'),
+                 "P-187.md": (good % "187").replace("Is it asked?", "- [it]: /url"),
+                 "P-188.md": (good % "188").replace("Yes", "[ ]: unchecked"),
+                 "P-189.md": (good % "189").replace("Yes", "-    [it]: /url"),
+                 "P-190.md": (good % "190").replace("Yes", ">    [it]: /url"),
+                 "P-191.md": (good % "191").replace("Yes", "> 1) [Yes]: <x>"),
+                 "P-192.md": (good % "192").replace("Yes", "   > - [it]: /url"),
+                 "P-193.md": (good % "193").replace("Yes", "[  \\]ok]: /url"),
+                 "P-194.md": (good % "194").replace("Yes", "[\u00a0it]: /url"),
+                 "P-195.md": (good % "195").replace("Yes", "-[ok]: /url"),
+                 "P-196.md": (good % "196").replace("Yes", ">     [it]: /url"),
                  "P-86.md\n": good % "86"}
         planted = clone({check_trials.PAGES + "/" + k: v for k, v in files.items()})
         (planted / check_trials.PAGES / "P-89.md").symlink_to(planted / check_trials.PAGES / "P-90.md")
         problems = check_trials.run(planted)
         for name in ("P-98.md", "P-99.md"):
             self.assertTrue(caught(problems, "%s/%s: holds a fence or an HTML comment" % (check_trials.PAGES, name)), name)
+        # So does a link reference definition, which shows as nothing (issue 1179).
+        # A marker takes four blanks after it, an ordered list's too, markers nest, and a label may open with blanks,
+        # an escape or a blank of no ASCII.
+        for name in ("P-84.md", "P-83.md", "P-184.md", "P-185.md", "P-186.md", "P-187.md", "P-189.md", "P-190.md",
+                     "P-191.md", "P-192.md", "P-193.md", "P-194.md"):
+            self.assertTrue(caught(problems, "%s/%s: holds a link reference definition" % (check_trials.PAGES, name)), name)
+        # A label of blanks is no label, a list's marker that touches its label is text, and five blanks after a quote's
+        # marker are code: each line is shown.
+        for name in ("P-188.md", "P-195.md", "P-196.md"):
+            self.assertFalse(caught(problems, "%s: holds a link reference definition" % name), name)
         for name in ("README.md", "P-095.md", "deep/P-96.md", "P-89.md", "P-86.md\n"):
             self.assertTrue(caught(problems, "%s/%s: only a trial's page" % (check_trials.PAGES, name)), name)
         self.assertTrue(caught(problems, "P-90.md: is headed P-91"), problems)
@@ -10581,7 +10607,13 @@ sys.exit(subprocess.run([%r] + sys.argv[1:], input=said).returncode)
                 for said, status in (("HTTP/1.1 200 Connection established\n\nHTTP/2 403\nx: y\n\n{}\n", "403"),
                                      ("HTTP/1.1 200 Connection established\n\n\nHTTP/2 403\n\n{}\n", "403"),
                                      ("HTTP/2 200\nx: y\n\nBody\n\nHTTP/1.1 404 Not Found\n", "200"),
-                                     ("no head\n", "")):
+                                     ("no head\n", ""),
+                                     # A status is three digits, whole, or none (issue 1215): nothing else of the line
+                                     # reaches requests.json or the terminal.
+                                     ("HTTP/2 200x\n\n{}\n", ""), ("HTTP/1.1 2000 OK\n\n{}\n", ""),
+                                     ("HTTP/2 20 OK\n\n{}\n", ""), ("HTTP/1.1 404 Not Found\n\n{}\n", "404"),
+                                     ("HTTP/2 2a0\n\n{}\n", ""), ("HTTP/2 20x\n\n{}\n", ""), ("HTTP/2 x00\n\n{}\n", ""),
+                                     ("HTTP/1.1 200 Connection established\n\nHTTP/2 200x\n\n{}\n", "")):
                     # Each as it is, and as curl -i writes it, each line ending in CRLF (issue 502, Argon). What awk says
                     # is read as bytes, as $(...) keeps them: a carriage return left in the status is not stripped here.
                     for spelt in (said, said.replace("\n", "\r\n")):
@@ -14521,10 +14553,11 @@ class Mutants(unittest.TestCase):
 
     def test_every_mutant_is_in_exactly_one_shard(self):
         # CI runs the mutants in shards, one job each. A mutant in no shard is a rule nobody checks; one in two is run
-        # twice. Each is told apart by its name, so no name is used twice.
+        # twice. Each is told apart by its name, so no name is used twice. The counts run to twelve, then the workflow's
+        # sixteen and forty (issue 1314).
         names = [mutant[0] for mutant in mutants.MUTANTS]
         self.assertEqual(len(names), len(set(names)))
-        for count in range(1, 13):
+        for count in list(range(1, 13)) + [16, 40]:
             placed = [mutant[0] for index in range(count) for mutant in mutants.shard(mutants.MUTANTS, index, count)]
             self.assertEqual(sorted(placed), sorted(names), count)
 
@@ -17018,7 +17051,7 @@ class ReviewOrderTrial(IssueLookupTrial):
         sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\n\\r\\n{\\"cut")
         sys.exit(0)
     if os.path.exists(os.path.join(here, "odd.status")):
-        sys.stdout.write("HTTP/2 200x\\r\\ncontent-type: application/json\\r\\n\\r\\n[]")
+        sys.stdout.write("HTTP/2 %s\\r\\ncontent-type: application/json\\r\\n\\r\\n[]" % open(os.path.join(here, "odd.status")).read().strip())
         sys.exit(0)
     if body and body.startswith("@"):
         with open(os.path.join(here, "sent"), "a") as kept:
@@ -17168,14 +17201,19 @@ elif "/issues/" in url:""", 1)
                       ran.stderr)
         self.assertEqual([c["method"] for c in self.calls()][-3:], ["SLEEP", "POST", "DELETE"])
 
-    def test_a_status_that_is_no_number_is_not_kept_and_its_token_is_revoked(self):
-        (self.stand_in / "odd.status").write_text("")
-        ran = self.run_script()
-        self.assertNotEqual(ran.returncode, 0, ran.stdout)
-        self.assertIn("answered no status of three digits; nothing of it reaches OUT", ran.stderr)
-        self.assertEqual([c["method"] for c in self.calls()], ["POST", "GET", "DELETE"])
-        self.assertNotIn("200x", ran.stdout + ran.stderr)
-        self.assertFalse((self.out / "requests.json").exists())
+    def test_a_status_no_answer_has_is_not_kept_and_its_token_is_revoked(self):
+        # Three digits that no answer has, above the range and below it: a status that is not three digits awk keeps as
+        # none (issue 1215). Neither is told, nor its line kept.
+        for odd in ("600", "099"):
+            with self.subTest(odd=odd):
+                self.setUp()
+                (self.stand_in / "odd.status").write_text(odd + "\n")
+                ran = self.run_script()
+                self.assertNotEqual(ran.returncode, 0, ran.stdout)
+                self.assertIn("answered no status of three digits; nothing of it reaches OUT", ran.stderr)
+                self.assertEqual([c["method"] for c in self.calls()], ["POST", "GET", "DELETE"])
+                self.assertNotIn(odd, ran.stdout + ran.stderr)
+                self.assertFalse((self.out / "requests.json").exists())
 
     def test_the_status_kept_is_the_last_heads(self):
         # A proxy's block comes first, 200, and GitHub's answer after it is the call's: the comments' 201s stay 201s.
