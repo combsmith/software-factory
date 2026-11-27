@@ -3349,19 +3349,22 @@ class Acceptance(unittest.TestCase):
     OPENED = dict(PULL, user={"login": "combsmith-sf-dev-lead[bot]", "id": 12, "type": "Bot"},
                   head={"ref": "factory-work/issue-36-1", "repo": {"full_name": "o/r"}})
 
-    def read(self, *found, pull=None, opener=None, opened=None, cut=False):
-        """`acceptance.read`'s answer, or with `cut` `acceptance.bounded`'s, which says the cut too."""
+    def read(self, *found, pull=None, opener=None, opened=None, cut=False, named=False):
+        """`acceptance.read`'s answer, or with `cut` `acceptance.bounded`'s, which says the cut too; with `named`, all of
+        `acceptance.bounded`'s, which says whether another issue is named as well."""
         router = Router(github.Replay(list(found)), {"don-petry": "admin", "reader": "read"})
-        return (acceptance.bounded if cut else acceptance.read)(
+        got = (acceptance.bounded if cut or named else acceptance.read)(
             router, pull or self.PULL, timeline.Accounts(router, "o/r", MACHINE, {}), opener,
             opened if opened is not None else NOT_OPENED)
+        return got if named or not cut else got[:3]
 
-    def opened(self, *found, ref="factory-work/issue-36-1", user=None, repo="o/r", opener=OPENER, made=None, cut=False):
+    def opened(self, *found, ref="factory-work/issue-36-1", user=None, repo="o/r", opener=OPENER, made=None, cut=False,
+               named=False):
         """What the pull request the opener's App opened on branch `ref` reads as, its opening Runs' records `made`."""
         pull = dict(self.OPENED, head={"ref": ref, "repo": {"full_name": repo}})
         if user is not None:
             pull["user"] = user
-        return self.read(*found, pull=pull, opener=opener, opened=made, cut=cut)
+        return self.read(*found, pull=pull, opener=opener, opened=made, cut=cut, named=named)
 
     def test_the_role_that_opens_pull_requests_is_the_configurations(self):  # issue 342
         # The opening Runs are read for the Role the configuration names for open-pull-request: none in slice 1.
@@ -3469,6 +3472,36 @@ class Acceptance(unittest.TestCase):
         # Nor are closing references read short.
         self.assertEqual(self.opened(closing_answer("o/r", 26, [36], total=11)), (None, False))
         self.assertEqual(self.opened(closing_answer("o/r", 26, [36], elsewhere="o/other")), (None, False))
+
+    def test_closing_references_that_name_another_issue_than_the_bound_one_say_so(self):  # issue 1185
+        # Another number, another repo, or a count above one, past the page read too: GitHub lists an issue once, so a
+        # bound pull request's closing references name another issue, and the facts say so, for a person to be called.
+        named = (([37], None, None), ([36, 37], None, None), ([37, 36], None, None), ([36], None, "o/other"),
+                 ([36], 2, None), ([36] * 10, 11, None), ([], 2, None), ([37], 0, None), ([36, 37], 1, None))
+        for issues, total, elsewhere in named:
+            got = self.opened(closing_answer("o/r", 26, issues, total=total, elsewhere=elsewhere), named=True)
+            self.assertEqual(got, (None, False, False, True), (issues, total, elsewhere))
+        # The other side: the bound issue alone, or none; a count GitHub has not caught up with, one beside no issue;
+        # a person's pull request, which keeps the closing references' reading, whatever they name.
+        for issues, total, reads, whole in (([36], None, (issue_timeline("o/r", 36, []),), True),
+                                            ([], None, (issue_answer("o/r", 36), issue_timeline("o/r", 36, [])), True),
+                                            ([], 1, (), False), ([36], 0, (), False)):
+            got = self.opened(closing_answer("o/r", 26, issues, total=total), *reads, named=True)
+            self.assertEqual(got, (None, whole, False, False), (issues, total))
+        self.assertEqual(self.read(closing_answer("o/r", 26, [36], total=11), named=True), (None, False, False, False))
+        # GitHub's answer in another shape names no issue it can tell.
+        for refs in (None, [], {"totalCount": "2", "nodes": []}, {"totalCount": 1, "nodes": [None]},
+                     {"totalCount": 1, "nodes": [{"number": "37", "repository": {"nameWithOwner": "o/r"}}]},
+                     {"totalCount": 1, "nodes": [{"number": 37, "repository": None}]},
+                     {"totalCount": 1, "nodes": [{"number": 36, "repository": {"nameWithOwner": ""}}]},
+                     {"totalCount": 1, "nodes": [{"number": 0, "repository": {"nameWithOwner": "o/r"}}]},
+                     {"totalCount": 1, "nodes": [{"number": True, "repository": {"nameWithOwner": "o/r"}}]},
+                     {"totalCount": 1, "nodes": 1}, {"totalCount": True, "nodes": None}):
+            self.assertIs(acceptance.another(refs, "o/r", 36), False, refs)
+        # One it cannot read does not hide the next (Carbon); an opener's pull request bound to nothing names none.
+        other = {"number": 37, "repository": {"nameWithOwner": "o/r"}}
+        self.assertIs(acceptance.another({"totalCount": 1, "nodes": [None, other]}, "o/r", 36), True)
+        self.assertEqual(self.opened(ref="factory/issue-36-1", named=True), (None, False, False, False))
 
     def test_a_branch_of_another_shape_binds_nothing_and_the_openers_pull_request_is_not_whole(self):  # issue 295
         for ref in ("factory-work/issue-036-1", "factory-work/issue-36-01", "factory-work/issue-0-1",
@@ -4768,6 +4801,31 @@ class Snapshot(unittest.TestCase):
         self.assertIs(got["acceptance_bounded"], True)
         self.assertIs(got["timeline_bounded"], False)        # the closing issue's cut is not its own (Astra)
 
+    def test_a_snapshot_says_whether_closing_references_name_another_issue(self):  # issue 1185
+        # The port always gives the fact: false for a person's pull request, and true for the opener's own, bound to
+        # issue 36 by its branch, whose closing references name issue 37, beside acceptance not whole.
+        got, _ = self.read(1)
+        self.assertIs(got["closes_another_issue"], False)
+        seq = self.sequence(1)
+        ref = seq[0]["response"]["body"]["head"]["ref"]
+        for at in (0, len(seq) - 1):
+            seq[at] = copy.deepcopy(seq[at])
+            seq[at]["response"]["body"]["user"] = {"login": "combsmith-sf-dev-lead[bot]", "id": 12, "type": "Bot"}
+            seq[at]["response"]["body"]["head"]["ref"] = "factory-work/issue-36-1"
+        # The head branch's activity is asked by the branch's name.
+        seq[2] = json.loads(json.dumps(seq[2]).replace("refs/heads/" + ref, "refs/heads/factory-work/issue-36-1"))
+        seq[len(seq) - 4] = closing_answer(canary(), 26, [37])
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW, opener=(12, "Bot"), recorded=NOTHING, opened=NOT_OPENED)
+        self.assertEqual((got["acceptance"], got["complete"]["acceptance"], got["closes_another_issue"]), (None, False, True))
+        # A bound list GitHub has not caught up with is read short, and names no other issue (Astra).
+        seq[len(seq) - 4] = closing_answer(canary(), 26, [], total=1)
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW, opener=(12, "Bot"), recorded=NOTHING, opened=NOT_OPENED)
+        self.assertEqual((got["complete"]["acceptance"], got["closes_another_issue"]), (False, False))
+
     def test_a_snapshot_says_whether_its_own_timeline_was_cut(self):  # issue 1009, decision 0234
         # Anyone can comment on, or review, a pull request, so its timeline and its reviews are read to ten pages each. A
         # tenth that names an eleventh is not whole, the eleventh is never asked, and a cut timeline is said; a
@@ -4923,7 +4981,7 @@ class Snapshot(unittest.TestCase):
         router = Router(github.Replay(seq), {"don-petry": "admin"})
         with mock.patch.object(facts.acceptance, "bounded",
                                lambda transport, pull_, accounts, opener=None, opened=None: handed.append(opened)
-                               or (None, True, False)):
+                               or (None, True, False, False)):
             facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                            lambda: self.NOW, opener=(author["id"], author["type"]), recorded=NOTHING, opened=made)
         self.assertIs(handed[0], made)

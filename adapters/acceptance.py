@@ -23,7 +23,8 @@ Where no issue asks, `acceptance` is null and read whole. Where one asks, the co
 A pull request the Factory opens is bound to the issue it serves by its branch, `kernel/terms.py`'s `WORK_BRANCH`, never
 by its body (issue 295): its author is the App of the Role that opens pull requests, and the ask is read from the issue
 its branch names. Its closing references may leave that issue out, but they may name no other: one that does, a
-branch of another shape or another repo, or an issue that is a pull request, is not read whole. A pull request a person
+branch of another shape or another repo, or an issue that is a pull request, is not read whole. Where they name another,
+or count more than one, the facts say so too, `closes_another_issue`, so that a person is called (issue 1185). A pull request a person
 opens keeps the closing references' reading, which its author writes, so an author who removes "Closes" before a pass
 removes the ask (decision 0047). Where the Role that opens pull requests is named but its App's account is not known, a
 pull request on a branch of that shape cannot be told for a person's, and is not read whole. No Role opens one in slice 1,
@@ -64,6 +65,12 @@ QUERY = """query FactsClosing($owner: String!, $name: String!, $number: Int!) {
 def closing(transport, pull: dict) -> tuple:
     """`{number: whether GitHub lists the label on it}` for each issue the pull request closes, and whether that list
     was read whole."""
+    found, whole, _ = _closing(transport, pull)
+    return found, whole
+
+
+def _closing(transport, pull: dict) -> tuple:
+    """As `closing`, and the closing references as GitHub gave them, for `another`."""
     repo = pull["base"]["repo"]["full_name"]
     owner, name = repo.split("/")
     variables = {"owner": owner, "name": name, "number": pull["number"]}
@@ -79,7 +86,7 @@ def closing(transport, pull: dict) -> tuple:
     nodes = refs.get("nodes") if isinstance(refs, dict) else None
     total = refs.get("totalCount") if isinstance(refs, dict) else None
     if not isinstance(nodes, list) or not isinstance(total, int) or isinstance(total, bool) or total != len(nodes):
-        return {}, False
+        return {}, False, refs
     found, whole = {}, True
     for node in nodes:
         number = node.get("number") if isinstance(node, dict) else None
@@ -95,7 +102,25 @@ def closing(transport, pull: dict) -> tuple:
             whole = False
             continue
         found[number] = any(n["name"] == terms.LABEL_CONTRACT for n in names)
-    return found, whole
+    return found, whole, refs
+
+
+def another(refs, repo: str, issue: int) -> bool:
+    """Whether closing references `refs`, as GitHub gave them, name an issue other than `issue` of `repo`: one of another
+    number or repo, or a count above one. GitHub is taken to list an issue once, so a count above one names another
+    issue, past the page read too (P-33 and P-46 never showed one twice). A count GitHub has not caught up with, a
+    count of one beside no issue, names none, nor does an issue GitHub could not give: no number, or no repo."""
+    total = refs.get("totalCount") if isinstance(refs, dict) else None
+    nodes = refs.get("nodes") if isinstance(refs, dict) else None
+    if type(total) is int and total > 1:
+        return True
+    for node in nodes if isinstance(nodes, list) else ():
+        node = node if isinstance(node, dict) else {}
+        owned = node["repository"].get("nameWithOwner") if isinstance(node.get("repository"), dict) else None
+        number = node.get("number")
+        if type(number) is int and number >= 1 and isinstance(owned, str) and owned and (owned, number) != (repo, issue):
+            return True
+    return False
 
 
 def placed(events: list, accounts: timeline.Accounts):
@@ -188,19 +213,20 @@ def opened_for(pull: dict, opener, opened=None):
 
 
 def _serving(transport, pull: dict, opener, opened) -> tuple:
-    """`(found, issue, whole)`: what `closing` found, the issue the branch binds the pull request to or None, and whether
-    those were read whole, which they are not where the base is not the default branch, whose pull requests carry no
-    closing reference, or where the closing references name another issue than the bound one."""
+    """`(found, issue, whole, named)`: what `closing` found, the issue the branch binds the pull request to or None, and
+    whether those were read whole, which they are not where the base is not the default branch, whose pull requests
+    carry no closing reference, or where the closing references name another issue than the bound one; and whether they
+    do so, by `another`, the fact `closes_another_issue` (issue 1185)."""
     base = pull["base"]
     if not base.get("ref") or base.get("ref") != (base.get("repo") or {}).get("default_branch"):
-        return {}, None, False
+        return {}, None, False, False
     issue = bound(pull, opener, opened)
     if issue is False:
-        return {}, None, False
-    found, whole = closing(transport, pull)
+        return {}, None, False, False
+    found, whole, refs = _closing(transport, pull)
     if issue is not None and (not whole or any(number != issue for number in found)):
-        return {}, None, False
-    return found, issue, whole
+        return {}, None, False, another(refs, pull["base"]["repo"]["full_name"], issue)
+    return found, issue, whole, False
 
 
 def result_check(node: dict) -> dict:
@@ -220,7 +246,7 @@ def result_check(node: dict) -> dict:
 
 def served(transport, pull: dict, opener=None, opened=None) -> tuple:
     """`(numbers, whole)`: the issues the pull request serves, in order, by the rule `read` holds it to."""
-    found, issue, whole = _serving(transport, pull, opener, opened)
+    found, issue, whole, _ = _serving(transport, pull, opener, opened)
     return ([issue] if issue is not None else sorted(found)), whole
 
 
@@ -229,15 +255,16 @@ def read(transport, pull: dict, accounts: timeline.Accounts, opener=None, opened
     whole where one asks, where the issues cannot be read whole, or where the base is not the default branch, whose
     pull requests carry no closing reference to read. The issue it serves is the one its branch binds it to, where the
     opener's App opened it, and else the issues it closes."""
-    contract, whole, _ = bounded(transport, pull, accounts, opener, opened)
+    contract, whole, _, _ = bounded(transport, pull, accounts, opener, opened)
     return contract, whole
 
 
 def bounded(transport, pull: dict, accounts: timeline.Accounts, opener=None, opened=None) -> tuple:
-    """`(acceptance, whole, cut)`: as `read`, and whether an issue's timeline was cut at its bound, the fact
+    """`(acceptance, whole, cut, named)`: as `read`, and whether an issue's timeline was cut at its bound, the fact
     `acceptance_bounded`, which the Kernel defers on its own code (decision 0234). Every issue is read, so that a cut
-    one is said to be whatever another one gave: one that asks, or one read short (Astra, Muse)."""
-    found, issue, whole = _serving(transport, pull, opener, opened)
+    one is said to be whatever another one gave: one that asks, or one read short (Astra, Muse). `named` says whether
+    the closing references of a pull request bound to an issue name another, the fact `closes_another_issue`."""
+    found, issue, whole, named = _serving(transport, pull, opener, opened)
     repo = pull["base"]["repo"]["full_name"] if issue is not None or found else None
     if issue is not None:
         found = {issue: found[issue] if issue in found else labelled(transport, repo, issue)}
@@ -245,4 +272,4 @@ def bounded(transport, pull: dict, accounts: timeline.Accounts, opener=None, ope
     for number, listed in found.items():
         asked, read_whole, past = asks(transport, repo, number, listed, accounts)
         ended, cut = ended or asked or not read_whole, cut or past
-    return None, whole and not ended, cut
+    return None, whole and not ended, cut, named

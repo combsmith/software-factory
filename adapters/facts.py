@@ -101,7 +101,7 @@ def _snapshot(transport, repo, number, identities, accounts, runs_whole, clock, 
     part[0] = "checks"
     read = checks.read(transport, first, raw)
     part[0] = "acceptance"
-    contract, contract_whole, contract_cut = acceptance.bounded(transport, first, accounts, opener, opened)
+    contract, contract_whole, contract_cut, contract_other = acceptance.bounded(transport, first, accounts, opener, opened)
     part[0] = "threads"
     found, threads_whole = applied.held(*threads.read(transport, first, accounts, raw), recorded, content["content_id"])
     part[0] = "edits"
@@ -138,6 +138,7 @@ def _snapshot(transport, repo, number, identities, accounts, runs_whole, clock, 
         "acceptance": contract,
         "opened_for": acceptance.opened_for(first, opener, opened),
         "acceptance_bounded": contract_cut,
+        "closes_another_issue": contract_other,
         "timeline_bounded": timeline_cut or reviews_cut,
         "complete": {"acceptance": contract_whole, "reviews": reviews_whole, "threads": threads_whole,
                      "checks": read["complete"], "diff": content["complete"],

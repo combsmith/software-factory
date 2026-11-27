@@ -27,7 +27,7 @@ READ, WRITE = {"level": "read"}, {"level": "write"}
 # documentation names each endpoint's fine-grained permission.
 R, W = "read", "write"
 RAW = {
-    "adapters.acceptance.closing": {"pull_requests": R, "issues": R},   # a pull request's closing issues
+    "adapters.acceptance._closing": {"pull_requests": R, "issues": R},   # a pull request's closing issues
     "adapters.acceptance.labelled": {"issues": R},
     "adapters.artifacts._listed": {"actions": R}, "adapters.artifacts.read": {"actions": R},
     # A work branch's pull requests, by the head filter, then the next opening's branch by its ref (issue 1059).
@@ -78,7 +78,7 @@ RAW = {
 }
 # How many requests each of those builds itself: one more, in a function already classed, is classed again first.
 SITES = {
-    "adapters.acceptance.closing": 1,
+    "adapters.acceptance._closing": 1,
     "adapters.acceptance.labelled": 1,
     "adapters.artifacts._listed": 1,
     "adapters.artifacts.read": 1,
@@ -143,7 +143,7 @@ SITES = {
 }
 # Every request the approving act can reach, through the machine user's token: one more, a mint among them, is seen.
 APPROVING = [
-    "adapters.acceptance.closing",
+    "adapters.acceptance._closing",
     "adapters.acceptance.labelled",
     "adapters.artifacts._listed",
     "adapters.artifacts.read",
