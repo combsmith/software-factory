@@ -3,11 +3,14 @@
 and nothing from GitHub, and it asks the Kernel nothing: an advisory Lens changes no Decision.
 
 The day is the UTC date of the pass's `now`. Every record of a review Run counts, two records of one Run among them,
-unless it finished and started on another day; a record whose start or Intent cannot be read is counted, since it cannot
-be shown to be another day's or another Intent's. A finished Run is its record's day, `started_at`, which the records keep each attempt by: one run
-again on a later day is counted there. A Run still in flight counts on today's sum whatever day it started, so that
-what is spent across midnight is carried and no day's reads begin from nought while yesterday's are still running
-(the Factory Builder, 2026-11-19).
+unless it is shown to be another day's; a record whose start or Intent cannot be read is counted, since it cannot be
+shown to be another day's or another Intent's. A finished Run counts on every day it touched, from its `started_at`,
+which the records keep each attempt by, to its `ended_at`, read as its start where it gives none that can be read: one
+that ran across midnight counts on both days (the Solution Architect, 2026-11-27). A Run still in flight counts on
+today's sum whatever day it started, so that no day's reads begin from nought while yesterday's are still running (the
+Factory Builder, 2026-11-19). A record is of a Run's latest attempt, and `advisory_attempt` names it where it is a
+re-run's: each attempt before it counts the worst case, since its cost is not read, and one whose attempt cannot be
+read counts as many as a Run may have (the Solution Architect, 2026-11-27: a re-run can only raise the day's sum).
 
 - A finished Run whose advice was read and that asked no reader, and gives no cost, counts nothing.
 - A finished Run that asked, and gives a cost above nought within what a record may hold, counts that cost.
@@ -29,9 +32,9 @@ import re
 
 REVIEWING = "review-change"
 CEILING, WORST = "advisory_ceiling_usd_per_day", "advisory_worst_case_usd"
-COST, ASKS = "advisory_cost_usd", "advisory_asks"
-# The bounds the schemas hold each figure to: harness/1's two figures, and run-record/1's cost and count.
-LEAST, MOST, DEAREST, ASKED_MOST = 0.01, 10000, 100000, 100
+COST, ASKS, ATTEMPT = "advisory_cost_usd", "advisory_asks", "advisory_attempt"
+# The bounds the schemas hold each figure to: harness/1's two figures, and run-record/1's cost, count and attempt.
+LEAST, MOST, DEAREST, ASKED_MOST, ATTEMPTS = 0.01, 10000, 100000, 100, 100
 TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 DAY = len("2026-01-01")
 
@@ -57,10 +60,27 @@ def _another(intent) -> bool:
     return isinstance(intent, str) and intent != REVIEWING
 
 
+def _earlier(record) -> int:
+    """How many attempts before the record's own it counts: none for a first, which names no attempt, and as many as a
+    Run may have for one whose attempt cannot be read."""
+    if ATTEMPT not in record:
+        return 0
+    attempt = record[ATTEMPT]
+    return attempt - 1 if type(attempt) is int and 2 <= attempt <= ATTEMPTS else ATTEMPTS - 1
+
+
 def counted(record, worst: float) -> float:
-    """What one review Run of the day counts against the ceiling."""
-    if not isinstance(record, dict) or record.get("status") != "completed":
-        return worst                    # still running, or no record at all: not known, so the worst case
+    """What one review Run of the day counts against the ceiling: its latest attempt, and the worst case for each
+    attempt before it."""
+    if not isinstance(record, dict):
+        return worst                    # no record at all: not known, so the worst case
+    return _own(record, worst) + _earlier(record) * worst
+
+
+def _own(record: dict, worst: float) -> float:
+    """What the record's own attempt counts."""
+    if record.get("status") != "completed":
+        return worst                    # still running: not known, so the worst case
     asks, cost = record.get(ASKS), record.get(COST)
     if type(asks) is not int or not 0 <= asks <= ASKED_MOST:
         return worst                    # its advice not read
@@ -70,15 +90,22 @@ def counted(record, worst: float) -> float:
     return float(cost) if _number(cost, 0, DEAREST) and round(cost, 6) > 0 else worst
 
 
+def _elsewhen(record: dict, day: str) -> bool:
+    """Whether a finished Run is shown to be another day's: its start can be read, and the day is neither its start's,
+    its end's nor one between them."""
+    started, ended = record.get("started_at"), record.get("ended_at")
+    if not _placed(started):
+        return False
+    last = max(started[:DAY], ended[:DAY]) if _placed(ended) else started[:DAY]
+    return not started[:DAY] <= day <= last
+
+
 def spent(records: list, now: str, worst: float) -> float:
     """The day's advisory spend as the run records give it: the sum over the review Runs not shown to be another day's."""
     day, total = now[:DAY], 0.0
     for record in records:
-        started = record.get("started_at") if isinstance(record, dict) else None
-        placed = _placed(started)
-        flying = isinstance(record, dict) and record.get("status") != "completed"
         if isinstance(record, dict) and (_another(record.get("intent"))
-                                         or (placed and started[:DAY] != day and not flying)):
+                                         or (record.get("status") == "completed" and _elsewhen(record, day))):
             continue
         total += counted(record, worst)
     return total
