@@ -5,7 +5,7 @@ and nothing from GitHub, and it asks the Kernel nothing: an advisory Lens change
 The day is the UTC date of the pass's `now`. Every record of a review Run counts, two records of one Run among them,
 unless it is shown to be another day's; a record whose start or Intent cannot be read is counted, since it cannot be
 shown to be another day's or another Intent's. A finished Run counts on every day it touched, from its `started_at`,
-which the records keep each attempt by, to its `ended_at`, read as its start where it gives none that can be read: one
+which the records keep each attempt by, to its `ended_at`, or to today where it gives none that can be read: one
 that ran across midnight counts on both days (the Solution Architect, 2026-11-27). A Run still in flight counts on
 today's sum whatever day it started, so that no day's reads begin from nought while yesterday's are still running (the
 Factory Builder, 2026-11-19). A record is of a Run's latest attempt, and `advisory_attempt` names it where it is a
@@ -35,6 +35,7 @@ CEILING, WORST = "advisory_ceiling_usd_per_day", "advisory_worst_case_usd"
 COST, ASKS, ATTEMPT = "advisory_cost_usd", "advisory_asks", "advisory_attempt"
 # The bounds the schemas hold each figure to: harness/1's two figures, and run-record/1's cost, count and attempt.
 LEAST, MOST, DEAREST, ASKED_MOST, ATTEMPTS = 0.01, 10000, 100000, 100, 100
+INTENT = re.compile(r"[a-z][a-z-]*[a-z]")      # an Intent's name as run-record/1 holds it
 TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 DAY = len("2026-01-01")
 
@@ -56,8 +57,9 @@ def _placed(value) -> bool:
 
 
 def _another(intent) -> bool:
-    """Whether a record is shown to be of another Intent: one whose Intent cannot be read may be a review's, and counts."""
-    return isinstance(intent, str) and intent != REVIEWING
+    """Whether a record is shown to be of another Intent: one named as an Intent is, and not a review's. One whose Intent
+    cannot be read, an empty or ill-formed name among them, may be a review's, and counts."""
+    return isinstance(intent, str) and INTENT.fullmatch(intent) is not None and intent != REVIEWING
 
 
 def _earlier(record) -> int:
@@ -91,18 +93,18 @@ def _own(record: dict, worst: float) -> float:
 
 
 def _elsewhen(record: dict, day: str) -> bool:
-    """Whether a finished Run is shown to be another day's: its start can be read, and the day is neither its start's,
-    its end's nor one between them."""
+    """Whether a finished Run is shown to be another day's: the day and its start can be read, and the day is neither
+    its start's, its end's nor one between them. One whose end cannot be read may have ended on any day since its start."""
     started, ended = record.get("started_at"), record.get("ended_at")
-    if not _placed(started):
+    if day is None or not _placed(started):
         return False
-    last = max(started[:DAY], ended[:DAY]) if _placed(ended) else started[:DAY]
+    last = max(started[:DAY], ended[:DAY]) if _placed(ended) else day
     return not started[:DAY] <= day <= last
 
 
 def spent(records: list, now: str, worst: float) -> float:
     """The day's advisory spend as the run records give it: the sum over the review Runs not shown to be another day's."""
-    day, total = now[:DAY], 0.0
+    day, total = now[:DAY] if _placed(now) else None, 0.0    # a `now` that names no day shows no Run another day's
     for record in records:
         if isinstance(record, dict) and (_another(record.get("intent"))
                                          or (record.get("status") == "completed" and _elsewhen(record, day))):
