@@ -18186,7 +18186,11 @@ here = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(here, "calls"), "a") as kept:
     kept.write(json.dumps(sys.argv[1:]) + "\\n")
 with open(os.path.join(here, "steered"), "a") as kept:
-    kept.write(json.dumps({k: os.environ.get(k) for k in ("GH_CONFIG_DIR", "XDG_CONFIG_HOME", "GH_FORCE_TTY", "GH_PAGER", "PAGER", "GODEBUG", "GH_DEBUG", "GH_HOST", "HTTPS_PROXY")}) + "\\n")
+    # Whether each is set, never its value, which may be the tester's own; and the three P-61 sets, as they are.
+    steer = {k: k in os.environ for k in ("GH_CONFIG_DIR", "XDG_CONFIG_HOME", "GH_FORCE_TTY", "GH_PAGER", "PAGER", "GODEBUG",
+                                          "GH_DEBUG", "HTTPS_PROXY", "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN")}
+    steer.update({k: os.environ.get(k) for k in ("GH_HOST", "GH_NO_UPDATE_NOTIFIER", "GH_PROMPT_DISABLED")})
+    kept.write(json.dumps(steer) + "\\n")
 token = "ghs_" + "x" * 36
 refuse = os.path.join(here, "refuse")
 mode = None
@@ -18290,17 +18294,20 @@ if mode == "cut":
         self.assertEqual(out.stat().st_mode & 0o077, 0)     # OUT is the Maintainer's alone
 
     def test_gh_takes_nothing_of_the_shells_but_the_maintainers_login(self):
-        # His gh reads his own login, in ~/.config/gh: a proxy, a header log, a pager, a configuration or a host the shell
-        # names reaches no read (issue 1300).
+        # His gh reads his own login, in ~/.config/gh: a proxy, a header log, a pager, a configuration, a token or a host
+        # the shell names reaches no read, and gh neither prompts nor checks for updates (issue 1300).
         planted = str(pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve())
         shell = {"HTTPS_PROXY": "http://127.0.0.1:9", "GODEBUG": "http2debug=2", "GH_DEBUG": "api", "GH_CONFIG_DIR": planted,
-                 "XDG_CONFIG_HOME": planted, "GH_FORCE_TTY": "1", "GH_PAGER": "cat", "PAGER": "cat", "GH_HOST": "example.com"}
+                 "XDG_CONFIG_HOME": planted, "GH_FORCE_TTY": "1", "GH_PAGER": "cat", "PAGER": "cat", "GH_HOST": "example.com",
+                 "GH_TOKEN": "a" * 40, "GITHUB_TOKEN": "a" * 40, "GH_ENTERPRISE_TOKEN": "a" * 40,
+                 "GH_NO_UPDATE_NOTIFIER": "", "GH_PROMPT_DISABLED": ""}
         done, calls, _ = self.run_script([str(self.out()), "x/canary", "7", "8"], **shell)
         self.assertEqual(done.returncode, 0, done.stderr)
         steered = [json.loads(line) for line in (self.bin_ / "steered").read_text().splitlines()]
         self.assertEqual(len(steered), len(calls))
         self.assertEqual({json.dumps(s, sort_keys=True) for s in steered},
-                         {json.dumps(dict({k: None for k in shell}, GH_HOST="github.com"), sort_keys=True)})
+                         {json.dumps(dict({k: False for k in shell}, GH_HOST="github.com", GH_NO_UPDATE_NOTIFIER="1",
+                                          GH_PROMPT_DISABLED="1"), sort_keys=True)})
 
     def test_a_refused_read_is_said_and_offered_again_before_anything_changes(self):
         # A wrong field is refused with errors: the run says so at step 1, with gh's complaint redacted, and stops when
