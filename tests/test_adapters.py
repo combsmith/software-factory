@@ -4967,7 +4967,7 @@ class Snapshot(unittest.TestCase):
         router = Router(github.Replay(seq), {"don-petry": "admin"})
         with mock.patch.object(facts.acceptance, "bounded",
                                lambda transport, pull_, accounts, opener=None, opened=None: handed.append(opened)
-                               or (None, True, False)):
+                               or (None, True, False, False)):
             facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                            lambda: self.NOW, opener=(author["id"], author["type"]), recorded=NOTHING, opened=made)
         self.assertIs(handed[0], made)

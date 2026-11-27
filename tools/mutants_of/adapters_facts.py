@@ -242,4 +242,8 @@ MUTANTS = [
      '"timeline_bounded": timeline_cut or reviews_cut,', '"timeline_bounded": contract_cut,', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut',)),
     ("a reviews list read short is kept as cut", 'adapters/facts.py',
      'raw["cut"] = {"events": timeline_cut, "reviews": reviews_cut}', 'raw["cut"] = {"events": timeline_cut, "reviews": not reviews_whole}', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
+    ("the snapshot leaves out whether another issue is named", 'adapters/facts.py',
+     '        "closes_another_issue": contract_other,\n', '', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_closing_references_name_another_issue',)),
+    ("the snapshot says no other issue is named", 'adapters/facts.py',
+     '"closes_another_issue": contract_other,', '"closes_another_issue": False,', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_closing_references_name_another_issue',)),
 ]
