@@ -18188,7 +18188,8 @@ with open(os.path.join(here, "calls"), "a") as kept:
 with open(os.path.join(here, "steered"), "a") as kept:
     # Whether each is set, never its value, which may be the tester's own; and the three P-61 sets, as they are.
     steer = {k: k in os.environ for k in ("GH_CONFIG_DIR", "XDG_CONFIG_HOME", "GH_FORCE_TTY", "GH_PAGER", "PAGER", "GODEBUG",
-                                          "GH_DEBUG", "HTTPS_PROXY", "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN")}
+                                          "GH_DEBUG", "DEBUG", "HTTPS_PROXY", "https_proxy", "GH_TOKEN", "GITHUB_TOKEN",
+                                          "GH_ENTERPRISE_TOKEN")}
     steer.update({k: os.environ.get(k) for k in ("GH_HOST", "GH_NO_UPDATE_NOTIFIER", "GH_PROMPT_DISABLED")})
     kept.write(json.dumps(steer) + "\\n")
 token = "ghs_" + "x" * 36
@@ -18297,7 +18298,9 @@ if mode == "cut":
         # His gh reads his own login, in ~/.config/gh: a proxy, a header log, a pager, a configuration, a token or a host
         # the shell names reaches no read, and gh neither prompts nor checks for updates (issue 1300).
         planted = str(pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve())
-        shell = {"HTTPS_PROXY": "http://127.0.0.1:9", "GODEBUG": "http2debug=2", "GH_DEBUG": "api", "GH_CONFIG_DIR": planted,
+        # gh's Go reads a proxy by either case, and its older DEBUG where GH_DEBUG is unset.
+        shell = {"HTTPS_PROXY": "http://127.0.0.1:9", "https_proxy": "http://127.0.0.1:9", "GODEBUG": "http2debug=2",
+                 "GH_DEBUG": "api", "DEBUG": "api", "GH_CONFIG_DIR": planted,
                  "XDG_CONFIG_HOME": planted, "GH_FORCE_TTY": "1", "GH_PAGER": "cat", "PAGER": "cat", "GH_HOST": "example.com",
                  "GH_TOKEN": "a" * 40, "GITHUB_TOKEN": "a" * 40, "GH_ENTERPRISE_TOKEN": "a" * 40,
                  "GH_NO_UPDATE_NOTIFIER": "", "GH_PROMPT_DISABLED": ""}
