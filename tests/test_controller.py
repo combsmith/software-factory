@@ -448,6 +448,10 @@ class Record(unittest.TestCase):
         from controller import reads as reads_
         self.assertEqual(reads_.run_records(advised_["records"]), (True, True))
         self.assertEqual(reads_.run_records(dict(advised_["records"], reads=advised_["records"]["reads"] + [{"read": "advice", "date": NOW, "age": 0}])), (False, False))
+        # Only a review is told: an admission of another Intent holds no answer.
+        from controller import advisory as advisory_module
+        with unittest.mock.patch.object(advisory_module, "REVIEWING", "fix-findings"):
+            self.assertEqual(["advisory_ask" in e for e in passed(reads(pulls=[pr(1)]), cfg=told)["record"]["pull_requests"]], [False])
         # An entry that admits no review holds no answer: an approval here, the review having run.
         entries = passed(reads(pulls=[pr(42)], runs=[run(number=42)]), cfg=told)["record"]["pull_requests"]
         self.assertEqual([(e["decision"].get("action"), "advisory_ask" in e) for e in entries], [("issue_approval", False)])
