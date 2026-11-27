@@ -2,7 +2,8 @@
 # Trial P-12, issue 454: the Controller App's status check run on a head, its external_id read back, listed and edited
 # in place, as #193's ruling 12 widened the row.
 #
-#   tools/trial_p12_status.sh OUT CONTROLLER_KEY REPO HEAD
+#   tools/trial_p12_status.sh [--keep-raw] OUT CONTROLLER_KEY REPO HEAD
+#   --keep-raw, given first, keeps the raw answers in a private scratch directory and says where; delete it once read.
 #
 # The Maintainer runs it at his own terminal, from anywhere; no session runs it, since it mints a credential.
 # OUT is a directory that does not exist yet, outside this repo. CONTROLLER_KEY is the path of the Controller App's
@@ -154,6 +155,10 @@ finish() {
         echo "trial_p12_status: stopped with a token live; revoking it returned $last" >&2
         [ "$last" = 204 ] || unrevoked "the token live when the script stopped" "$last"
         token=""
+    elif [ -n "${minting:-}" ]; then
+        # Stopped while the mint was asked: its answer never came back here, and GitHub may have minted one (issue 1215).
+        echo "trial_p12_status: stopped while a token was being minted; GitHub may have minted one, live for up to" \
+            "an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation." >&2
     fi
     [ -n "$keep" ] || rm -rf "$scratch"
     [ -z "$keep" ] || printf '%s: the raw answers are kept in %s, as --keep-raw asked; delete it once read\n' trial_p12_status "$scratch" >&2
@@ -245,10 +250,11 @@ with_token() {   # WHAT
     jwt="$header.$claims.$signature"
     # GitHub's answer and its status are held in a variable, never a file, since a minted token is in the answer.
     # curl's own exit code comes last: a transfer that failed is never trusted, however whole its answer reads.
+    minting=1
     minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
         -H "$VERSION" -d "{\"repositories\":[\"$name\"],\"permissions\":{\"checks\":\"write\",\"metadata\":\"read\"}}" \
         "$API/app/installations/$installation/access_tokens" && printf '\n0' || printf '\n%s' "$?")
-    jwt=""
+    jwt="" minting=""
     minted_exit=$(printf '%s\n' "$minted" | tail -n 1)
     minted=$(printf '%s\n' "$minted" | sed '$d')
     minted_status=$(printf '%s\n' "$minted" | tail -n 1)

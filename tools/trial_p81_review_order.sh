@@ -2,7 +2,8 @@
 # Trial P-81, issue 1219: where the issue timeline adapters/seen.py reads puts a review started, left pending past an
 # issue comment and submitted a minute later, and what submitted_at it carries.
 #
-#   tools/trial_p81_review_order.sh OUT PR_REVIEW_KEY REPO PULL_REQUEST FILE
+#   tools/trial_p81_review_order.sh [--keep-raw] OUT PR_REVIEW_KEY REPO PULL_REQUEST FILE
+#   --keep-raw, given first, keeps the raw answers in a private scratch directory and says where; delete it once read.
 #
 # The Maintainer runs it at his own terminal; no session runs it, since it mints a credential. OUT is a new directory
 # outside this repo. PR_REVIEW_KEY is the pr-review App's private key file, which only openssl reads. REPO is the canary,
