@@ -4413,6 +4413,83 @@ class UnidentifiedRuns(unittest.TestCase):
                          ("held", "human_hold", "act", "dequeue"))
 
 
+class GitHubsLimit(unittest.TestCase):
+    """A Role that pushes waits, in its App's installation alone, until GitHub's limit resets (issue 838)."""
+
+    def test_a_pushing_roles_run_waits_in_its_installation_until_the_reset(self):  # issue 838
+        pushing = dict(CONFIG, pushers=["pr-review"])
+        def waits(*entries) -> dict:
+            return context(github_deferred=list(entries))
+        held = {"role": "pr-review", "owner": "combsmith", "until": "2026-10-11T13:00:01Z"}
+        d = go(facts(), ctx=waits(held), cfg=pushing)
+        self.assertEqual((d["outcome"], d["reason"], d["attention"]), ("defer", "github_capacity", "review"))
+        # At the reset it is admitted; another owner's installation, another Role's, or a Role that does not push, waits
+        # for nothing.
+        for entry, cfg in ((dict(held, until=NOW), pushing), (dict(held, owner="combsmith-labs"), pushing),
+                           (dict(held, owner="comb"), pushing), (dict(held, role="dev-lead"), pushing),
+                           (held, CONFIG), (held, dict(CONFIG, pushers=["dev-lead"]))):
+            self.assertEqual(go(facts(), ctx=waits(entry), cfg=cfg)["outcome"], "admit", (entry, cfg.get("pushers")))
+        self.assertEqual(go(facts(), ctx=waits(dict(held, until=NOW), held), cfg=pushing)["reason"], "github_capacity")
+        self.assertEqual(go(facts(), ctx=waits(held, dict(held, owner="combsmith-labs")), cfg=pushing)["reason"],
+                         "github_capacity")
+        self.assertEqual(go(facts(), ctx=waits(dict(held, until="2026-10-11T12:59:59Z")), cfg=pushing)["outcome"], "admit")
+        # The owner is the item's, in any case; and the Role is the one the Run is wanted for.
+        elsewhere = facts(item=dict(facts()["item"], repo="combsmith-labs/x"))
+        self.assertEqual(go(elsewhere, ctx=waits(dict(held, owner="combsmith-labs")), cfg=pushing)["reason"],
+                         "github_capacity")
+        self.assertEqual(go(elsewhere, ctx=waits(held), cfg=pushing)["outcome"], "admit")
+        self.assertEqual(go(facts(), ctx=waits(dict(held, owner="CombSmith")), cfg=pushing)["reason"], "github_capacity")
+        fixing = facts(**AGENT, reviews=[review(state="changes_requested", **MAINTAINER)])
+        fixer = dict(held, role="dev-lead")
+        d = go(fixing, REVIEWED, ctx=waits(fixer), cfg=dict(CONFIG, pushers=["dev-lead"]))
+        self.assertEqual((d["state"], d["reason"], d["outcome"]), ("addressing", "github_capacity", "defer"))
+        self.assertEqual(go(fixing, REVIEWED, ctx=waits(fixer), cfg=pushing)["outcome"], "admit")
+        # The model's own deferral is not read for it, and the whole-scope causes are named first.
+        self.assertEqual(go(facts(), ctx=waits(held), cfg=pushing)["reason"], "github_capacity")
+        ctx = dict(waits(held), model_deferred_until="2026-10-11T14:00:00Z")
+        self.assertEqual(go(facts(), ctx=ctx, cfg=pushing)["reason"], "capacity")
+        self.assertEqual(go(facts(), ctx=dict(waits(held), active_runs=None), cfg=pushing)["reason"],
+                         "capacity_unreadable")
+
+    def test_a_wait_or_a_list_of_pushers_that_cannot_be_read_defers_a_pushing_role_alone(self):  # issue 838
+        pushing = dict(CONFIG, pushers=["pr-review"])
+        held = {"role": "pr-review", "owner": "combsmith", "until": "2026-10-11T13:00:01Z"}
+        for bad in (None, "x", [None], [dict(held, until="soon")], [dict(held, role=7)], [dict(held, owner=None)],
+                    [{"role": "pr-review", "owner": "combsmith"}], [dict(held, owner="")], [dict(held, role="")]):
+            ctx = context(github_deferred=bad)
+            d = go(facts(), ctx=ctx, cfg=pushing)
+            self.assertEqual((d["outcome"], d["reason"]), ("defer", "github_capacity_unreadable"), bad)
+            self.assertEqual(go(facts(), ctx=ctx)["outcome"], "admit", bad)
+        unread = context()
+        del unread["github_deferred"]
+        self.assertEqual(go(facts(), ctx=unread, cfg=pushing)["reason"], "github_capacity_unreadable")
+        self.assertEqual(go(facts(), ctx=unread)["outcome"], "admit")
+        for bad in (None, "pr-review", [7], {"pr-review": True}):
+            cfg = dict(CONFIG, pushers=bad)
+            self.assertEqual(go(facts(), cfg=cfg)["reason"], "github_capacity_unreadable", bad)
+        cfg = dict(CONFIG)
+        del cfg["pushers"]
+        self.assertEqual(go(facts(), cfg=cfg)["reason"], "github_capacity_unreadable")
+        self.assertEqual(go(facts(), cfg=pushing)["outcome"], "admit")
+        # An item's owner, or a time, that cannot be read defers a Role that pushes, and no other.
+        for item, now in (({"repo": None}, NOW), ({"repo": "software-factory"}, NOW), ({"repo": "/x"}, NOW),
+                          ({"repo": "combsmith/x"}, "later")):
+            self.assertIsNone(derive.github_waiting(context(), item, "pr-review", ["pr-review"], now), (item, now))
+            self.assertIs(derive.github_waiting(context(), item, "pr-review", [], now), False, (item, now))
+        self.assertIs(derive.github_waiting(context(), {"repo": "combsmith/x"}, "pr-review", ["pr-review"], NOW), False)
+
+    def test_a_run_github_limited_is_no_attempt(self):  # issue 838
+        limited = [run(conclusion="failure", outcome="github_capacity", at="2026-10-11T12:1%d:00Z" % i, name="g%d" % i)
+                   for i in range(LIMITS["max_attempts"])]
+        self.assertEqual(go(facts(), limited)["outcome"], "admit")
+        # It reached a model, so it counts toward the Run ceiling.
+        spent = [run(conclusion="failure", outcome="github_capacity", at="2026-10-11T12:%02d:00Z" % i, name="s%d" % i)
+                 for i in range(LIMITS["max_runs_per_item"])]
+        self.assertEqual(brakes.run_ceilings(_decision, facts(), [], "review-change", spent, LIMITS)["reason"],
+                         "run_ceiling")
+        self.assertIsNone(brakes.run_ceilings(_decision, facts(), [], "review-change", spent[1:], LIMITS))
+
+
 class Staleness(unittest.TestCase):
     """A wait past its State's limit is the Maintainer's to see, and what happens next does not change (I-1, FR-3)."""
 
