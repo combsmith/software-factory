@@ -10599,7 +10599,13 @@ sys.exit(subprocess.run([%r] + sys.argv[1:], input=said).returncode)
                 for said, status in (("HTTP/1.1 200 Connection established\n\nHTTP/2 403\nx: y\n\n{}\n", "403"),
                                      ("HTTP/1.1 200 Connection established\n\n\nHTTP/2 403\n\n{}\n", "403"),
                                      ("HTTP/2 200\nx: y\n\nBody\n\nHTTP/1.1 404 Not Found\n", "200"),
-                                     ("no head\n", "")):
+                                     ("no head\n", ""),
+                                     # A status is three digits, whole, or none (issue 1215): nothing else of the line
+                                     # reaches requests.json or the terminal.
+                                     ("HTTP/2 200x\n\n{}\n", ""), ("HTTP/1.1 2000 OK\n\n{}\n", ""),
+                                     ("HTTP/2 20 OK\n\n{}\n", ""), ("HTTP/1.1 404 Not Found\n\n{}\n", "404"),
+                                     ("HTTP/2 2a0\n\n{}\n", ""), ("HTTP/2 20x\n\n{}\n", ""), ("HTTP/2 x00\n\n{}\n", ""),
+                                     ("HTTP/1.1 200 Connection established\n\nHTTP/2 200x\n\n{}\n", "")):
                     # Each as it is, and as curl -i writes it, each line ending in CRLF (issue 502, Argon). What awk says
                     # is read as bytes, as $(...) keeps them: a carriage return left in the status is not stripped here.
                     for spelt in (said, said.replace("\n", "\r\n")):
@@ -17002,7 +17008,7 @@ class ReviewOrderTrial(IssueLookupTrial):
         sys.stdout.write("HTTP/2 200\\r\\ncontent-type: application/json\\r\\n\\r\\n{\\"cut")
         sys.exit(0)
     if os.path.exists(os.path.join(here, "odd.status")):
-        sys.stdout.write("HTTP/2 200x\\r\\ncontent-type: application/json\\r\\n\\r\\n[]")
+        sys.stdout.write("HTTP/2 %s\\r\\ncontent-type: application/json\\r\\n\\r\\n[]" % open(os.path.join(here, "odd.status")).read().strip())
         sys.exit(0)
     if body and body.startswith("@"):
         with open(os.path.join(here, "sent"), "a") as kept:
@@ -17152,14 +17158,19 @@ elif "/issues/" in url:""", 1)
                       ran.stderr)
         self.assertEqual([c["method"] for c in self.calls()][-3:], ["SLEEP", "POST", "DELETE"])
 
-    def test_a_status_that_is_no_number_is_not_kept_and_its_token_is_revoked(self):
-        (self.stand_in / "odd.status").write_text("")
-        ran = self.run_script()
-        self.assertNotEqual(ran.returncode, 0, ran.stdout)
-        self.assertIn("answered no status of three digits; nothing of it reaches OUT", ran.stderr)
-        self.assertEqual([c["method"] for c in self.calls()], ["POST", "GET", "DELETE"])
-        self.assertNotIn("200x", ran.stdout + ran.stderr)
-        self.assertFalse((self.out / "requests.json").exists())
+    def test_a_status_no_answer_has_is_not_kept_and_its_token_is_revoked(self):
+        # Three digits that no answer has, above the range and below it: a status that is not three digits awk keeps as
+        # none (issue 1215). Neither is told, nor its line kept.
+        for odd in ("600", "099"):
+            with self.subTest(odd=odd):
+                self.setUp()
+                (self.stand_in / "odd.status").write_text(odd + "\n")
+                ran = self.run_script()
+                self.assertNotEqual(ran.returncode, 0, ran.stdout)
+                self.assertIn("answered no status of three digits; nothing of it reaches OUT", ran.stderr)
+                self.assertEqual([c["method"] for c in self.calls()], ["POST", "GET", "DELETE"])
+                self.assertNotIn(odd, ran.stdout + ran.stderr)
+                self.assertFalse((self.out / "requests.json").exists())
 
     def test_the_status_kept_is_the_last_heads(self):
         # A proxy's block comes first, 200, and GitHub's answer after it is the call's: the comments' 201s stay 201s.
