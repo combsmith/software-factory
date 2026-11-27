@@ -1,11 +1,11 @@
 # guards/
 
-The guards on a Role's own writes, as pure functions: each says what such a write may land, or gives the one reason, a code, why nothing may. `patch.py` applies a Role's patch byte for byte. `push.py` holds a push up to its tree; the rest is to come.
+The guards on a Role's own writes, as pure functions: each says what such a write may land, or the one reason, a code, why not. `patch.py` applies a Role's patch byte for byte. `push.py` holds a push up to its tree. `opening.py` keeps a draft from linking.
 A guard binds the Role that writes this repo's code. So it lives here, never in `kernel/` or `adapters/`, where that Role may push; a port hands a guard what it read, and the Harness calls it. A guard reads nothing itself.
 
 | Rule | Held by |
 |---|---|
-| No I/O: no file, socket, process, environment variable or clock. Nothing is kept between calls. No `raise`, no special name, no number but 0 and 1 | `tools/check_purity.py` |
+| No I/O: no file, socket, process, environment variable or clock. Nothing is kept between calls. No `raise`, no special name, no number but 0 and 1; each rule here has a mutant a test kills | `tools/check_purity.py`, `tools/mutants.py` |
 | A guard calls nothing it is given: it takes no `_decision`, the one parameter the Kernel may call | `tests/test_tools.py::test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone` |
 | Only `__future__` and `guards` are imported, `guards` by its name and never relatively. Never the Kernel: it is not protected whole, so no guard rests on it | `tests/test_tools.py::test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone` |
 | Every folder here has an `__init__.py` and holds the source the check reads and an `AGENTS.md` alone, no link: Python imports what was read | `tests/test_tools.py::test_the_guards_are_the_package_python_imports_and_read_nothing_off_a_value` |
@@ -37,4 +37,4 @@ A guard binds the Role that writes this repo's code. So it lives here, never in 
 | The tree's listing is the port's, marked whole, at the tree the commit names | `tests/test_guards.py::test_a_listing_the_port_did_not_mark_whole_or_read_at_another_tree_is_refused` |
 | Every stop of a read gives the code of its class | `tests/test_guards.py::test_each_read_says_whose_a_stop_is` |
 | A push writes after its reads, a blob of each content once, then one tree | `tests/test_guards.py::test_nothing_is_written_before_the_branch_and_the_listing_were_read`, `tests/test_guards.py::test_the_one_tree_names_exactly_the_changes_by_the_blobs_made` |
-| Each of these rules has a mutant that a test kills | `tools/mutants.py` |
+| A draft's title and body are text read as GitHub renders it, and link no issue, mention no one, close nothing | `tests/test_guards.py::test_a_drafts_title_and_body_are_text_this_reads`, `tests/test_guards.py::test_a_draft_links_mentions_and_closes_nothing` |
