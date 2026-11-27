@@ -1,7 +1,7 @@
 """The mutants of `tools/trial_p52_pause.sh`: tools/mutants.py runs them."""
 
 TARGETS = ("tools/trial_p52_pause.sh",)
-from tools.mutants_of.tools_trial_p12_status_sh import KEEP_1215  # noqa: E402
+from tools.mutants_of.common import KEEP_1215  # noqa: E402
 KEEP = "tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_in_a_private_directory_it_deletes"
 MUTANTS = [
     # Issue 481: the first signal stops the run, a later one stops neither the revocation nor the redaction, and the
@@ -106,7 +106,7 @@ MUTANTS = [
     ("P-52's root is found logically", "tools/trial_p52_pause.sh", "root=$(CDPATH= cd -P -- ", "root=$(CDPATH= cd -- ", ("tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_the_file_system_does",)),
     ("P-52 exports what its environment says to", "tools/trial_p52_pause.sh", "set +a\nunset CDPATH\n", "unset CDPATH\n", ("tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment",)),
     ("P-52 looks along CDPATH", "tools/trial_p52_pause.sh", "set +a\nunset CDPATH\n", "set +a\n", ("tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment",)),
-    # Issue 1215, the SA's ruling of 2026-11-26, as tools/mutants_of/tools_trial_p12_status_sh.py's KEEP_1215 has it.
+    # Issue 1215, the SA's ruling of 2026-11-26, as tools/mutants_of/common.py's KEEP_1215 has it.
     *[(name % "P-52", "tools/trial_p52_pause.sh", old, new, (KEEP,)) for name, old, new in KEEP_1215],
     ("P-52 tells nothing of a stop mid-mint", "tools/trial_p52_pause.sh", '    elif [ -n "${minting:-}" ]; then', '    elif false; then',
      ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),

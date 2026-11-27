@@ -2,7 +2,7 @@
 # Trial P-58's owed leg (issue 519): whether the reader App reads a pull request's lastEditedAt, editor and
 # userContentEdits, the GraphQL read the facts port will make, as the Maintainer's login read them (trials/P-58.json).
 #
-#   tools/trial_p58_edits.sh OUT READER_KEY REPO PULL_REQUEST
+#   tools/trial_p58_edits.sh [--keep-raw] OUT READER_KEY REPO PULL_REQUEST
 #
 # The Maintainer runs it at his own terminal, from anywhere; no session runs it, since it mints a credential.
 # OUT is a directory that does not exist yet, outside this repo. READER_KEY is the path of the reader App's private
@@ -22,9 +22,10 @@
 # the key; mint a token for the reader's installation that P-39 found (trials/P-39.grants.json), on REPO alone; make
 # the read; and revoke the token, recording the revocation's status. A token or a JWT is held in a shell variable only,
 # reaches curl on its standard input, and is never printed, logged or written to a file. Each response is captured in a
-# scratch directory outside the repo, redacted there by tools/redact_trial.py, and deleted; OUT receives only the
-# redacted response (clean-N), what was asked (requests.json and query.json) and when the run started (ran_at). A read
-# GitHub refuses is kept with its status. A session then builds the fixture from OUT alone.
+# scratch directory outside the repo, redacted there by tools/redact_trial.py, and deleted on exit, unless --keep-raw
+# keeps it and says where; OUT receives only the redacted response (clean-N), what was asked (requests.json and
+# query.json) and when the run started (ran_at). A read GitHub refuses is kept with its status. A session then builds
+# the fixture from OUT alone.
 #
 # A mint that curl fails or GitHub refuses, or a revocation that does not return 204, stops the script with a
 # non-zero exit; a refused mint shows its status and GitHub's answer, redacted, and a token that may be live is told
