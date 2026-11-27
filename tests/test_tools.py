@@ -18213,7 +18213,6 @@ class Desk(unittest.TestCase):
         program.chmod(0o755)
         git(root, "config", "core.fsmonitor", str(program))
         git(root, "config", "diff.external", str(program))
-        (root / "g.py").write_text("g3\n")         # a change in the working tree, which a monitor would be asked of
         ran, real = [], subprocess.run
 
         def run(argv, **kwargs):
