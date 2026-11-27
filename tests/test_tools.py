@@ -3513,6 +3513,10 @@ class Repo(unittest.TestCase):
             found = check_examples._readers(dict(named, readers=readers, advisory_worst_case_usd=worst))
             self.assertEqual(not caught(found, "is under what the readers' caps and prices let one Run cost"), held, (worst, sorted(readers)))
         self.assertEqual(check_examples._readers(dict(named, readers={"astra": block})), [])       # with none, no reader is asked
+        # The schema holds the figure from a cent up, never nought, and never past the ceiling's own most.
+        figure = json.loads((ROOT / "schemas" / "harness.schema.json").read_text())["properties"]["advisory_worst_case_usd"]
+        for worst, ok in ((0.01, True), (10000, True), (0, False), (0.009, False), (10000.01, False), ("2", False), (None, False)):
+            self.assertEqual(validate(worst, figure) == [], ok, worst)
 
     def test_a_reader_pins_its_model_and_its_deployment_at_their_own_paths_and_nowhere_else(self):  # decision 0224
         # A second place a model is named: an advisory Lens's reader, in the pin's own file, by its model and by its
