@@ -15,4 +15,7 @@ MUTANTS = [
     ('an admission of any Intent is told whether the day admits its readers', 'controller/pass_.py',
      '        if d["outcome"] == t.ADMIT and d["admit"]["intent"] == advisory_.REVIEWING:\n',
      '        if d["outcome"] == t.ADMIT:\n', ('tests.test_controller.Record.test_an_admitted_review_is_told_beside_its_decision_whether_the_day_admits_its_readers',)),
+    ("the reviews admitted before in a pass count without the day's spend", 'controller/pass_.py',
+     'advisory_.admits(runs + asking, whole, now,',
+     'advisory_.admits(asking or runs, whole, now,', ('tests.test_controller.Record.test_an_admitted_review_is_told_beside_its_decision_whether_the_day_admits_its_readers',)),
 ]

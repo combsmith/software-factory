@@ -432,6 +432,9 @@ class Record(unittest.TestCase):
         self.assertEqual(asks(reads(pulls=[pr(1)]), config()), [("admit", False)])
         self.assertEqual(asks(reads(pulls=[pr(1)]), dict(config(), harness=None)), [("admit", False)])
         self.assertEqual(asks(reads(pulls=[pr(1)]), dict(config(), harness=dict(harness, advisory_worst_case_usd=None))), [("admit", False)])
+        # What the day spent and the reviews admitted before in the pass are counted together.
+        three = dict(run("r_000009Z", number=9), advisory_asks=2, advisory_cost_usd=3)
+        self.assertEqual(asks(reads(pulls=[pr(1), pr(2)], runs=[three])), [("admit", True), ("admit", False)])
         # The day's finished reads count what they cost, and one of another day counts nothing.
         spent = dict(run("r_000009Z", number=9), advisory_asks=2, advisory_cost_usd=3.5)
         self.assertEqual(asks(reads(pulls=[pr(1)], runs=[spent])), [("admit", False)])
