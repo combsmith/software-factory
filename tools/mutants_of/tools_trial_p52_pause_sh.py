@@ -2,6 +2,7 @@
 
 TARGETS = ("tools/trial_p52_pause.sh",)
 from tools.mutants_of.common import KEEP_1215, UNPROXIED  # noqa: E402
+from tools.mutants_of.tools_trial_p12_status_sh import FIRST_NEW, FIRST_OLD  # noqa: E402
 KEEP = "tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_in_a_private_directory_it_deletes"
 MUTANTS = [
     # Issue 481: the first signal stops the run, a later one stops neither the revocation nor the redaction, and the
@@ -49,7 +50,7 @@ MUTANTS = [
     ("P-52's trial reads a head in the body", 'tools/trial_p52_pause.sh',
      'found = $2; else exit }', 'found = $2 }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-52's trial takes the first of several heads", 'tools/trial_p52_pause.sh',
-     '/) found = $2; else exit }', '/ && found == "") found = $2; else exit }', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
+     FIRST_OLD, FIRST_NEW, ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     # Issue 502 (Argon): P-4's second read of a head, the first of several in its first, and a head with a carriage return.
     ("P-52's trial reads a head's carriage return as part of it", 'tools/trial_p52_pause.sh',
      '{ sub(/\\r$/, "") } ', '', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
@@ -116,4 +117,15 @@ MUTANTS = [
     ("P-52 never clears its mint mark", "tools/trial_p52_pause.sh", 'minting=""\n', "\n", ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
     ("P-52 says nothing of a stop mid-mint", "tools/trial_p52_pause.sh", 'echo "trial_p52_pause: stopped while a token was being minted;',
      ': "trial_p52_pause: stopped while a token was being minted;', ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
+    ("P-52 keeps an earlier head's status past a malformed one", "tools/trial_p52_pause.sh", 'head && /^HTTP\\// { found = "" } ', "",
+     ("tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head",)),
+    ("P-52 keeps a status that is not three digits", "tools/trial_p52_pause.sh", "[0-9][0-9][0-9]( |$)/) found",
+     "[0-9]+/) found", ("tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head",)),
+    ("P-52 keeps a status whose last is no digit", "tools/trial_p52_pause.sh", "[0-9][0-9][0-9]( |$)/) found",
+     "[0-9][0-9].( |$)/) found", ("tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head",)),
+    *[("P-52 keeps a status %s" % what, "tools/trial_p52_pause.sh", "[0-9][0-9][0-9]( |$)/) found", relaxed,
+       ("tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head",))
+      for what, relaxed in (("whose first is no digit", ".[0-9][0-9]( |$)/) found"),
+                            ("whose middle is no digit", "[0-9].[0-9]( |$)/) found"),
+                            ("that runs on past three digits", "[0-9][0-9][0-9]/) found"))],
 ]
