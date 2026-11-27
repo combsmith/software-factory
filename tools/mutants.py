@@ -3973,6 +3973,8 @@ MUTANTS = ISSUE + OUTSIDE + [
      'if facts.get("closes_another_issue", False) is not False', 'if facts.get("closes_another_issue") is not False', ('tests.test_decide.Acceptance.test_a_bound_pull_request_whose_closing_references_name_another_issue_calls_a_person',)),
     ('a named flag that is no truth value and falsy is read as none named', 'kernel/derive.py',
      'if facts.get("closes_another_issue", False) is not False and', 'if facts.get("closes_another_issue", False) and', ('tests.test_decide.Acceptance.test_a_bound_pull_request_whose_closing_references_name_another_issue_calls_a_person',)),
+    ('a named flag that is no truth value is a gap only alone', 'kernel/derive.py',
+     'if facts.get("closes_another_issue", False) is not False and "acceptance" not in gaps:', 'if facts.get("closes_another_issue", False) is not False and not gaps:', ('tests.test_decide.Acceptance.test_a_bound_pull_request_whose_closing_references_name_another_issue_calls_a_person',)),
     ("another issue named is no reason", 'kernel/terms.py',
      '"closed", "closes_another_issue", "concurrency",', '"closed", "concurrency",', ('tests.test_reasons',)),
     ("implementing rounds read max_attempts", "kernel/brakes.py",

@@ -109,7 +109,7 @@ def another(refs, repo: str, issue: int) -> bool:
     """Whether closing references `refs`, as GitHub gave them, name an issue other than `issue` of `repo`: one of another
     number or repo, or a count above one. GitHub is taken to list an issue once, so a count above one names another
     issue, past the page read too (P-33 and P-46 never showed one twice). A count GitHub has not caught up with, a
-    count of one beside no issue, names none."""
+    count of one beside no issue, names none, nor does an issue GitHub could not give: no number, or no repo."""
     total = refs.get("totalCount") if isinstance(refs, dict) else None
     nodes = refs.get("nodes") if isinstance(refs, dict) else None
     if type(total) is int and total > 1:
@@ -117,7 +117,8 @@ def another(refs, repo: str, issue: int) -> bool:
     for node in nodes if isinstance(nodes, list) else ():
         node = node if isinstance(node, dict) else {}
         owned = node["repository"].get("nameWithOwner") if isinstance(node.get("repository"), dict) else None
-        if type(node.get("number")) is int and isinstance(owned, str) and (owned, node["number"]) != (repo, issue):
+        number = node.get("number")
+        if type(number) is int and number >= 1 and isinstance(owned, str) and owned and (owned, number) != (repo, issue):
             return True
     return False
 

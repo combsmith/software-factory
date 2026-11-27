@@ -3477,22 +3477,24 @@ class Acceptance(unittest.TestCase):
         # Another number, another repo, or a count above one, past the page read too: GitHub lists an issue once, so a
         # bound pull request's closing references name another issue, and the facts say so, for a person to be called.
         named = (([37], None, None), ([36, 37], None, None), ([37, 36], None, None), ([36], None, "o/other"),
-                 ([36], 2, None), ([36] * 10, 11, None), ([], 2, None), ([37], 0, None))
+                 ([36], 2, None), ([36] * 10, 11, None), ([], 2, None), ([37], 0, None), ([36, 37], 1, None))
         for issues, total, elsewhere in named:
             got = self.opened(closing_answer("o/r", 26, issues, total=total, elsewhere=elsewhere), named=True)
             self.assertEqual(got, (None, False, False, True), (issues, total, elsewhere))
         # The other side: the bound issue alone, or none; a count GitHub has not caught up with, one beside no issue;
         # a person's pull request, which keeps the closing references' reading, whatever they name.
-        for issues, total, reads in (([36], None, (issue_timeline("o/r", 36, []),)),
-                                     ([], None, (issue_answer("o/r", 36), issue_timeline("o/r", 36, []))),
-                                     ([], 1, ())):
+        for issues, total, reads, whole in (([36], None, (issue_timeline("o/r", 36, []),), True),
+                                            ([], None, (issue_answer("o/r", 36), issue_timeline("o/r", 36, [])), True),
+                                            ([], 1, (), False), ([36], 0, (), False)):
             got = self.opened(closing_answer("o/r", 26, issues, total=total), *reads, named=True)
-            self.assertIs(got[3], False, (issues, total))
+            self.assertEqual(got, (None, whole, False, False), (issues, total))
         self.assertEqual(self.read(closing_answer("o/r", 26, [36], total=11), named=True), (None, False, False, False))
         # GitHub's answer in another shape names no issue it can tell.
         for refs in (None, [], {"totalCount": "2", "nodes": []}, {"totalCount": 1, "nodes": [None]},
                      {"totalCount": 1, "nodes": [{"number": "37", "repository": {"nameWithOwner": "o/r"}}]},
-                     {"totalCount": 1, "nodes": [{"number": 37, "repository": None}]}):
+                     {"totalCount": 1, "nodes": [{"number": 37, "repository": None}]},
+                     {"totalCount": 1, "nodes": [{"number": 36, "repository": {"nameWithOwner": ""}}]},
+                     {"totalCount": 1, "nodes": [{"number": 0, "repository": {"nameWithOwner": "o/r"}}]}):
             self.assertIs(acceptance.another(refs, "o/r", 36), False, refs)
 
     def test_a_branch_of_another_shape_binds_nothing_and_the_openers_pull_request_is_not_whole(self):  # issue 295
@@ -4811,6 +4813,12 @@ class Snapshot(unittest.TestCase):
         got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                                 lambda: self.NOW, opener=(12, "Bot"), recorded=NOTHING, opened=NOT_OPENED)
         self.assertEqual((got["acceptance"], got["complete"]["acceptance"], got["closes_another_issue"]), (None, False, True))
+        # A bound list GitHub has not caught up with is read short, and names no other issue (Astra).
+        seq[len(seq) - 4] = closing_answer(canary(), 26, [], total=1)
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW, opener=(12, "Bot"), recorded=NOTHING, opened=NOT_OPENED)
+        self.assertEqual((got["complete"]["acceptance"], got["closes_another_issue"]), (False, False))
 
     def test_a_snapshot_says_whether_its_own_timeline_was_cut(self):  # issue 1009, decision 0234
         # Anyone can comment on, or review, a pull request, so its timeline and its reviews are read to ten pages each. A

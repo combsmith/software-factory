@@ -2728,6 +2728,9 @@ class Acceptance(unittest.TestCase):
         self.assertEqual((d["reason"], d["outcome"], d.get("action"), d["attention"]),
                          ("closes_another_issue", "act", "dequeue", "needs_you"))
         self.assertEqual(go(facts(closes_another_issue=True), REVIEWED)["reason"], "closes_another_issue")
+        # As it is for a pull request whose facts name the issue it was opened for (Astra).
+        d = go(facts(closes_another_issue=True, opened_for=36, issue_stands="open", complete=short), REVIEWED)
+        self.assertEqual((d["reason"], d["attention"]), ("closes_another_issue", "needs_you"))
         # A cut acceptance read beside it is said first; a cut timeline after it.
         self.assertEqual(go(facts(closes_another_issue=True, acceptance_bounded=True, complete=short),
                             REVIEWED)["reason"], "acceptance_bounded")
@@ -2747,6 +2750,9 @@ class Acceptance(unittest.TestCase):
                 d = go(facts(closes_another_issue=named, complete=complete, reviews=APPROVED), REVIEWED)
                 self.assertEqual((d["reason"], d["evidence"], d["attention"]), ("facts_incomplete", ["acceptance"], "none"),
                                  (named, complete))
+        # Beside another list read short, the gap is added to it (Astra).
+        d = go(facts(closes_another_issue=None, complete=dict(facts()["complete"], threads=False)), REVIEWED)
+        self.assertEqual((d["reason"], d["evidence"]), ("facts_incomplete", ["acceptance", "threads"]))
         # A merged or closed pull request is what it is.
         for state in ("merged", "closed"):
             self.assertEqual(go(facts(closes_another_issue=True, complete=short, state=state), REVIEWED)["reason"], state)
