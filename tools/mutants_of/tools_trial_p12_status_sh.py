@@ -1320,6 +1320,11 @@ MUTANTS = [
        "[0-9]+/) found", (STATUS_DIGITS,)) for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
     *[("%s keeps a status whose last is no digit" % script, "tools/" + script, "[0-9][0-9][0-9]( |$)/) found",
        "[0-9][0-9].( |$)/) found", (STATUS_DIGITS,)) for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
+    *[("%s keeps a status %s" % (script, what), "tools/" + script, "[0-9][0-9][0-9]( |$)/) found", relaxed, (STATUS_DIGITS,))
+      for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"
+      for what, relaxed in (("whose first is no digit", ".[0-9][0-9]( |$)/) found"),
+                            ("whose middle is no digit", "[0-9].[0-9]( |$)/) found"),
+                            ("that runs on past three digits", "[0-9][0-9][0-9]/) found"))],
     *[("P-4 keeps a status that is not three digits%s" % where, "tools/trial_p4_narrow.sh",
        start + "awk 'BEGIN { head = 1 } head && /^HTTP\\// { found = \"\" } { sub(/\\r$/, \"\") } head && $0 != \"\" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/)",
        start + "awk 'BEGIN { head = 1 } head && /^HTTP\\// { found = \"\" } { sub(/\\r$/, \"\") } head && $0 != \"\" { if (/^HTTP\\/[0-9.]+ [0-9]+/)",

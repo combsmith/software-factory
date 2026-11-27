@@ -121,4 +121,9 @@ MUTANTS = [
      "[0-9]+/) found", ("tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head",)),
     ("P-52 keeps a status whose last is no digit", "tools/trial_p52_pause.sh", "[0-9][0-9][0-9]( |$)/) found",
      "[0-9][0-9].( |$)/) found", ("tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head",)),
+    *[("P-52 keeps a status %s" % what, "tools/trial_p52_pause.sh", "[0-9][0-9][0-9]( |$)/) found", relaxed,
+       ("tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head",))
+      for what, relaxed in (("whose first is no digit", ".[0-9][0-9]( |$)/) found"),
+                            ("whose middle is no digit", "[0-9].[0-9]( |$)/) found"),
+                            ("that runs on past three digits", "[0-9][0-9][0-9]/) found"))],
 ]
