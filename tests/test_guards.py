@@ -2164,6 +2164,7 @@ class Settings(unittest.TestCase):
                                                    "          java-version: ${{ hashFiles('ci/jdk17') != '' && '17' || '21' }}\n"),
             "a double-quoted escape": changed("    name: SonarCloud\n", "    name: \"label\\tx\"\n"),
             "a double-quoted escaped quote": changed("    name: SonarCloud\n", "    name: \"label\\\"\"\n"),
+            "a double-quoted escape left open": changed("    name: SonarCloud\n", "    name: \"label\\\"\n"),
             "a job of a value": SCAN + "  other: x\n",
             "steps of a value": SCAN.split("    steps:\n")[0] + "    steps: x\n",
             "a key of no table": changed("permissions: {}\n", "permissions: {}\nother: x\n"),
