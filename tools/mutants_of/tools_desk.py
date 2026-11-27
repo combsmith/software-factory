@@ -56,7 +56,7 @@ MUTANTS = [
     ('the size finds no rename', 'tools/desk.py',
      '        "-M")\nDIFF', '        )\nDIFF', DESK_SIZE),
     ('the size counts the lines a diff adds alone', 'tools/desk.py',
-     'r"(\\d+) (?:insertion|deletion)"', 'r"(\\d+) (?:insertion)"', DESK_SIZE),
+     'startswith(("insertion", "deletion"))', 'startswith(("insertion",))', DESK_SIZE),
     ('a promisor remote is read as any clone', 'tools/desk.py',
      '             (r"^remote\\..*\\.promisor$", ("false",)))', '             )', DESK_SIZE),
     ('a promisor remote set to false is read as one', 'tools/desk.py',
