@@ -21,4 +21,14 @@ MUTANTS = [
     ("a run record's advisory cost has no bound", 'schemas/run-record.schema.json',
      '      "minimum": 0,\n      "maximum": 100000\n    },\n    "advisory_attempt"',
      '      "minimum": 0\n    },\n    "advisory_attempt"', ('tests.test_controller.Advisory.test_a_review_run_is_told_yes_only_under_a_ceiling_and_a_worst_case_that_are_configured',)),
+    # Carbon at b3e31205 part 5: the lower bounds, and the attempt's upper.
+    ('a run record may count fewer asks than none', 'schemas/run-record.schema.json',
+     '      "type": "integer",\n      "minimum": 0,\n      "maximum": 100\n    },\n    "advisory_cost_usd"',
+     '      "type": "integer",\n      "maximum": 100\n    },\n    "advisory_cost_usd"', ('tests.test_controller.Advisory.test_a_review_run_is_told_yes_only_under_a_ceiling_and_a_worst_case_that_are_configured',)),
+    ("a run record's advisory cost may be below nought", 'schemas/run-record.schema.json',
+     '      "minimum": 0,\n      "maximum": 100000\n    },\n    "advisory_attempt"',
+     '      "maximum": 100000\n    },\n    "advisory_attempt"', ('tests.test_controller.Advisory.test_a_review_run_is_told_yes_only_under_a_ceiling_and_a_worst_case_that_are_configured',)),
+    ('a run record may name an attempt past the most a Run may have', 'schemas/run-record.schema.json',
+     '      "minimum": 2,\n      "maximum": 100\n',
+     '      "minimum": 2\n', ('tests.test_controller.Advisory.test_a_review_run_is_told_yes_only_under_a_ceiling_and_a_worst_case_that_are_configured',)),
 ]
