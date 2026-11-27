@@ -17210,7 +17210,7 @@ class Rulesets(unittest.TestCase):
         self.assertTrue(caught(self.run_on(), "cannot be read for the advisory Lenses"))
         lenses["model"] = models
         deterministic = lenses.pop("deterministic")     # the Lenses' own check refuses this one first
-        self.assertNotEqual(self.run_on(), [])
+        self.assertTrue(caught(self.run_on(), "cannot be read as rulesets and Lenses"))
         lenses["deterministic"] = deterministic
         kept_lenses = lenses["deterministic"]
         lenses["deterministic"] = kept_lenses + ["astra"]       # one Lens unread among those read
