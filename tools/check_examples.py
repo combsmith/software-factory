@@ -356,9 +356,10 @@ def _readers(harness) -> list:
     if worst is not None and not out:
         most = sum((r["prompt_characters"] * r["usd_per_million"]["input"] + r["output_tokens"] * r["usd_per_million"]["output"])
                    / 1000000 for r in harness.get("readers", {}).values())
-        if worst < round(most, 6):
+        least = -(-round(most * 1000000, 3) // 1) / 1000000    # up to a millionth, past a float's noise alone
+        if worst < least:
             out.append("harness: the worst case one read is counted at, %s, is under what the readers' caps and prices let "
-                       "one Run cost, %s; raise it, or lower a cap" % (worst, round(most, 6)))
+                       "one Run cost, %s; raise it, or lower a cap" % (worst, least))
     return out
 
 
