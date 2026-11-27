@@ -114,6 +114,37 @@ def read(transport, repo: str, github_id: int, seen=None, name: str = NAME, memb
     return held, held is not None
 
 
+ADVICE_COST = "advice-cost"                 # the artifact the advise step's cost is uploaded as (decision 0224)
+ADVICE_COST_MEMBER = "advice-cost.json"     # its one file, read in the outcome's own bounds
+
+
+def advice_cost(transport, repo: str, github_id: int, run: str, seen=None) -> tuple:
+    """`(cost, whole)` of the review Run GitHub numbers `github_id` and the Factory names `run`: its `advice-cost/1`
+    as `{asks, cost_usd}`, or None. It is read as an outcome is, one small file in the same bounds, through the same
+    requests, and never a Lens's Result. None for a Run that left none, one past its retention, and one that cannot be
+    read, is over the bounds, breaks its schema or is another Run's: whatever the reason, the pass counts a cost it
+    does not hold at the worst case, so None is never nought. `whole` says only whether there was nothing to read
+    (true) or something that could not be read (false), for a caller that keeps the first and asks again for the
+    second; it says nothing of the run records, and is never a reason to defer. A list GitHub does not answer raises
+    `Unanswered`, as an outcome's does."""
+    held, whole = read(transport, repo, github_id, seen, ADVICE_COST, ADVICE_COST_MEMBER)
+    if held is None:
+        return None, whole
+
+    def once(pairs: list) -> dict:
+        if len({key for key, _ in pairs}) != len(pairs):
+            raise ValueError("a key is given twice")        # JSON would keep the last of them, whatever the first said
+        return dict(pairs)
+    try:
+        record = json.loads(held.decode("utf-8"), object_pairs_hook=once)
+    except (ValueError, RecursionError):
+        record = None
+    if not isinstance(record, dict) or validate(record, SCHEMAS["advice-cost"]) or record["run"] != run \
+            or record["cost_usd"] != record["cost_usd"]:        # no number at all, which is within every bound
+        return None, False
+    return {"asks": record["asks"], "cost_usd": record["cost_usd"]}, True
+
+
 def outcome(transport, repo: str, github_id: int, run: str, seen=None, started=None, reset=None) -> tuple:
     """`(outcome, whole)` of the Run GitHub numbers `github_id` and the Factory names `run`: the fault its outcome
     names, None for a Run that left none, and whether it was read whole. `seen` is handed the list's answer,
