@@ -60,7 +60,7 @@ MUTANTS = [
     ("the closure check follows imports outside tools/", "tools/verify.py",
      " or not rel.startswith(within):", ":", CLOSED),
     ("a check off the protected list is held to its closure", "tools/verify.py",
-     ' if len(files) == 2 and held(files[-1]) else None\n', "\n", CLOSED),
+     ' if held("tools/%s.py" % module) else None\n', "\n", CLOSED),
     ("a protected file that cannot be read is read as closed", "tools/verify.py",
      '            return "%s cannot be read" % rel\n', "            continue\n", CLOSED),
     ("a star import is read as closed", "tools/verify.py",

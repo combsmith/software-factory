@@ -139,8 +139,7 @@ def unclosed(checks: list, root: pathlib.Path = ROOT) -> list:
     silence (issue 1377). Raises ValueError when the list cannot be read."""
     held, why = _held(root), []
     for _, module, _ in checks:
-        files = _found("tools." + module, root)
-        leaves = _leaves("tools." + module, held, root, "tools/") if len(files) == 2 and held(files[-1]) else None
+        leaves = _leaves("tools." + module, held, root, "tools/") if held("tools/%s.py" % module) else None
         if leaves and leaves not in why:
             why.append(leaves)
     return why
@@ -174,7 +173,7 @@ def _leaves(start: str, held, root: pathlib.Path, within: str = ""):
             return "%s imports %s, which is not on the protected list" % (by, rel) if by else \
                 "%s is not on the protected list" % rel
         try:
-            tree = ast.parse((root / rel).read_text(encoding="utf-8"))
+            tree = ast.parse((root / rel).read_text(encoding="utf-8-sig"))
         except (OSError, ValueError, SyntaxError):
             return "%s cannot be read" % rel
         for node in ast.walk(tree):
@@ -202,7 +201,11 @@ def _found(name: str, root: pathlib.Path) -> list:
     for at in range(1, len(parts) + 1):
         base = root.joinpath(*parts[:at])
         found = base / "__init__.py" if (base / "__init__.py").is_file() else base.with_suffix(".py")
-        files += [found.relative_to(root).as_posix()] if found.is_file() else []
+        if not found.is_file():
+            continue
+        files.append(found.relative_to(root).as_posix())
+        if found.name != "__init__.py":     # a module holds no module: what follows its name is an attribute
+            break
     return files
 
 

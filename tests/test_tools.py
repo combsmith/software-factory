@@ -14574,7 +14574,7 @@ class Verify(unittest.TestCase):
                                                   "imports cannot be followed"),
                     # Over tools/ alone: an import of the Kernel is not followed here, and the check runs later.
                     ("from kernel import terms\n", "", None),
-                    # A module named as a builtin that runs text is no such builtin; the builtin is, under any name.
+                    # A module named as a builtin that runs text is no such builtin; the builtin, imported, is.
                     ("from harness import eval\n", "", None),
                     ("from builtins import exec as run\n", "", "tools/check_repo.py imports builtins.exec, so its "
                                                               "imports cannot be followed")):
@@ -14601,7 +14601,7 @@ class Verify(unittest.TestCase):
                     mock.patch.object(verify, "answers", lambda checks: self.fail("a check ran")), \
                     contextlib.redirect_stdout(io.StringIO()) as said:
                 self.assertEqual(verify.main(["--checks-first"]), 1)
-                self.assertEqual(verify.failed(verify.CHECKS), verify.EARLY)
+                self.assertEqual(verify.failed(verify.CHECKS, lambda checks: self.fail("a check ran")), verify.EARLY)
             lines = said.getvalue().splitlines()
             self.assertEqual(lines[:2], ["%-22s %s" % ("closure", "FAILED"), "    " + str(leaving).strip("[]'")])
         with contextlib.redirect_stdout(io.StringIO()) as said:
@@ -14628,6 +14628,8 @@ class Verify(unittest.TestCase):
             (root / "tools/desk.py").write_text("")
             (root / "tools/check_repo.py").write_text("import os\n")     # it imports nothing of tools/ itself
             self.assertEqual(verify.phase_one([entry], root), [])
+            self.assertEqual(verify.unclosed([entry], root),
+                             ["tools/__init__.py imports tools/desk.py, which is not on the protected list"])
             (root / "tools/__init__.py").write_text(init)
             (root / "tools/check_repo.py").write_text(source)
             (root / "tools/desk").mkdir()
