@@ -8877,6 +8877,97 @@ class Rules(unittest.TestCase):
                 protected.load(pathlib.Path(d) / "nowhere.json")
 
 
+class Workflows(unittest.TestCase):
+    """Every workflow a commit holds, its folder listed in the shape trials/P-4.json recorded a folder's listing, and
+    each file read as trials/P-51.json recorded one read at a commit (record 0239's re-read at a push)."""
+    SHA = Rules.SHA
+    ROOT = Rules.ROOT
+    LISTED = "GET /repos/o/r/contents/.github/workflows?ref=" + Rules.SHA
+    answer = Rules.answer
+
+    def listing(self, *names, kind: str = "file", **over) -> dict:
+        found = copy.deepcopy(exchanges("P-4")[8])
+        entry = found["response"]["body"][0]
+        found["request"]["call"] = self.LISTED
+        found["response"]["body"] = [dict(entry, name=name, path=".github/workflows/%s" % name, type=kind) for name in names]
+        for entry in found["response"]["body"]:
+            entry.update(over)
+        return found
+
+    def workflow(self, name: str, data: bytes = b"name: x\n", **over) -> dict:
+        return self.answer(data, ".github/workflows/" + name, **over)
+
+    def workflows(self, *found, repo="o/r", sha=SHA, transport=None):
+        return rules.workflows_at(transport or github.Replay(list(found)), repo, sha)
+
+    def test_every_workflow_a_commit_holds_is_read_whole(self):
+        own = (self.ROOT / ".github" / "workflows" / "sonarcloud.yml").read_bytes()
+        listing = self.listing("sonarcloud.yml", "README.md", "x.YAML", "y.yaml.txt")
+        listing["response"]["body"].append(dict(listing["response"]["body"][1], name="sub", path=".github/workflows/sub", type="dir"))
+        files, why = self.workflows(listing, self.workflow("sonarcloud.yml", own), self.workflow("x.YAML", b"name: y\n"))
+        self.assertIsNone(why)
+        self.assertEqual(files, {".github/workflows/sonarcloud.yml": own.decode(), ".github/workflows/x.YAML": "name: y\n"})
+        # What it hands over is what the guard reads at a commit: the repo's own scan, against its own list, passes.
+        from guards import workflows
+        listed = [e["path"] for e in json.loads((self.ROOT / "config" / "hooks.json").read_text())["protected"]]
+        self.assertIsNone(workflows.refusal_at({p: t for p, t in files.items() if p.endswith("sonarcloud.yml")}, listed))
+        # A folder that holds no workflow holds none, read whole.
+        self.assertEqual(self.workflows(self.listing("README.md")), ({}, None))
+        self.assertEqual(self.workflows(self.listing()), ({}, None))
+        # A listing one short of GitHub's cut is whole, and a link or a folder not named as a workflow is passed over.
+        found = self.listing(*["f%d.md" % n for n in range(999)])
+        found["response"]["body"][0]["type"] = "symlink"
+        self.assertEqual(self.workflows(found), ({}, None))
+        # As many as the bound are read.
+        names = ["w%d.yml" % n for n in range(rules.MOST)]
+        found = self.workflows(self.listing(*names), *[self.workflow(name) for name in names])
+        self.assertEqual((len(found[0]), found[1]), (rules.MOST, None))
+
+    def test_a_folder_or_a_workflow_that_cannot_be_read_whole_is_unreadable(self):
+        unreadable = (None, "workflows_unreadable")
+        gone = self.listing("a.yml")
+        gone["response"].update(status=404, body={"message": "Not Found"})
+        refused = self.listing("a.yml")
+        refused["response"]["status"] = 403
+        file_answer = self.listing("a.yml")
+        file_answer["response"]["body"] = file_answer["response"]["body"][0]
+        no_body = self.listing("a.yml")
+        no_body["response"]["body"] = None
+        cut = self.listing(*["f%d.md" % n for n in range(1000)])
+        odd = self.listing("a.yml")
+        odd["response"]["body"].append("b.yml")
+        many = ["w%d.yml" % n for n in range(rules.MOST + 1)]
+        # Each with what a read past it would need answered after it, so that the listing alone is what fails.
+        for found in ((gone,), (refused, self.workflow("a.yml")), (file_answer,), (no_body,), (cut,), (odd, self.workflow("a.yml")),
+                      (self.listing("a.yml", path=".github/workflows/b.yml"), self.workflow("a.yml")),
+                      (self.listing("a.yml", path="a.yml"), self.workflow("a.yml")), (self.listing("a.yml", name=None),),
+                      (self.listing(""),), (self.listing("a/b.yml"), self.workflow("a/b.yml")),
+                      (self.listing("a.yml", "a.yml"), self.workflow("a.yml"), self.workflow("a.yml")),
+                      (self.listing("a.md", "a.md"),), (self.listing(*many),) + tuple(self.workflow(name) for name in many),
+                      # A link listed under a workflow's name, or a name a request's path would not carry as it is.
+                      (self.listing("a.yml", kind="symlink"), self.workflow("a.yml")),
+                      (self.listing("a.yml", kind="submodule"), self.workflow("a.yml")),
+                      (self.listing("a?b.yml"), self.workflow("a?b.yml")), (self.listing("a b.yml"), self.workflow("a b.yml")),
+                      (self.listing("a%62.yml"), self.workflow("a%62.yml")), (self.listing("a#b.yml"), self.workflow("a#b.yml"))):
+            self.assertEqual(self.workflows(*found), unreadable, found[0]["response"]["status"])
+        # One workflow that cannot be read as its one file refuses the commit, wherever it stands: a link or a submodule
+        # listed under a workflow's name among them.
+        for over in ({"status": 404}, {"type": "symlink"}, {"type": "submodule"}, {"path": ".github/workflows/c.yml"}, {"size": 3}):
+            status = over.pop("status", 200)
+            bad = self.workflow("b.yml", **over)
+            bad["response"]["status"] = status
+            self.assertEqual(self.workflows(self.listing("a.yml", "b.yml"), self.workflow("a.yml"), bad), unreadable, over)
+            self.assertEqual(self.workflows(self.listing("b.yml", "c.yml"), bad, self.workflow("c.yml")), unreadable, over)
+        # A read the transport cannot answer is unreadable, the listing or a workflow after it.
+        self.assertEqual(self.workflows(), unreadable)
+        self.assertEqual(self.workflows(self.listing("a.yml")), unreadable)
+        # Coordinates that cannot name a commit of a repo are not asked at all.
+        class Unasked:
+            def send(self, req):
+                raise AssertionError("asked %s" % req)
+        for repo, sha in (("o", self.SHA), ("o/..", self.SHA), ("o/r", "main"), (None, self.SHA), ("o/r", None)):
+            self.assertEqual(self.workflows(repo=repo, sha=sha, transport=Unasked()), unreadable, (repo, sha))
+
 class DraftChecks(unittest.TestCase):
     """A linked draft the Factory opened carries its head's required checks, where the issue rule would act on them
     (decision 0217, issue 878: the Factory Builder's rulings Q1 to Q5, option A each)."""
@@ -10050,6 +10141,30 @@ class Opening(unittest.TestCase):
             back, _ = self.opened(script)
             self.assertEqual((back["state"], back["number"], back["reason"]), (state, None, reason), (script, state))
             self.assertEqual(apply.opened("e1", 12, OPENED_FROM, back)["key"], None)
+
+    def test_a_listed_pull_request_that_says_not_whether_a_person_or_an_app_opened_it_posts_nothing(self):
+        # One that does not say it is a person's or an App's may be the App's own draft: none is opened (issue 1346).
+        for listed in ([dict(self.pull(5), user=user)] for user in (
+                {"login": OPENER}, {"login": OPENER, "type": None}, {"login": OPENER, "type": "Organization"},
+                {"login": OPENER, "type": ["Bot"]}, {"login": "someone", "type": "bot"})):
+            back, sent = self.opened({self.LIST: {"status": 200, "body": listed},
+                                      self.OPEN: {"status": 201, "body": {"number": 7}},
+                                      self.READ: {"status": 200, "body": self.pull()}})
+            self.assertEqual((back["state"], back["reason"]), ("failed", "pulls_unreadable"), listed)
+            self.assertEqual([(r["method"], r["path"]) for r in sent], [self.LIST], listed)
+        # Nor is the App's own draft beside it recovered: the list is not read whole.
+        listed = [self.pull(), dict(self.pull(6), user={"login": OPENER})]
+        back, sent = self.opened({self.LIST: {"status": 200, "body": listed},
+                                  self.READ: {"status": 200, "body": self.pull()}})
+        self.assertEqual((back["state"], back["number"], back["reason"]), ("failed", None, "pulls_unreadable"))
+        self.assertEqual([(r["method"], r["path"]) for r in sent], [self.LIST])
+        # One a person opened says so, and the draft is opened beside it.
+        back, sent = self.opened({self.LIST: {"status": 200, "body": [
+                                      dict(self.pull(5), user={"login": "someone", "type": "User"})]},
+                                  self.OPEN: {"status": 201, "body": {"number": 7}},
+                                  self.READ: {"status": 200, "body": self.pull()}})
+        self.assertEqual((back["state"], back["number"]), ("applied", 7))
+        self.assertEqual([(r["method"], r["path"]) for r in sent], [self.LIST, self.OPEN, self.READ])
 
     def test_an_opening_told_wrongly_sends_nothing(self):
         for repo, branch, base, title, body, login, *commit in (

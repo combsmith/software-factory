@@ -39,7 +39,9 @@ everything a trial leaves in it: its runs, logs and artifacts.
   Each other `tools/trial_*.sh` that mints deletes its raw answers on exit. Given `--keep-raw` first,
   it keeps them in its own private scratch directory and prints that path; the Maintainer deletes it
   once read (issue 1215). That directory is made where TMPDIR says, so ask him to leave TMPDIR at the
-  Mac's own per-user default, which nothing syncs.
+  Mac's own per-user default, which nothing syncs. Where it tells of a token that may be live, it
+  writes the same words to `finish.log` in OUT (issue 1245): read that first, as a note. It holds
+  no credential, and no fixture is built from it.
   A new script the Maintainer runs with a key copies `tools/trial_p54_issue_lookup.sh`: OUT made new
   under a parent only he can write to, the raw answers in a private scratch directory of its own,
   nothing of his environment taken but PATH and TMPDIR, and a clean-up deaf to a second signal that

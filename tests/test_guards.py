@@ -2255,5 +2255,135 @@ class Settings(unittest.TestCase):
         self.assertIsNone(settings(changed(SCAN_STEP, SCAN_STEP + "        env:\n          SONAR_TOKEN: x\n")))
 
 
+TEST_AT = ".github/workflows/test.yml"
+# A job that runs a command and holds no secret: its own permissions let its token write nothing, and it names none.
+TEST = """name: Test
+on:
+  pull_request:
+permissions: write-all
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Test
+        run: make test
+"""
+
+
+def at(test: str = TEST, listed=None, scan: str = SCAN) -> str:
+    """refusal_at of the scan beside the test workflow, against `listed` or the scan's own list."""
+    return workflows.refusal_at({SCAN_AT: scan, TEST_AT: test}, LISTED if listed is None else listed)
+
+
+def tested(old: str, new: str) -> str:
+    assert TEST.count(old) == 1, old
+    return TEST.replace(old, new)
+
+
+class Secrets(unittest.TestCase):
+    def test_only_a_job_that_holds_a_secret_is_held_at_a_commit(self):
+        # A job that holds no secret is not read: it may run a command. Read as `refusal` reads, every job held, it may not.
+        self.assertIsNone(at())
+        self.assertEqual(workflows.refusal(TEST_AT, TEST, LISTED), workflows.UNREADABLE)
+        # Its own permissions are what count, else its workflow's.
+        own = "    permissions:\n      contents: read\n"
+        for workflow, job in (("permissions: write-all\n", own), ("permissions: {}\n", ""), ("permissions: read-all\n", ""),
+                              ("permissions: 'read-all' # a comment\n", ""), ("permissions: write-all\n", "    permissions: {}\n"),
+                              ("permissions: write-all\n", "    permissions: read-all\n"),
+                              ("permissions: write-all\n", "    permissions:\n      contents: read\n      id-token: none\n")):
+            self.assertIsNone(at(tested(own, job).replace("permissions: write-all\n", workflow)), (workflow, job))
+        # Each way a job holds one, so is read and refused for its command: with no permissions at the job or its
+        # workflow, the repo's default, taken as write until adapters/settings.py reads it.
+        holds = {
+            "no permissions anywhere": tested(own, "").replace("permissions: write-all\n", ""),
+            "its workflow's write, and none of its own": tested(own, ""),
+            "a write of its own": tested("      contents: read\n", "      contents: write\n"),
+            "a write of its own beside its workflow's read": tested("      contents: read\n", "      contents: write\n")
+            .replace("permissions: write-all\n", "permissions: read-all\n"),
+            "write-all of its own": tested(own, "    permissions: write-all\n"),
+            "an id token": tested("      contents: read\n", "      contents: read\n      id-token: write\n"),
+            "permissions of no value": tested(own, "    permissions:\n"),
+            "a scope of no word read": tested("      contents: read\n", "      contents: reader\n"),
+            "a scope with kids": tested("      contents: read\n", "      contents:\n        x: read\n"),
+            "a scope of an item": tested("      contents: read\n", "      - read\n"),
+            "permissions of the text {} quoted": tested(own, "    permissions: '{}'\n"),
+            "permissions of the text {} double-quoted": tested(own, '    permissions: "{}"\n'),
+            "a secret named in its env": tested("    steps:\n", "    env:\n      X: ${{ secrets.X }}\n    steps:\n"),
+            "a secret named in a step": tested("        run: make test\n", "        run: make test ${{ secrets.X }}\n"),
+            "a secret named in capitals": tested("        run: make test\n", "        run: echo ${{ SECRETS.X }}\n"),
+            "the secrets whole": tested("        run: make test\n", "        run: echo ${{ toJSON(secrets) }}\n"),
+            "a secret named in a condition": tested("      - name: Test\n", "      - name: Test\n        if: secrets.X != ''\n"),
+            "a secret named by a key": tested("    steps:\n", "    secrets: inherit\n    steps:\n"),
+            "a secret named in its workflow's env": tested("permissions: write-all\n", "permissions: write-all\nenv:\n  X: ${{ secrets.X }}\n"),
+            "a secret its workflow is called with": tested("  pull_request:\n", "  workflow_call:\n    secrets:\n      X:\n"),
+            "another workflow called": tested("    runs-on: ubuntu-24.04\n", "    uses: o/r/.github/workflows/x.yml@main\n"),
+            # Actions may read a key in any case: one with a capital is never passed over.
+            "its own permissions with a capital": tested("    permissions:\n      contents: read\n", "    Permissions:\n      contents: write\n")
+            .replace("permissions: write-all\n", "permissions: read-all\n"),
+            "another workflow called with a capital": tested("    runs-on: ubuntu-24.04\n", "    Uses: o/r/.github/workflows/x.yml@main\n"),
+            "a key with a capital at the top": tested("permissions: write-all\n", "permissions: write-all\nEnv:\n  X: y\n"),
+        }
+        for why, text in holds.items():
+            self.assertEqual(at(text), workflows.UNREADABLE, why)
+        # Read as it holds one, a job is held as `refusal` holds it: the scan beside the test, off the list, is refused.
+        self.assertEqual(at(listed=[".github/"]), workflows.UNLISTED)
+        self.assertEqual(at(listed=[]), workflows.UNLISTED)
+        # A job that holds a secret, by the repo's default, and keeps to the table passes on the list, and off it is refused.
+        kept = tested("        run: make test\n", "        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n") \
+            .replace("permissions: write-all\n", "").replace(own, "")
+        self.assertIsNone(at(kept, listed=LISTED))
+        self.assertEqual(workflows.refusal_at({TEST_AT: kept}, ["sonar-project.properties"]), workflows.UNLISTED)
+        # A workflow none of whose jobs holds a secret need not be on the list, nor hold to the table's keys.
+        self.assertIsNone(workflows.refusal_at({TEST_AT: tested("permissions: write-all\n", "defaults:\n  run:\n    shell: bash\n")}, []))
+        # A secret another job names is that job's: a job of the scan's workflow that names none and may write nothing
+        # is not read, though it runs a command.
+        beside = SCAN + "  test:\n    runs-on: ubuntu-24.04\n    permissions:\n      contents: read\n    steps:\n      - run: make\n"
+        self.assertIsNone(workflows.refusal_at({SCAN_AT: beside}, LISTED))
+        self.assertEqual(workflows.refusal(SCAN_AT, beside, LISTED), workflows.UNREADABLE)
+        # However deep a job that holds none is written, it is read, and not read into.
+        deep = "    strategy:\n" + "".join(" " * (6 + n) + "x%d:\n" % n for n in range(600)) + " " * 606 + "y: z\n"
+        self.assertIsNone(at(tested("    steps:\n", deep + "    steps:\n")))
+        # Every job of a workflow is asked: one that holds beside one that holds none is read.
+        both = TEST + "  other:\n    runs-on: ubuntu-24.04\n    permissions: write-all\n    steps:\n      - run: make\n"
+        self.assertEqual(at(both), workflows.UNREADABLE)
+
+    def test_at_a_commit_every_workflow_is_read_whole_and_the_first_reason_given(self):
+        # The test job, with no permissions at it or its workflow, holds a secret, so is read and refused for its command.
+        unread = tested("    permissions:\n      contents: read\n", "").replace("permissions: write-all\n", "")
+        files = {TEST_AT: unread, ".github/workflows/a.yml": SCAN, SCAN_AT: SCAN}
+        # In their paths' order, whatever order they were given in: a.yml is held to the list first.
+        self.assertEqual(workflows.refusal_at(files, [".github/workflows/sonarcloud.yml", ".github/workflows/test.yml",
+                                                      "sonar-project.properties"]), workflows.UNLISTED)
+        self.assertEqual(workflows.refusal_at(files, LISTED), workflows.UNREADABLE)
+        # One refused among those that pass refuses the commit, wherever it stands.
+        for path in (".github/workflows/a.yml", ".github/workflows/z.yml"):
+            self.assertEqual(workflows.refusal_at({SCAN_AT: SCAN, TEST_AT: TEST, path: unread}, LISTED), workflows.UNREADABLE, path)
+        # A commit with no workflow refuses nothing.
+        self.assertIsNone(workflows.refusal_at({}, []))
+        # What the narrow form does not read is read nowhere, in a job that holds no secret too: a block scalar may name one.
+        for why, text in (("a block scalar", tested("        run: make test\n", "        run: |\n          echo ${{ secrets.X }}\n")),
+                          ("a tab", tested("        run: make test\n", "        run:\tmake test\n")),
+                          ("an escape that spells a secret", tested("        run: make test\n", '        run: "${{ \\x73ecrets.X }}"\n')),
+                          ("an anchor", tested("    runs-on: ubuntu-24.04\n", "    runs-on: &r ubuntu-24.04\n")),
+                          ("a key given twice", tested("      contents: read\n", "      contents: read\n      contents: write\n")),
+                          ("permissions given twice", tested("    runs-on: ubuntu-24.04\n", "    runs-on: ubuntu-24.04\n    permissions: write-all\n")),
+                          ("permissions given twice, the quiet first", tested("    steps:\n", "    permissions: write-all\n    steps:\n")),
+                          ("jobs given twice", TEST + "jobs:\n  other:\n    runs-on: x\n    steps:\n      - run: make\n"),
+                          ("an item among the jobs", TEST + "  - runs-on: x\n"),
+                          ("a job of no body", tested("permissions: write-all\n", "permissions: read-all\n") + "  other:\n"),
+                          ("a job of a value", TEST + "  other: x\n"),
+                          ("an item at the top", "- x\n" + TEST),
+                          ("no jobs", TEST.split("jobs:\n")[0]),
+                          ("jobs of none", TEST.split("jobs:\n")[0] + "jobs:\n")):
+            self.assertEqual(workflows.refusal_at({TEST_AT: text}, LISTED), workflows.UNREADABLE, why)
+        # What is no exact kind reads nothing, with no workflow too.
+        for files, listed in ((None, LISTED), ([(TEST_AT, TEST)], LISTED), ({TEST_AT: None}, LISTED), ({TEST_AT: TEST.encode()}, LISTED),
+                              ({Odd(TEST_AT): TEST}, LISTED), ({TEST_AT: TEST, None: TEST}, LISTED), ({".github/test.yml": TEST}, LISTED),
+                              ({".github/workflows/a/test.yml": TEST}, LISTED), ({TEST_AT: TEST}, tuple(LISTED)),
+                              ({}, None), ({}, tuple(LISTED)), ({}, [Odd(".github/")]), ({TEST_AT: TEST}, [None])):
+            self.assertEqual(workflows.refusal_at(files, listed), workflows.UNREADABLE, (files, listed))
+
 if __name__ == "__main__":
     unittest.main()
