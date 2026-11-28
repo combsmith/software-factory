@@ -7707,6 +7707,8 @@ class Decisions(unittest.TestCase):
         # The runner's areas(ROOT) as PINNED writes it loads a file of tools/mutants_of/: read through ast, its helpers,
         # comprehensions and a starred call worked out, the row finds the mutant it names.
         files = dict(AREA_FILES)
+        named = RECORD.replace("one thing is undone", "x is undone").replace("tools/check_x.py", "tools/check_w.py")
+        self.assertEqual(check_decisions.run(edited(history(files), {FIRST: named}, commit=True)), [])
         self.assertIn(("x is undone", "tools/check_w.py", ("tests.test_x.T.test_y",)),
                       check_decisions.read_mutants(history(files)))
         kept = files["tools/mutants.py"] + "X = [n for n in (0,) if n if 1 // n]\n"
@@ -7760,6 +7762,17 @@ class Decisions(unittest.TestCase):
         for words, overlay in zip(list(cases) + list(areas) + more, broken):
             with self.subTest(words=words), self.assertRaisesRegex(ValueError, re.escape(words.strip())):
                 check_decisions.read_mutants(edited(history(files), overlay))
+
+    def test_a_change_to_a_file_of_mutants_alone_is_read_again(self):  # issue 1377
+        root = history(AREA_FILES)
+        self.assertIn("x is undone", check_decisions._mutants(root))
+        edited(root, {"tools/mutants_of/tools_check_w.py": AREA_FILES["tools/mutants_of/tools_check_w.py"].replace(
+            '(("x", "test_y"),)', '(("z", "test_y"),)')})
+        self.assertIn("z is undone", check_decisions._mutants(root))
+
+    def test_a_file_of_mutants_the_reader_cannot_read_fails_the_check(self):  # issue 1377
+        self.assertTrue(refused({"tools/mutants.py": RECORD_MUTANTS + "MUTANTS.append(1)\n"},
+                                "tools/mutants.py cannot be read (ValueError: tools/mutants.py line 17 is not read)"))
 
     def test_the_mutants_read_as_text_are_those_the_runner_runs(self):  # issue 1377
         # Each in a process of its own, so that neither loads what the other reads: the reader imports no file of
