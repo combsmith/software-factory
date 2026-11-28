@@ -22,14 +22,12 @@ from __future__ import annotations
 
 import ast
 import hashlib
-import io
 import os
 import pathlib
 import re
 import shutil
 import subprocess
 import sys
-import tokenize
 
 from tools import walk
 from tools.check_context import LINK, PENDING, TOKEN, WAITING, _cells, _is_pending, _rows, _sections
@@ -268,7 +266,7 @@ stat statistics string stringprep struct subprocess sunau symtable sys sysconfig
 telnetlib tempfile termios textwrap this threading time timeit tkinter token tokenize tomllib trace traceback
 tracemalloc tty turtle turtledemo types typing unicodedata unittest urllib uu uuid venv warnings wave weakref
 webbrowser winreg winsound wsgiref xdrlib xml xmlrpc zipapp zipfile zipimport zlib zoneinfo
-""".split()) | frozenset(getattr(sys, "stdlib_module_names", ()))
+""".split()) | frozenset(sys.stdlib_module_names if sys.version_info >= (3, 10) else ())
 EXCEPTIONS = frozenset(("Exception", "RuntimeError", "ValueError"))
 # Of any value a file of mutants can reach, these methods and attributes change nothing: a str's, a dict's, a path's, a
 # pattern's or re's. A str's `replace` is worked out at the top alone, on a str: a path's renames a file.
@@ -336,11 +334,11 @@ class _File:
         if (read.root / rel).is_symlink() or (read.root / rel).with_suffix("").is_dir():
             raise ValueError("%s is not the file Python imports" % rel)
         data = (read.root / rel).read_bytes()
-        if tokenize.detect_encoding(io.BytesIO(data).readline)[0] != "utf-8":
+        cookies = [re.match(rb"[ \t\f]*#.*?coding[:=][ \t]*([-\w.]+)", line) for line in re.split(rb"\r\n|\r|\n", data, 2)[:2]]
+        if data.startswith(b"\xef\xbb\xbf") or any(c and c.group(1).lower() not in (b"utf-8", b"utf8") for c in cookies):
             raise ValueError("%s is not read as UTF-8 alone" % rel)
         self.text = data.decode("utf-8")
         self.tree = ast.parse(data, filename=rel)
-        compile(self.tree, rel, "exec", dont_inherit=True)
         top = [_targets(node) for node in self.tree.body]
         self.names = {name for names in top for name in names}
         shadowed = self.names & (BUILTINS | TYPES | EXCEPTIONS) or {n for n in self.names if n.startswith("__")}

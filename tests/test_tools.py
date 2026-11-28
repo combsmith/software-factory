@@ -7698,10 +7698,10 @@ class Decisions(unittest.TestCase):
                                                               '("tests.test_x.T.test_y",)),\n]\n'), "share a description")):
             with self.subTest(words):
                 self.assertTrue(refused({"tools/mutants.py": broken}, words))
-        # They are read again once the file holds other mutants, in the same tree.
+        # They are read again once the file holds other mutants, in the same tree, though of the same length.
         root = edited(history(), {FIRST: row(x + '`tests/test_x.py::test_z`, mutant: "another thing is undone"')})
         self.assertEqual(check_decisions.run(root), [])
-        (root / "tools/mutants.py").write_text(RECORD_MUTANTS.replace('"another thing is undone"', '"another thing is gone"'))
+        (root / "tools/mutants.py").write_text(RECORD_MUTANTS.replace('"another thing is undone"', '"another thing is unseen"'))
         self.assertTrue(caught(check_decisions.run(root), 'mutant "another thing is undone", which tools/mutants.py does not hold'))
         # They are not read where no row needs them.
         plain = RECORD.replace(ONE_ROW, "| One thing | `tests/test_x.py` |")
@@ -7766,7 +7766,7 @@ class Decisions(unittest.TestCase):
             "iter() is given": runner + "X = iter(range(3), None)\n",
             "UTF-8 alone": "# coding: unicode_escape\n" + runner,
             "UTF-8 alone ": "# coding: latin-1\n# coding: utf-8\n" + runner,
-            "cannot be read (SyntaxError)": runner + "def unused():\n    break\n",
+            "UTF-8 alone  ": "#!/usr/bin/env python3\n# coding: latin-1\n" + runner,
             "h is not run by the reader": runner + "def g(m):\n    return ''\n\n\ndef h(p):\n    if p:\n"
                                                    "        return re.sub('a', g, 'a')\n    return 1\n\n\nX = h(pathlib.Path('a'))\n",
             "a range is searched": runner + "X = None in range(3)\n",
@@ -7776,7 +7776,7 @@ class Decisions(unittest.TestCase):
         }
         areas = {"imports from": area.replace("import Y", "import *"), "line 24 is not read": area + "raise SystemExit(7)\n",
                  "calls or builds a value": area + 'def f(x: len("a")):\n    return x\n',
-                 "cannot be read (SyntaxError) ": area + "from __future__ import annotations\n"}
+                 "imports from __future__": area + "from __future__ import annotations\n"}
         broken = [{"tools/mutants.py": text} for text in cases.values()] + \
             [{"tools/mutants_of/tools_check_w.py": text} for text in areas.values()] + \
             [{"tools/mutants_of/tools_check_w/__init__.py": "MUTANTS = []\n"}, {"tools/mutants/__init__.py": "MUTANTS = []\n"},

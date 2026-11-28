@@ -1,4 +1,4 @@
-# 0000. The checks read the mutants as text and never import them
+# 1396. The checks read the mutants as text and never import them
 
 Status: accepted. 2026-11-28, the Factory Builder and the Solution Architect; issue 1377.
 
