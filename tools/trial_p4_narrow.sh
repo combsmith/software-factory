@@ -22,6 +22,7 @@
 # input, and is never printed, logged or written to a file. Each response is captured in a scratch directory outside
 # the repo, redacted there by tools/redact_trial.py, and deleted; OUT receives only the redacted responses (clean-N),
 # what was asked (requests.json) and when the run started (ran_at). A session then builds trials/P-4.json from OUT.
+# OUT may also hold finish.log, the script's own words alone on a token that may be live (issue 1338).
 #
 # A mint that curl fails or GitHub refuses, or a revocation that does not return 204, stops the script with a non-zero
 # exit; a read's status, whatever it is, is the trial's answer and is kept. A token that may be live is told to the
@@ -127,7 +128,9 @@ revoke() {
         -H "$ACCEPT" -H "$VERSION" "$API/installation/token"
 }
 
+failed=""  # a revocation noted as failed, for a later one that succeeds to undo (issue 1338)
 unrevoked() {
+    failed=1
     live "trial_p4_narrow: the token's revocation returned $1, not 204. The token may be live for up to an hour;" \
         "the Maintainer must revoke it by hand."
 }
@@ -152,8 +155,13 @@ finish() {
     fi
     if [ -n "$token" ]; then
         last=$(revoke || true)
-        echo "trial_p4_narrow: stopped with a token live; revoking it returned $last" >&2
-        [ "$last" = 204 ] || unrevoked "$last"
+        if [ "$last" = 204 ] && [ -n "$failed" ]; then
+            # A failure noted before is undone in the note too, so OUT asks for no revocation made since.
+            live "trial_p4_narrow: stopped with a token live; revoking it returned 204, so it is revoked after all."
+        else
+            echo "trial_p4_narrow: stopped with a token live; revoking it returned $last" >&2
+            [ "$last" = 204 ] || unrevoked "$last"
+        fi
         token=""
     elif [ -n "${minting:-}" ]; then
         # Stopped while the mint was asked: its answer never came back here, and GitHub may have minted one (issue 1215).
@@ -259,7 +267,8 @@ asked="$asked{\"n\": 2, \"call\": \"POST /app/installations/$installation/access
 if [ "$minted_status" != 201 ] || [ -z "$token" ]; then
     token=""
     live "trial_p4_narrow: no token was read from the mint (status ${minted_status:-none}); if one was minted it was not" \
-        "revoked, and expires within an hour. GitHub's answer, redacted, is $out/clean-2."
+        "revoked, and expires within an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends" \
+        "the App's installation. GitHub's answer, redacted, is $out/clean-2."
     exit 1
 fi
 echo "minted, narrowed, status 201"

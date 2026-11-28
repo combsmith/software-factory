@@ -34,6 +34,7 @@
 # standard input. Each answer is redacted by tools/redact_trial.py in a scratch directory outside the repo; OUT gets
 # only the clean answers (clean-N), what was asked (requests.json) and when the run began (ran_at). A refused mint, a
 # failed read or a revocation not answered 204 stops the run, and a token that may be live is told to the Maintainer.
+# OUT may also hold finish.log, the script's own words alone on a token that may be live (issue 1338).
 set -eu
 # Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
 # (issue 1215).
@@ -134,7 +135,9 @@ revoke() {
         -H "$ACCEPT" -H "$VERSION" "$API/installation/token"
 }
 
+failed=""  # a revocation noted as failed, for a later one that succeeds to undo (issue 1338)
 unrevoked() {
+    failed=1
     live "trial_p80_branch_reads: $1: its revocation returned $2, not 204. The token may be live for up to an hour;" \
         "the Maintainer must revoke it by hand."
 }
@@ -159,8 +162,13 @@ finish() {
     fi
     if [ -n "$token" ]; then
         last=$(revoke || true)
-        echo "trial_p80_branch_reads: stopped with a token live; revoking it returned $last" >&2
-        [ "$last" = 204 ] || unrevoked "the token live when the script stopped" "$last"
+        if [ "$last" = 204 ] && [ -n "$failed" ]; then
+            # A failure noted before is undone in the note too, so OUT asks for no revocation made since.
+            live "trial_p80_branch_reads: stopped with a token live; revoking it returned 204, so it is revoked after all."
+        else
+            echo "trial_p80_branch_reads: stopped with a token live; revoking it returned $last" >&2
+            [ "$last" = 204 ] || unrevoked "the token live when the script stopped" "$last"
+        fi
         token=""
     elif [ -n "${minting:-}" ]; then
         # Stopped while the mint was asked: its answer never came back here, and GitHub may have minted one.
@@ -293,7 +301,8 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
             [ "$revoked" = 204 ] || unrevoked "a token, narrowed to $1, whose answer was cut short" "$revoked"
         else
             live "trial_p80_branch_reads: $slug: GitHub minted a token, narrowed to $1, and its answer was cut short; the" \
-                "token may be live for up to an hour, and the Maintainer must revoke it by hand."
+                "token may be live for up to an hour; no one holds it to revoke, so to end it sooner the" \
+                "Maintainer suspends the App's installation."
         fi
         minting=""
         echo "trial_p80_branch_reads: $slug: nothing read, and nothing of the answer kept." >&2

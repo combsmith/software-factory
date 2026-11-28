@@ -30,6 +30,7 @@
 # stops the script with a non-zero exit, and a token that may be live is told to the Maintainer. A mint GitHub answered
 # 201 whose token cannot be read is written nowhere: its token is revoked if it can be found in the answer, and the
 # Maintainer is told it may be live if not.
+# OUT may also hold finish.log, the script's own words alone on a token that may be live (issue 1338).
 set -eu
 # Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
 # (issue 1215).
@@ -212,7 +213,8 @@ if [ "$minted_status" = 201 ] && [ -z "$token" ]; then
             "live for up to an hour, and the Maintainer must revoke it by hand."
     else
         live "trial_p52_pause: $slug: GitHub minted a token for installation $installation and its answer could not" \
-            "be read; the token may be live for up to an hour, and the Maintainer must revoke it by hand."
+            "be read; the token may be live for up to an hour; no one holds it to revoke, so to end it sooner" \
+            "the Maintainer suspends the App's installation."
     fi
     minting=""
     echo "trial_p52_pause: $slug: nothing read, and nothing of the answer kept." >&2

@@ -166,4 +166,7 @@ MUTANTS = [
      ISOLATED_TEST),
     ("trial_p52_pause.sh runs a redaction that reads site-packages", "tools/trial_p52_pause.sh", ISOLATED + ' < "$scratch/raw-$n"', WITH_SITE + ' < "$scratch/raw-$n"',
      ISOLATED_TEST),
+    # Issue 1338: a 201 cut before its token is told the advice that works.
+    ("P-52 tells a 201 cut before its token to revoke it by hand", "tools/trial_p52_pause.sh",
+     "token may be live for up to an hour; no one holds it to revoke, so to end it sooner", "token may be live for up to an hour, and the Maintainer must revoke it by hand; to end it sooner", (MINT_REFUSED,)),
 ]
