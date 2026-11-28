@@ -4,6 +4,8 @@ from tools.mutants_of.common import MAIN_ROWS
 
 # Issue 1109: the test of the size note make checks prints.
 DESK_NOTE = ("tests.test_tools.Desk.test_make_checks_note_fails_nothing",)
+ENDS = ("tests.test_tools.Verify.test_a_test_module_that_ends_its_process_cannot_pass_a_failed_check",)
+ISOLATED = ("tests.test_tools.Verify.test_a_file_at_the_top_named_as_a_standard_module_is_not_imported_by_the_checks",)
 LEG_TESTS = ("tests.test_tools.Verify.test_the_legs_of_make_verify_run_every_test_once",)
 
 TARGETS = ("tools/verify.py",)
@@ -67,4 +69,16 @@ MUTANTS = [
      '    if "--checks" in argv:\n', '    if False:\n', ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
     ("make checks passes whatever the checks found", "tools/verify.py",
      '        answer = 1 if checks_failed else 0 ', '        answer = 0 ', DESK_NOTE),
+    # Issue 1050: the checks run isolated, the repo's top after the standard library, and the tests in a process of
+    # their own, so a test module that ends its process cannot turn a failed check into a pass.
+    ("the repo's top comes ahead of the standard library", "tools/verify.py",
+     "    sys.path.append(str(ROOT))", "    sys.path.insert(0, str(ROOT))", ISOLATED),
+    ("the tests run in the checks' process", "tools/verify.py",
+     '    tests = tested("--fast" in argv)\n', '    tests = main(["--tests"] + argv, environ)\n', ENDS),
+    ("a failed check passes verify when the tests pass", "tools/verify.py",
+     "    return 1 if checks_failed or tests != 0 else 0\n", "    return 1 if tests != 0 else 0\n", ENDS),
+    ("a failed tests' process passes verify", "tools/verify.py",
+     "    return 1 if checks_failed or tests != 0 else 0\n", "    return 1 if checks_failed else 0\n", ENDS),
+    ("the tests' process runs the checks", "tools/verify.py",
+     '    if "--tests" in argv:', '    if False:', ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
 ]

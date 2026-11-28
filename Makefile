@@ -2,13 +2,13 @@ PY ?= python3
 
 .PHONY: verify fast checks
 verify:
-	$(PY) -m tools.verify
+	$(PY) -I -S tools/verify.py
 
 fast:
-	$(PY) -m tools.verify --fast
+	$(PY) -I -S tools/verify.py --fast
 
 checks:
-	$(PY) -m tools.verify --checks
+	$(PY) -I -S tools/verify.py --checks
 
 # The Makefile is read as committed: an explicit rule with an empty recipe stops make remaking it by an implicit rule
 # from a file beside it, Makefile.sh among them, before verify is looked up (decision 0240). It comes after verify,
