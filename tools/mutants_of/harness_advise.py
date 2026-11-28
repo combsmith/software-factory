@@ -12,6 +12,7 @@ ADVISE_LIMIT = ("tests.test_advise.Advise.test_a_rate_limit_is_waited_for_once",
 ADVISE_CANCEL = ("tests.test_advise.Advise.test_a_response_whose_read_fails_is_cancelled_and_the_cancel_changes_nothing",)
 ADVISE_COST = ("tests.test_advise.Advise.test_the_runs_cost_is_true_wherever_the_step_stops",)
 ADVISE_RERUN = ("tests.test_advise.Advise.test_a_rerun_asks_no_reader_and_its_cost_is_nought",)
+ADVISE_ATTEMPT = ("tests.test_advise.Advise.test_an_attempt_that_cannot_be_read_asks_nobody_and_writes_nothing",)
 ADVISE_SENT = ("tests.test_advise.Advise.test_an_ask_is_counted_as_it_is_sent_and_never_as_configured",)
 ADVISE_NEVER = ("tests.test_advise.Advise.test_the_step_never_fails_its_job",)
 MUTANTS = [
@@ -195,14 +196,14 @@ MUTANTS = [
     # The Factory Builder, 2026-11-28: an attempt that cannot be read asks nobody and writes no cost.
     ('an attempt that cannot be read is taken for the first', 'harness/advise.py',
      '    if attempt is None:\n        # Never',
-     '    if attempt is None:\n        attempt = 1\n    if False:\n        # Never', ADVISE_RERUN),
+     '    if attempt is None:\n        attempt = 1\n    if False:\n        # Never', ADVISE_ATTEMPT),
     ('asks are counted as configured, not as sent', 'harness/advise.py',
      '            usage or {"asks": asks_of(sent), "cost_usd": None} for sent, usage in ledger]))\n',
      '            usage or {"asks": asks_of(sent), "cost_usd": None} for sent, usage in ledger]) if not asking else dict(cost_of(run, attempt, release, []), asks=len(asking), cost_usd=None))\n',
      ADVISE_SENT),
     ('a reader whose transport is not reached counts an ask', 'harness/advise.py',
      '    live = transport(reader["host"]', '    sent.append("create")\n    live = transport(reader["host"]', ADVISE_SENT),
-    ('an ask is counted only once it is answered', 'harness/advise.py',
+    ('an ask is not counted as it is sent', 'harness/advise.py',
      '        sent.append(request["act"])\n        return live.send(request)\n',
      '        return live.send(request)\n', ADVISE_COST),
     # Security's read of the configuration, 2026-11-28: a second ask follows only a 429 that billed nothing.

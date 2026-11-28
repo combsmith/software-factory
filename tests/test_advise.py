@@ -429,6 +429,8 @@ class Advise(unittest.TestCase):
                   "advisory_cost_usd": azure_.cost["cost_usd"]}
         self.assertEqual(advisory.counted(record, worst), worst)
         self.assertEqual(advisory.counted(dict(record, advisory_asks=2, advisory_cost_usd=None), worst), 2 * worst)
+
+    def test_an_attempt_that_cannot_be_read_asks_nobody_and_writes_nothing(self):
         # An attempt that cannot be read is never taken for the first: no reader is asked, nothing is written, and the
         # pass counts the Run's worst case (the Factory Builder, 2026-11-28).
         for env in ({"ADVISORY_AZURE_KEY": "k" * 32}, dict(KEYED, GITHUB_RUN_ATTEMPT="0"),
