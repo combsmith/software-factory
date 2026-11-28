@@ -9,4 +9,7 @@ MUTANTS = [
     ('the pass asks for every advisory cost again', 'controller/__main__.py',
      'advised=records.advised(earlier), day=',
      'day=', ('tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it',)),
+    ("the pass keeps only the later record's advisory costs", 'controller/__main__.py',
+     'advised=records.advised(earlier), day=',
+     'advised=records.advised(earlier[-1:]), day=', ('tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it',)),
 ]

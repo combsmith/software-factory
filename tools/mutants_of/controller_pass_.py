@@ -18,6 +18,9 @@ MUTANTS = [
     ("the reviews admitted before in a pass count without the day's spend", 'controller/pass_.py',
      'advisory_.admits(runs + asking, whole, now,',
      'advisory_.admits(asking or runs, whole, now,', ('tests.test_controller.Record.test_an_admitted_review_is_told_beside_its_decision_whether_the_day_admits_its_readers',)),
+    ('an entry that admits no review counts against the day', 'controller/pass_.py',
+     '            asking.append({"intent": advisory_.REVIEWING, "started_at": now})\n',
+     '        asking.append({"intent": advisory_.REVIEWING, "started_at": now})\n', ('tests.test_controller.Record.test_an_admitted_review_is_told_beside_its_decision_whether_the_day_admits_its_readers',)),
     # Issue 932: a review told yes a pass before counts while no record lists its Run, and a pass in doubt tells none yes.
     ('a yes told with no Run is no doubt', 'controller/pass_.py',
      'any(type(run) is not str or seconds(',

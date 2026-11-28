@@ -425,6 +425,8 @@ class Record(unittest.TestCase):
             self.assertEqual(shared.errors(record, "pass"), [])
             return [(e["decision"]["outcome"], e.get("advisory_ask")) for e in record["pull_requests"]]
         self.assertEqual(asks(reads(pulls=[pr(1), pr(2), pr(3)])), [("admit", True), ("admit", True), ("admit", False)])
+        # An entry that admits no review before them counts nothing against the day.
+        self.assertEqual(asks(reads(pulls=[pr(3, state="closed"), pr(1), pr(2)])), [("nothing", None), ("admit", True), ("admit", True)])
         plain = passed(reads(pulls=[pr(1), pr(2), pr(3)]))["record"]["pull_requests"]
         with_it = passed(reads(pulls=[pr(1), pr(2), pr(3)]), cfg=told)["record"]["pull_requests"]
         self.assertEqual([e["decision"] for e in plain], [e["decision"] for e in with_it])
@@ -454,6 +456,7 @@ class Record(unittest.TestCase):
         from controller import reads as reads_
         self.assertEqual(reads_.run_records(advised_["records"]), (True, True))
         self.assertEqual(reads_.run_records(dict(advised_["records"], reads=advised_["records"]["reads"] + [{"read": "advice", "date": NOW, "age": 0}])), (False, False))
+        self.assertEqual(reads_.run_records(dict(advised_["records"], reads=advised_["records"]["reads"] + [{"read": "advice_cost", "date": "not-a-date", "age": 0}])), (False, False))
         # Only a review is told: an admission of another Intent holds no answer.
         from controller import advisory as advisory_module
         with unittest.mock.patch.object(advisory_module, "REVIEWING", "fix-findings"):
@@ -1982,7 +1985,8 @@ class Entry(unittest.TestCase):
         self.assertEqual(record["reconciled"]["owed"], [])
         self.assertEqual(shared.errors(record, "pass"), [])
         # The same pass asks the records port for the costs of the day its own clock names and what the pass records
-        # before it kept (decision 0224), and is handed the Harness's configuration, which holds the day's ceiling.
+        # before it kept (decision 0224), the older's too where the later lists no Run, and is handed the Harness's
+        # configuration, which holds the day's ceiling.
         asked = []
         real = entry.records.runs
 
@@ -1991,7 +1995,7 @@ class Entry(unittest.TestCase):
             return real(*a, **k)
         kept = dict(before, runs=[dict(before["runs"][0], advisory_asks=1, advisory_cost_usd=0.5)])
         with unittest.mock.patch.object(entry.facts_, "snapshot", snapshot), \
-                unittest.mock.patch.object(entry.passes, "records", lambda *a: [kept]), \
+                unittest.mock.patch.object(entry.passes, "records", lambda *a: [kept, dict(kept, runs=[])]), \
                 unittest.mock.patch.object(entry.seen_, "read", read), \
                 unittest.mock.patch.object(entry.seen_, "pushes", lambda *a, **k: ([], True)), \
                 unittest.mock.patch.object(entry.applied, "effects", lambda *a, **k: {"applied": [], "read": [], "at": {}, "whole": True}), \
@@ -2007,6 +2011,9 @@ class Entry(unittest.TestCase):
         for instead in ("missing.json", "../Makefile"):     # a Harness configuration not there, or no JSON, is none
             with unittest.mock.patch.object(configuration, "_json", lambda root, *p: real(root, *p[:-1], instead if p[-1] == "harness.json" else p[-1])):
                 self.assertIsNone(configuration.load(ROOT, "factory/v0.3.1", "controller")["harness"], instead)
+        # Nor is one nested past what the reader can follow.
+        with unittest.mock.patch.object(configuration, "_json", lambda root, *p: json.loads("[" * 100000 + "]" * 100000) if p[-1] == "harness.json" else real(root, *p)):
+            self.assertIsNone(configuration.load(ROOT, "factory/v0.3.1", "controller")["harness"])
 
     def test_each_pull_request_opened_for_an_issue_is_told_how_its_issue_stands(self):  # decision 0232
         # For each open pull request whose facts name the issue it was opened for, the entry reads that issue once,
