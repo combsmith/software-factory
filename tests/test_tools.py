@@ -10547,7 +10547,9 @@ else:
                     # No refusal and no token: a transfer that failed with no answer, or a gateway's 5xx (issue 1245).
                     ({"status": "000", "body": ""}, False, "GitHub may have minted one"),
                     ({"status": 503, "body": "<html>unavailable</html>"}, False, "GitHub may have minted one"),
-                    ({"status": 429, "body": '{"message": "API rate limit exceeded"}'}, False, "429")):
+                    ({"status": 429, "body": '{"message": "API rate limit exceeded"}'}, False, "429"),
+                    # No status curl wrote: the last line is the answer's, and is no status (issue 1245).
+                    ({"status": '{"message": "Server Error from GitHub"}', "body": ""}, False, "GitHub may have minted one")):
                 with self.subTest(script=name, plan=plan):
                     self.setUp()
                     argv = [a.replace("KEY", self.key_file) for a in args]
@@ -10563,6 +10565,15 @@ else:
                     self.assertNotIn("stopped while a token was being minted", told_)
                     self.assertEqual(self.revoked(calls), self.minted(calls) if revoked else [])
                     self.assertFalse((self.out / "requests.json").exists())
+                    # A token that may be live is noted in OUT as well, for a terminal that is gone, and nothing else is;
+                    # the note holds no word of GitHub's answer (issue 1245).
+                    live = told in ("the Maintainer must revoke it by hand", "GitHub may have minted one") and name in NOTING
+                    note = note_in(self, self.out, told_)
+                    self.assertEqual(note.count("\n"), 1 if live else 0, note)
+                    self.assertIn(told if live else "", note)
+                    self.assertNotIn("unavailable", note)
+                    self.assertNotIn("Server Error", note)
+                    self.assertEqual((self.out / "finish.log").exists(), live)
 
     def test_a_mint_answer_cut_inside_a_character_still_gives_up_its_token(self):
         # Issue 502 (Argon): a 201 answer cut inside a multibyte character, read where python decodes stdin strictly.
@@ -16133,8 +16144,31 @@ class SignalTraps(unittest.TestCase):
             finish = lines.index("finish() {")
             told = lines.index('elif [ -n "${minting:-}" ]; then', finish)
             said = [line for line in lines[told + 1:lines.index("}", finish)] if not line.startswith("#")][:2]
-            self.assertTrue(said[0].startswith('echo "%s: stopped while a token was being minted;' % script.name[:-3]), script.name)
-            self.assertTrue(said[1].endswith('suspends the App\'s installation." >&2'), script.name)
+            said_by = "live" if script.name in NOTING else "echo"
+            self.assertTrue(said[0].startswith('%s "%s: stopped while a token was being minted;' % (said_by, script.name[:-3])), script.name)
+            self.assertTrue(said[1].endswith('suspends the App\'s installation."' + ("" if script.name in NOTING else " >&2")), script.name)
+
+    def test_every_token_script_tells_a_token_that_may_be_live_in_out_too(self):  # issue 1245
+        # The terminal may be gone when a token is told that may be live: each sh script that mints writes the same words
+        # to OUT's finish.log as well, once OUT is its own, by one helper of the same words everywhere. No echo of its own
+        # says a token may be live, so none is told to the terminal alone; and a refusal with no token is noted only
+        # while the mark stands, so a 4xx, which cleared it, is not.
+        scripts = [ROOT / "tools" / name for name in sorted(NOTING)]
+        self.assertEqual(len(scripts), 7)
+        for script in scripts:
+            text = script.read_text()
+            self.assertEqual(text.count(NOTED), 1, script.name)
+            lines = text.splitlines()
+            made = lines.index('if ! mkdir -m 700 "$out"; then')
+            self.assertEqual(lines[made + 3:made + 5], ["fi", "noted=1"], script.name)
+            self.assertEqual([n for n, line in enumerate(lines) if line.strip() == "noted=1"], [made + 4], script.name)
+            joined = re.sub(r"\\\n\s*", " ", text)
+            for statement in re.findall(r"(?:^\s*|\|\| )echo [^\n]*", joined, re.M):
+                self.assertIsNone(re.search(r"may be live|may have minted|by hand|expires within an hour", statement),
+                                  (script.name, statement))
+            self.assertEqual(len(re.findall(r'(?:^\s*|\|\| )live "', joined, re.M)), 3, script.name)
+            refused = [line.strip() for line in lines if "note " in line and "$refused" in line]
+            self.assertEqual(refused, ['[ -z "$minting" ] || note "%s: $slug: $refused"' % script.name[:-3]], script.name)
 
     def test_every_trial_takes_nothing_of_the_maintainers_environment(self):  # issue 1215
         # A name a script holds a credential in, exported, reaches every child; SSLKEYLOGFILE has curl write the TLS keys
@@ -16200,6 +16234,39 @@ class SignalTraps(unittest.TestCase):
             first = next(n for n, line in enumerate(lines) if line.startswith("set -e"))
             then = [line for line in lines[first + 1:] if line.strip() and not line.lstrip().startswith("#")]
             self.assertEqual(then[:2], ["set +a", "unset CDPATH"], script.name)
+
+
+# The helpers each token trial tells a token that may be live with, on the terminal and in OUT's finish.log (issue 1245).
+NOTED = """noted=""
+note() { [ -z "$noted" ] || printf '%s\\n' "$*" >> "$out/finish.log" || true; }
+live() { note "$*"; echo "$*" >&2; }
+"""
+# The scripts that note so: the reader trial's family. P-39, P-4, P-8 and P-52 follow in part 3 of issue 1245.
+NOTING = ("trial_reader_reads.sh", "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh",
+          "trial_p80_branch_reads.sh", "trial_p58_edits.sh", "trial_p81_review_order.sh")
+
+
+def note_in(test: unittest.TestCase, out: pathlib.Path, told: str) -> str:
+    """OUT's finish.log, held to be a note of the script's own words (issue 1245), or "" when the run left none. Each line
+    is one the script told the terminal, whole or but for the words after it that bring GitHub's answer, so it holds no
+    answer of GitHub's and loses none of the advice. The tooling that reads what a trial leaves reads it as text and finds nothing in it: the
+    redaction gives it back byte for byte, removing nothing, and the fixture check finds no credential's shape. No fixture
+    is built from it: OUT's other files are what they would be without it."""
+    path = out / "finish.log"
+    if not path.exists():
+        return ""
+    note = path.read_text()
+    said = told.splitlines()
+    test.assertTrue(note.endswith("\n"), note)
+    for line in note.splitlines():
+        test.assertTrue(any(s in (line, line + "; GitHub answered, redacted:", line + "; nothing read. GitHub answered, redacted:",
+                                  line + "; nothing read") for s in said), (line, told))
+    clean = subprocess.run([sys.executable, "-m", "tools.redact_trial"], input=note, capture_output=True, text=True,
+                           cwd=str(ROOT), timeout=60)
+    test.assertEqual((clean.returncode, clean.stdout), (0, note), clean.stderr)
+    test.assertIn("redacted: 0 removed", clean.stderr)
+    test.assertFalse(check_trials.shaped(note), note)
+    return note
 
 
 # What gh reads from the environment to choose a configuration or a pager (issue 1300).
@@ -16529,6 +16596,10 @@ esac
         self.assertNotEqual(running.returncode, 0)
         self.assertIn("%s: stopped while a token was being minted; GitHub may have minted one, live for up to an hour; no one "
                       "holds it to revoke, so to end it sooner the Maintainer suspends the App's installation.\n" % self.SCRIPT.stem, err)
+        # And in OUT, where it outlasts a terminal that is gone (issue 1245).
+        self.assertEqual(note_in(self, self.out, err),
+                         "%s: stopped while a token was being minted; GitHub may have minted one, live for up to an hour; no one "
+                         "holds it to revoke, so to end it sooner the Maintainer suspends the App's installation.\n" % self.SCRIPT.stem)
         self.assertNotIn("gh" + "s_", out + err)
         self.assertNotIn("DELETE", [c["method"] for c in self.calls()])
 
@@ -16605,11 +16676,16 @@ esac
                 self.assertEqual(ran.returncode, 1, ran.stderr)
                 self.assertIn(said, ran.stderr)
                 self.assertNotIn("stopped while a token was being minted", ran.stderr)
+                note = note_in(self, self.out, ran.stderr)
                 if status == "401":
                     self.assertNotIn("may have minted one", ran.stderr)
+                    self.assertEqual(note, "")
                 else:
                     self.assertNotIn("was minted (status", ran.stderr)
                     self.assertIn("suspends the App's installation", ran.stderr)
+                    # Noted in OUT as well, for a terminal that is gone (issue 1245).
+                    self.assertEqual(note.count("\n"), 1, note)
+                    self.assertIn(said, note)
                 calls = self.calls()
                 self.assertEqual(len(calls), 1, calls)
                 self.assertTrue(calls[0]["url"].endswith("/access_tokens"), calls)
@@ -16620,6 +16696,7 @@ esac
         self.assertEqual(ran.returncode, 1)
         self.assertIn("no token narrowed to %s was minted (status 401)" % self.FIRST, ran.stderr)
         self.assertEqual([c for c in self.calls() if c["method"] == "GET"], [])
+        self.assertEqual(note_in(self, self.out, ran.stderr), "")      # a refusal minted nothing to note (issue 1245)
         (self.stand_in / "log").unlink()
         (self.stand_in / "mint.status").write_text("201\n")
         (self.stand_in / "revoke.status").write_text("500\n")
@@ -16627,8 +16704,9 @@ esac
         self.assertEqual(ran.returncode, 1)
         self.assertIn("returned 500, not 204. The token may be live", ran.stderr)
         self.assertNotIn(self.TOKEN, ran.stdout + ran.stderr)
-        # The exit trap tried once more to revoke the live token.
+        # The exit trap tried once more to revoke the live token, and each failure is noted in OUT too (issue 1245).
         self.assertEqual(len([c for c in self.calls() if c["method"] == "DELETE"]), 2)
+        self.assertEqual(note_in(self, self.out.parent / "again", ran.stderr).count("returned 500, not 204. The token may be live"), 2)
 
     def test_the_status_kept_is_the_last_heads(self):
         # Argon and the Claude reviews of the P-54 PR: a proxy's block comes first, 200, and GitHub's refusal after it is
