@@ -14485,6 +14485,66 @@ class Verify(unittest.TestCase):
                               cwd=str(ROOT), capture_output=True, text=True, timeout=60)
         self.assertEqual(done.stdout.strip(), "[]", done.stderr)
 
+    def test_the_checks_that_run_no_role_code_answer_first(self):  # issue 1377
+        # A check runs first when its whole import closure is on the protected list: today the three below.
+        self.assertEqual([e[0] for e in verify.phase_one(verify.CHECKS)], ["repo", "workflows", "writes"])
+        entry = ("repo", "check_repo", "run")
+        with tempfile.TemporaryDirectory() as where:
+            root = pathlib.Path(where)
+            for rel in ("config/hooks.json", "tools/__init__.py", "tools/check_repo.py", "tools/desk.py"):
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(ROOT / rel, root / rel)
+            self.assertEqual(verify.phase_one([entry], root), [entry])
+            source = (root / "tools/check_repo.py").read_text()
+            # An import of a file off the list, one by a worked-out name, or one relative to its package runs later.
+            for line in ("from tools import desk\n", "def f():\n    from tools import desk\n",
+                         "import importlib\n", "X = __import__\n", "from . import desk\n", "import pkgutil\n"):
+                with self.subTest(line=line):
+                    (root / "tools/check_repo.py").write_text(source + line)
+                    self.assertEqual(verify.phase_one([entry], root), [])
+            (root / "tools/check_repo.py").write_text(source)
+            (root / "config/hooks.json").write_text("{")      # a list that cannot be read protects nothing
+            self.assertEqual(verify.phase_one([entry], root), [])
+        # If one that runs first fails, none of the others is started; if all pass, the others run next.
+        for early_fails, asked in ((True, [["a"]]), (False, [["a"], ["b", "c"]])):
+            seen = []
+
+            def ran(checks):
+                seen.append([e[0] for e in checks])
+                answer = verify.ANSWER + json.dumps({"check": "a", "problems": ["x"] if early_fails else []})
+                return {e[0]: (0, answer.replace('"a"', json.dumps(e[0])), "") for e in checks}
+            with contextlib.redirect_stdout(io.StringIO()) as said:
+                result = verify.failed([("a", "x", "run"), ("b", "y", "run"), ("c", "z", "run")], ran,
+                                       lambda checks: checks[:1])
+            self.assertEqual((result, seen), (early_fails, asked))
+            self.assertEqual("role code" in said.getvalue(), early_fails)
+
+    def test_each_checks_process_keeps_its_bytecode_outside_the_tree_and_is_stopped_when_it_hangs(self):  # issue 1377
+        started = []
+
+        class Process:
+            returncode = -9
+
+            def __init__(self, argv, **kw):
+                started.append(argv)
+                self.calls = 0
+
+            def communicate(self, timeout=None):
+                self.calls += 1
+                if timeout is not None and self.calls == 1:
+                    raise subprocess.TimeoutExpired("verify", timeout)
+                return b"", b""
+
+            def kill(self):
+                pass
+        with mock.patch.object(verify.subprocess, "Popen", Process):
+            said = verify.answers([("one", "x", "run")])
+        argv = started[0]
+        self.assertEqual(argv[1:4], ["-I", "-S", "-X"])
+        cache = pathlib.Path(argv[4][len("pycache_prefix="):])
+        self.assertTrue(argv[4].startswith("pycache_prefix=") and ROOT not in cache.parents and not cache.exists(), argv)
+        self.assertIn("no answer within %d seconds" % verify.CHECK_SECONDS, said["one"][2])
+
     def test_the_legs_of_make_verify_run_every_test_once(self):
         # CI runs `make tests` in legs, after a step of `make checks` (docs/standards/workflows.md): each runs each
         # count-th test from its place, so that across the legs every test of the whole suite runs, the seeded
@@ -14635,7 +14695,7 @@ class Verify(unittest.TestCase):
             lifecycle = root / "tools" / "check_lifecycle.py"      # a check whose process ends at import
             lifecycle.write_text(lifecycle.read_text() + "\nimport os\nos._exit(0)\n")
             (root / "tests" / "test_ends.py").write_text("import os\nos._exit(0)\n")
-            for name in ("ast", "json"):        # unittest imports ast first on newer Pythons; json the checks alone
+            for name in ("ast", "json", "tools/json"):     # unittest imports ast first on newer Pythons; json the checks
                 (root / (name + ".py")).write_text('import pathlib\npathlib.Path(__file__).with_name("SHADOWED").'
                                                    'write_text("")\nimport os\nos._exit(0)\n')
             env = {k: v for k, v in os.environ.items()
@@ -14689,6 +14749,7 @@ class Verify(unittest.TestCase):
         done, root = self.poisoned()
         self.assertIn("%-22s FAILED" % "kernel purity", done.stdout)      # the checks ran, ast among their imports
         self.assertFalse((root / "SHADOWED").exists(), done.stdout[-2000:])
+        self.assertFalse((root / "tools" / "SHADOWED").exists(), done.stdout[-2000:])   # nor beside verify, in a check's
 
     def test_every_test_file_is_discovered(self):
         found = set()

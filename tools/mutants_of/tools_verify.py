@@ -11,6 +11,8 @@ LEG_TESTS = ("tests.test_tools.Verify.test_the_legs_of_make_verify_run_every_tes
 # Issue 1377: each check answers from a process of its own.
 NO_ANSWER = ("tests.test_tools.Verify.test_a_check_whose_process_gives_no_answer_fails_verify",)
 ALONE = ("tests.test_tools.Verify.test_a_check_that_ends_its_process_fails_alone",)
+FIRST = ("tests.test_tools.Verify.test_the_checks_that_run_no_role_code_answer_first",)
+BYTECODE = ("tests.test_tools.Verify.test_each_checks_process_keeps_its_bytecode_outside_the_tree_and_is_stopped_when_it_hangs",)
 
 TARGETS = ("tools/verify.py",)
 MUTANTS = [
@@ -25,6 +27,20 @@ MUTANTS = [
     ("the checks run in verify's own process", "tools/verify.py",
      '        problems = problems_of(name, said.get(name))\n',
      '        problems = check((name,) + next(e[1:] for e in CHECKS if e[0] == name))()\n', ALONE),
+    ("a check that runs Role code starts though one that runs none failed", "tools/verify.py",
+     '        print("%-22s %s" % ("role code", "not run, since a check that runs none failed"))\n        return True\n',
+     '        print("%-22s %s" % ("role code", "not run, since a check that runs none failed"))\n', FIRST),
+    ("a check whose closure leaves the protected list runs first", "tools/verify.py",
+     "        if tree is None:\n            return False\n", "        if tree is None:\n            continue\n", FIRST),
+    ("an import by a worked-out name is read as closed", "tools/verify.py",
+     " or isinstance(node, ast.Name) and node.id in DYNAMIC", "", FIRST),
+    ("a check's process is not isolated", "tools/verify.py",
+     '[sys.executable, "-I", "-S", "-X", "pycache_prefix=" + cache,', '[sys.executable, "-X", "pycache_prefix=" + cache,',
+     ISOLATED),
+    ("a check's bytecode is read from the tree", "tools/verify.py",
+     '"-S", "-X", "pycache_prefix=" + cache,', '"-S",', BYTECODE),
+    ("a check that hangs holds verify", "tools/verify.py",
+     "process.communicate(timeout=max(1.0, until - time.monotonic()))", "process.communicate()", BYTECODE),
     # Issue 1109: make checks prints the desk's size note, and nothing the note does fails it.
     ('a closed pipe ends make checks', 'tools/verify.py',
      '        try:\n            print("%-22s %s" % ("diff size", desk_note()), flush=True)\n        except BaseException:       # NOSONAR: a closed pipe too; the note never decides make checks\' answer\n            quiet(sys.stdout)\n', '        print("%-22s %s" % ("diff size", desk_note()), flush=True)\n', DESK_NOTE),
@@ -78,11 +94,11 @@ MUTANTS = [
      '    sys.exit(main(sys.argv[1:], os.environ))', '    sys.exit(main(sys.argv[1:]))', LEG_TESTS),
     # Issue 613, the preflight: each dispatch of a gate set asks a few development cases first, and a broken pipeline stops it.
     ('verify leaves the gate sets unchecked', 'tools/verify.py',
-     '    ("gate sets", check_gate_sets.run),\n',
+     '    ("gate sets", "check_gate_sets", "run"),\n',
      '', ('tests.test_tools.GateSets.test_a_gate_set_keeps_the_floored_criteria_and_natural_marks_main_has_held_for_its_cases',)),
     # Issue 909: six older ways past the Kernel's rules.
     ("the guards' purity is not among verify's checks", 'tools/verify.py',
-     '    ("guards purity", check_purity.guards),\n',
+     '    ("guards purity", "check_purity", "guards"),\n',
      '', ('tests.test_tools.Purity.test_the_guards_are_held_as_the_kernel_is_and_import_themselves_alone',)),
     # Issue 438: the hooks run the checks alone, and a run that did not finish is no failure.
     ("make checks runs the tests", "tools/verify.py",
