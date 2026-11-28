@@ -13901,7 +13901,7 @@ class Writes(unittest.TestCase):
                       "harness/foo/effects.py": "def approve(*a):\n    return None\n",
                       "harness/task__init__.py": "value = 1\n", "harness/task__init__/leaf.py": "value = 1\n",
                       "harness/held.py": "import harness.steps as github\nimport json.decoder\nfrom . import steps\nimport tools.hooks.shell\n"
-                                         "from harness import steps\nfrom tools.hooks import shell\nfrom tools import walk\n"})
+                                         "from harness import steps\nfrom tools.hooks import shell\nfrom tools import walk\nfrom tools.walk import not_there\n"})
         # This check's own table names the path, and nothing else in it may: not its code, nor another table.
         own = [(ROOT / "tools/check_writes.py").read_text() + "\n\nPACKAGE_PATHS = PACKAGE_PATHS + ('__path__',)\n"]
         own.append(own[-1] + "PACKAGE_PATHS = ('__path__',)\n")
@@ -13918,7 +13918,8 @@ class Writes(unittest.TestCase):
             self.assertTrue(caught(problems, "harness/%s.py:1 imports a module that no file of the repo is" % rel), (rel, problems))
         for rel in ("foo", "task__init__"):
             self.assertTrue(caught(problems, "harness/%s.py and the folder harness/%s/ are one name" % (rel, rel)), problems)
-        # A module the repo holds, one outside it, and a module or a name taken from a package, are read as before.
+        # A module the repo holds, one outside it, a module or a name taken from a package, and a name a module lacks,
+        # which Python never looks for as a module, are read as before.
         self.assertFalse([p for p in problems if p.startswith("harness/held.py")], problems)
 
     def test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one(self):

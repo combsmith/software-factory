@@ -671,6 +671,7 @@ def _unheld(mods: dict, mod: Module) -> list:
     return sorted({line for line, name in mod.imports if _package(mods, name.split(".")[0])
                    and not _package(mods, name)}
                   | {line for line, source, name in mod.froms if _package(mods, source)
+                     and (source not in mods or mods[source].rel.rpartition("/")[2] == "__init__.py")
                      and (_lookup(mods, source, name) or ("",))[0] == "unknown"})
 
 
