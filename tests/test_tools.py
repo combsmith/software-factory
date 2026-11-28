@@ -14556,6 +14556,8 @@ class Verify(unittest.TestCase):
                 shutil.copy(ROOT / rel, root / rel)
             (root / "kernel").mkdir()
             (root / "kernel/terms.py").write_text("")
+            (root / "harness").mkdir()
+            (root / "harness/eval.py").write_text("")
             self.assertEqual(verify.unclosed([entry, other], root), [])     # a check off the list is not asked
             source, helper = (root / "tools/check_repo.py").read_text(), (root / "tools/walk.py").read_text()
             for line, walk, why in (
@@ -14571,7 +14573,11 @@ class Verify(unittest.TestCase):
                                                   "relative to its package or of *, or runs text as code, so its "
                                                   "imports cannot be followed"),
                     # Over tools/ alone: an import of the Kernel is not followed here, and the check runs later.
-                    ("from kernel import terms\n", "", None)):
+                    ("from kernel import terms\n", "", None),
+                    # A module named as a builtin that runs text is no such builtin; the builtin is, under any name.
+                    ("from harness import eval\n", "", None),
+                    ("from builtins import exec as run\n", "", "tools/check_repo.py imports builtins.exec, so its "
+                                                              "imports cannot be followed")):
                 with self.subTest(line=line, walk=walk):
                     (root / "tools/check_repo.py").write_text(source + line)
                     (root / "tools/walk.py").write_text(helper + walk)
@@ -14613,11 +14619,13 @@ class Verify(unittest.TestCase):
             self.assertEqual(verify.unclosed([entry], root), [])
             # What Python does import is read, as it finds it: the package's __init__.py, which runs before the check,
             # and a package of the check's name, which is imported in place of its file (Carbon's read of part 2).
-            init = (root / "tools/__init__.py").read_text()
+            init, source = (root / "tools/__init__.py").read_text(), (root / "tools/check_repo.py").read_text()
             (root / "tools/__init__.py").write_text(init + "from tools import desk\n")
             (root / "tools/desk.py").write_text("")
+            (root / "tools/check_repo.py").write_text("import os\n")     # it imports nothing of tools/ itself
             self.assertEqual(verify.phase_one([entry], root), [])
             (root / "tools/__init__.py").write_text(init)
+            (root / "tools/check_repo.py").write_text(source)
             (root / "tools/desk").mkdir()
             (root / "tools/desk/__init__.py").write_text("")
             source = (root / "tools/check_repo.py").read_text()

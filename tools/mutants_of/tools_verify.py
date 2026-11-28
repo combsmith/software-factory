@@ -48,7 +48,7 @@ MUTANTS = [
     ("a standard module's name is looked up in the tree", "tools/verify.py",
      "                if not _standard(parts[0]):\n", "                if True:\n", FIRST),
     ("an import of a worked-out name under another name is read as closed", "tools/verify.py",
-     "                if any(part in DYNAMIC or part in RUNS_TEXT for part in parts):", "                if parts[0] in DYNAMIC:",
+     "                if any(part in DYNAMIC for part in parts) or parts[0] == \"builtins\" and parts[-1] in RUNS_TEXT:", "                if parts[0] in DYNAMIC:",
      FIRST),
     ("text run as code is read as closed", "tools/verify.py", " or node.id in RUNS_TEXT)", ")", FIRST),
     ("a protected check's closure is not checked before the first phase", "tools/verify.py",

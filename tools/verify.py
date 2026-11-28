@@ -188,7 +188,7 @@ def _leaves(start: str, held, root: pathlib.Path, within: str = ""):
                 else []
             for name in names:
                 parts = name.split(".")
-                if any(part in DYNAMIC or part in RUNS_TEXT for part in parts):     # an alias of one too
+                if any(part in DYNAMIC for part in parts) or parts[0] == "builtins" and parts[-1] in RUNS_TEXT:
                     return "%s imports %s, so its imports cannot be followed" % (rel, name)
                 if not _standard(parts[0]):
                     todo += [(found, rel) for found in _found(name, root)]
