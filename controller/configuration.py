@@ -22,7 +22,7 @@ def _readable(root: pathlib.Path, *parts):
     """The file as JSON, or None where it cannot be read: what reads it then reads none (`controller/credentials.py`)."""
     try:
         return _json(root, *parts)
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return None
 
 
@@ -59,12 +59,13 @@ def load(root: pathlib.Path, release: str, app: str) -> dict:
     """`kernel`, `release`, `controller`, `feed` and `lifecycles`, as `pass_.run` takes them, and `app` and `needs`,
     the App the reads go through and the needs it is granted under, `apps`, every App by its Role's name, and
     `authority`, which gives each Lens the categories its Findings may name (`adapters/applied.py`), and `credentials`,
-    each stored credential's dates, or None where they cannot be read, which raises their alert (issue 305)."""
+    each stored credential's dates, or None where they cannot be read, which raises their alert (issue 305), and
+    `harness`, the Harness's configuration, or None where it cannot be read, which tells every review no (decision 0224)."""
     apps = _json(root, "config", "apps.json")
     return {"kernel": kernel(root), "release": release, "controller": _json(root, "config", "controller.json"),
             "feed": _json(root, "config", "feed.json"),
             "lifecycles": {"pull_request": _json(root, "lifecycle", "pull_request.json"),
                            "issue": _json(root, "lifecycle", "issue.json")},
             "app": apps["apps"][app], "needs": apps["needs"], "apps": apps["apps"],
-            "authority": _json(root, "config", "authority.json"),
+            "authority": _json(root, "config", "authority.json"), "harness": _readable(root, "config", "harness.json"),
             "credentials": _readable(root, "config", "credential-ages.json")}
