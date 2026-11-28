@@ -1,4 +1,4 @@
-# 0000. A called workflow passes where each caller is gated or released
+# 1391. A called workflow passes where each caller is gated or released
 
 Status: accepted. 2026-11-28, the Solution Architect's ruling (P) and option A on the poller; issue 838. Narrows decision 1390's row "A workflow that `workflow_call` starts" and its Limits, and decision 1378's row "Every other event refuses it".
 
