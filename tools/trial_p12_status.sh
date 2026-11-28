@@ -26,6 +26,7 @@
 # redacted response (clean-N), what was asked (requests.json) and when the run started (ran_at). A call GitHub refuses
 # is kept with its status, but for the first create, whose run every later call needs. A session then builds the fixture
 # from OUT alone, each long string kept as its length.
+# OUT may also hold finish.log, the script's own words alone on a token that may be live (issue 1338).
 #
 # A mint that curl fails or GitHub refuses, or a revocation that does not return 204, stops the script with a
 # non-zero exit; a refused mint shows its status and GitHub's answer, redacted, and a token that may be live is told
@@ -135,7 +136,9 @@ revoke() {
         -H "$ACCEPT" -H "$VERSION" "$API/installation/token"
 }
 
+failed=""  # a revocation noted as failed, for a later one that succeeds to undo (issue 1338)
 unrevoked() {
+    failed=1
     live "trial_p12_status: $1: its revocation returned $2, not 204. The token may be live for up to an hour;" \
         "the Maintainer must revoke it by hand."
 }
@@ -160,8 +163,13 @@ finish() {
     fi
     if [ -n "$token" ]; then
         last=$(revoke || true)
-        echo "trial_p12_status: stopped with a token live; revoking it returned $last" >&2
-        [ "$last" = 204 ] || unrevoked "the token live when the script stopped" "$last"
+        if [ "$last" = 204 ] && [ -n "$failed" ]; then
+            # A failure noted before is undone in the note too, so OUT asks for no revocation made since.
+            live "trial_p12_status: stopped with a token live; revoking it returned 204, so it is revoked after all."
+        else
+            echo "trial_p12_status: stopped with a token live; revoking it returned $last" >&2
+            [ "$last" = 204 ] || unrevoked "the token live when the script stopped" "$last"
+        fi
         token=""
     elif [ -n "${minting:-}" ]; then
         # Stopped while the mint was asked: its answer never came back here, and GitHub may have minted one (issue 1215).
@@ -288,7 +296,8 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
             [ "$revoked" = 204 ] || unrevoked "a token, narrowed to $1, whose answer was cut short" "$revoked"
         else
             live "trial_p12_status: $slug: GitHub minted a token, narrowed to $1, and its answer was cut short; the" \
-                "token may be live for up to an hour, and the Maintainer must revoke it by hand."
+                "token may be live for up to an hour; no one holds it to revoke, so to end it sooner the" \
+                "Maintainer suspends the App's installation."
         fi
         minting=""
         echo "trial_p12_status: $slug: nothing read, and nothing of the answer kept." >&2

@@ -9870,7 +9870,8 @@ path=${url#https://api.github.com/}
 case "$method $path" in
   "GET repos/"*"/installation") body='{"id": 7, "app_id": 5363178}'; status=200 ;;
   "POST app/installations/7/access_tokens") cp "${data#@}" "$here/mint.request"; body=$(cat "$here/mint.body"); status=$(cat "$here/mint.status") ;;
-  "DELETE installation/token") body=""; status=$(cat "$here/revoke.status") ;;
+  "DELETE installation/token") body=""; n=$(grep -c '^DELETE' "$here/calls"); status=$(sed -n "${n}p" "$here/revoke.status")
+    [ -n "$status" ] || status=$(tail -n 1 "$here/revoke.status") ;;
   *) pair=$(python3 -c 'import json,sys; a=json.load(open(sys.argv[1])); k=sys.argv[2]; print(a[k][0] + " " + a[k][1] if k in a else "500 {}")' "$here/answers.json" "$method $path"); status=${pair%% *}; body=${pair#* } ;;
 esac
 if [ -n "$out" ]; then printf '%s' "$body" > "$out"
@@ -10003,6 +10004,17 @@ exit 0
         self.assertIn("revoke it by hand", done.stderr)
         self.assertNotIn(self.TOKEN, done.stdout + done.stderr)
         self.assertEqual(note_in(self, folder / "out", done.stderr).count("returned 500, not 204. The token may be live"), 2)
+
+    def test_a_revocation_that_fails_and_then_succeeds_is_noted_as_revoked(self):  # issue 1338
+        # The run's revocation answered 500 and the exit trap's second try 204: OUT's note ends by saying the token is
+        # revoked, so it asks the Maintainer for no revocation made since.
+        folder = self.stand_in(revoke_status="500\n204\n")
+        done = self.run_script(folder, "x/canary", "x/other")
+        self.assertEqual(done.returncode, 1)
+        note = note_in(self, folder / "out", done.stderr).splitlines()
+        self.assertEqual(len(note), 2, note)
+        self.assertIn("returned 500, not 204. The token may be live", note[0])
+        self.assertEqual(note[1], "trial_p4_narrow: stopped with a token live; revoking it returned 204, so it is revoked after all.")
 
     def test_a_reads_status_is_the_answer_whatever_it_is(self):
         # A read of the other repo answered 200 is not refused by the script: the fixture's verdict judges it.
@@ -10403,13 +10415,19 @@ if url.endswith("/access_tokens"):
     sys.stdout.buffer.write(body[:-1] if plan["mint"].get("cut") else body)     # cut: inside its last character
     sys.stdout.buffer.write(("\n%s" % plan["mint"]["status"]).encode())     # "000": curl's word for no answer
 elif method == "DELETE":
-    sys.stdout.write(str(plan.get("revoke", 204)))
+    revoke = plan.get("revoke", 204)
+    if isinstance(revoke, list):     # each revocation in turn (issue 1338)
+        revoke = revoke[[json.loads(line)["method"] for line in (here / "calls").read_text().splitlines()].count("DELETE") - 1]
+    sys.stdout.write(str(revoke))
 else:
     if plan.get("hang"):
         (here / "reading").write_text("")
         time.sleep(60)
-    sys.stdout.write("HTTP/2 200\r\ncontent-type: application/json\r\n\r\n"
-                     '{"total_count": 1, "repositories": [{"full_name": "combsmith/x", "private": true}]}')
+    sys.stdout.write("HTTP/2 200\r\ncontent-type: application/json\r\n\r\n")
+    if url.endswith("/graphql") and "graphql" in plan:     # P-8's reads, each answered the same (issue 1338)
+        sys.stdout.write(json.dumps(plan["graphql"]))
+    else:
+        sys.stdout.write('{"total_count": 1, "repositories": [{"full_name": "combsmith/x", "private": true}]}')
 '''
     OPENSSL = r'''#!/usr/bin/env python3
 import base64, sys
@@ -10537,10 +10555,11 @@ else:
                 self.assertNotIn("ghs_", said + told)
                 self.assertEqual(self.revoked(calls), self.minted(calls) if found else [])
                 if not found:
-                    self.assertIn("the token may be live for up to an hour, and the Maintainer must revoke it by hand", told)
+                    self.assertIn("the token may be live for up to an hour; %s" % SUSPEND, told)
+                    self.assertNotIn("by hand", told)
                 # Nothing of the answer is written: only the note of a token that may be live (issue 1245).
                 self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["ran_at"] if found else ["finish.log", "ran_at"])
-                self.assertEqual(note_in(self, self.out, told).count("must revoke it by hand"), 0 if found else 1)
+                self.assertEqual(note_in(self, self.out, told).count(SUSPEND), 0 if found else 1)
 
     def test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused(self):
         # The other trials that mint with curl stop at the mint as this one does (issue 406). P-4 is not among them: it
@@ -10550,7 +10569,7 @@ else:
         for name, args in scripts.items():
             for plan, revoked, told in (
                     ({"status": 201, "body": '{"token": "TOKEN", "expires_at": "2026-10'}, True, "nothing of the answer"),
-                    ({"status": 201, "body": "<html>gateway</html>"}, False, "the Maintainer must revoke it by hand"),
+                    ({"status": 201, "body": "<html>gateway</html>"}, False, SUSPEND),
                     ({"status": 403, "body": '{"message": "Resource not accessible by integration"}'}, False, "403"),
                     ({"status": 502, "body": '{"token": "TOKEN", "expires_at": "2026-10'}, True, "held a token all the same"),
                     ({"status": 422, "body": self.MINTED}, True, "held a token all the same"),
@@ -10571,6 +10590,7 @@ else:
                     self.assertNotIn("ermission denied", told_)
                     self.assertNotIn("ghs_", said + told_)
                     self.assertIn(told, told_)
+                    self.assertNotIn("by hand", told_)
                     if plan["status"] in (403, 429):
                         self.assertNotIn("may have minted one", told_)
                     # Each is told where it is handled, so the clean-up never adds a stop mid-mint (issue 1245).
@@ -10579,7 +10599,7 @@ else:
                     self.assertFalse((self.out / "requests.json").exists())
                     # A token that may be live is noted in OUT as well, for a terminal that is gone, and nothing else is;
                     # the note holds no word of GitHub's answer (issue 1245).
-                    live = told in ("the Maintainer must revoke it by hand", "GitHub may have minted one")
+                    live = told in (SUSPEND, "GitHub may have minted one")
                     note = note_in(self, self.out, told_)
                     self.assertEqual(note.count("\n"), 1 if live else 0, note)
                     self.assertIn(told if live else "", note)
@@ -10628,6 +10648,24 @@ else:
         # Each failed revocation is noted in OUT too, and nothing of a reach is kept (issue 1245).
         self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["finish.log", "ran_at"])
         self.assertEqual(note_in(self, self.out, told).count("returned 500, not 204. The token may be live"), 2)
+
+    def test_a_revocation_that_fails_and_then_succeeds_is_noted_as_revoked(self):  # issue 1338
+        # The run's revocation answered 500 and the exit trap's second try 204: OUT's note ends by saying the token is
+        # revoked, so it asks the Maintainer for no revocation made since. The family of P-54 runs it in ReaderTrialScript.
+        for name, args in (("trial_p39_reach.sh", None), ("trial_p8_cost.sh", ("KEY", "x/canary"))):
+            with self.subTest(script=name):
+                self.setUp()
+                argv = [a.replace("KEY", self.key_file) for a in args] if args else None
+                code, said, told, calls = self.run_script({"mint": {"status": 201, "body": self.MINTED}, "revoke": [500, 204],
+                                                           "graphql": {"data": {"r0": {"pullRequests": {"totalCount": 1},
+                                                                                       "issues": {"totalCount": 1}}}}},
+                                                          script=ROOT / "tools" / name, args=argv)
+                self.assertEqual(code, 1, told)
+                self.assertEqual(len(self.revoked(calls)), 2, told)
+                note = note_in(self, self.out, told).splitlines()
+                self.assertEqual(len(note), 2, note)
+                self.assertIn("returned 500, not 204. The token may be live", note[0])
+                self.assertEqual(note[1], "%s: stopped with a token live; revoking it returned 204, so it is revoked after all." % name[:-3])
 
     # A stand-in python3 that holds the first read of an answer with a token in it, for a stop to arrive there.
     PYTHON = """#!%s
@@ -16373,8 +16411,7 @@ class SignalTraps(unittest.TestCase):
             for statement in re.findall(r"(?:^\s*|\|\| )echo [^\n]*", joined, re.M):
                 self.assertIsNone(re.search(r"may be live|may have minted|by hand|expires within an hour", statement),
                                   (script.name, statement))
-            self.assertEqual(len(re.findall(r'(?:^\s*|\|\| )live "', joined, re.M)), 4 if script.name == "trial_p52_pause.sh" else 3,
-                             script.name)
+            self.assertEqual(len(re.findall(r'(?:^\s*|\|\| )live "', joined, re.M)), 4, script.name)
             refused = [n for n, line in enumerate(lines) if "note " in line and "$refused" in line]
             self.assertEqual([lines[n].strip() for n in refused], [] if script.name == "trial_p4_narrow.sh"
                              else ['[ -z "$minting" ] || note "%s: $slug: $refused"' % script.name[:-3]], script.name)
@@ -16464,6 +16501,9 @@ class SignalTraps(unittest.TestCase):
             then = [line for line in lines[first + 1:] if line.strip() and not line.lstrip().startswith("#")]
             self.assertEqual(then[:2], ["set +a", "unset CDPATH"], script.name)
 
+
+# What a token trial tells of a token no one holds: a stop mid-mint, and a 201 cut before its token (issue 1338).
+SUSPEND = "no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation"
 
 # The helpers each token trial tells a token that may be live with, on the terminal and in OUT's finish.log (issue 1245).
 NOTED = """noted=""
@@ -16567,7 +16607,10 @@ if method == "DELETE":
         told, held = (int(n) for n in open(os.path.join(here, "slow.revoke")).read().split())
         os.write(told, b"r")
         os.read(held, 1)
-    sys.stdout.write(open(os.path.join(here, "revoke.status")).read().strip())
+    # Each line answers one revocation in turn, the last every one after (issue 1338).
+    statuses = open(os.path.join(here, "revoke.status")).read().split()
+    made = [json.loads(line)["method"] for line in open(os.path.join(here, "log"))].count("DELETE")
+    sys.stdout.write(statuses[min(made, len(statuses)) - 1])
     sys.exit(0)
 roles = json.load(open(os.path.join(here, "roles")))
 # A read that curl says failed, with a status or with nothing at all, and one curl answered whose status line cannot be
@@ -16939,6 +16982,18 @@ esac
         # The exit trap tried once more to revoke the live token, and each failure is noted in OUT too (issue 1245).
         self.assertEqual(len([c for c in self.calls() if c["method"] == "DELETE"]), 2)
         self.assertEqual(note_in(self, self.out.parent / "again", ran.stderr).count("returned 500, not 204. The token may be live"), 2)
+
+    def test_a_revocation_that_fails_and_then_succeeds_is_noted_as_revoked(self):  # issue 1338
+        # The run's revocation answered 500 and the exit trap's second try 204: OUT's note ends by saying the token is
+        # revoked, so it asks the Maintainer for no revocation made since.
+        (self.stand_in / "revoke.status").write_text("500\n204\n")
+        ran = self.run_script()
+        self.assertEqual(ran.returncode, 1)
+        self.assertEqual(len([c for c in self.calls() if c["method"] == "DELETE"]), 2)
+        note = note_in(self, self.out, ran.stderr).splitlines()
+        self.assertEqual(len(note), 2, note)
+        self.assertIn("returned 500, not 204. The token may be live", note[0])
+        self.assertEqual(note[1], "%s: stopped with a token live; revoking it returned 204, so it is revoked after all." % self.SCRIPT.stem)
 
     def test_the_status_kept_is_the_last_heads(self):
         # Argon and the Claude reviews of the P-54 PR: a proxy's block comes first, 200, and GitHub's refusal after it is

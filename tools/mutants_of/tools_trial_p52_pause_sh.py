@@ -161,4 +161,7 @@ MUTANTS = [
      'case "$minted_status" in [0-9][0-9][0-9]) ;;', 'case "$minted_status" in [0-9][0-9][0-9]*) ;;', (MINT_REFUSED,)),
     ("P-52 tells the terminal before it notes", "tools/trial_p52_pause.sh", 'live() { note "$*"; echo "$*" >&2; }',
      'live() { echo "$*" >&2; note "$*"; }', (NOTED,)),
+    # Issue 1338: a 201 cut before its token is told the advice that works.
+    ("P-52 tells a 201 cut before its token to revoke it by hand", "tools/trial_p52_pause.sh",
+     "token may be live for up to an hour; no one holds it to revoke, so to end it sooner", "token may be live for up to an hour, and the Maintainer must revoke it by hand; to end it sooner", (MINT_REFUSED,)),
 ]
