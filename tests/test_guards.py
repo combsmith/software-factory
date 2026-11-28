@@ -1820,6 +1820,14 @@ class Push(unittest.TestCase):
             for steps in range(len(landing)):
                 self.assertIsNone(push.landed(self.upto(told, steps)), (told["head"], steps))
         self.assertIsNone(push.landed(self.upto(PUSH, 0)))
+        # Whatever commit was made and branch told, those are given; and reading them changes nothing of the state.
+        done = self.upto(PUSH, len(self.landing()))
+        other = dict(done, commit="0123456789abcdef" * 2 + "01234567",
+                     push=dict(done["push"], branch="factory-work/issue-1-10"))
+        kept = repr(other)
+        self.assertEqual(push.landed(other), ("0123456789abcdef" * 2 + "01234567", "factory-work/issue-1-10"))
+        self.assertEqual(push.landed(other), ("0123456789abcdef" * 2 + "01234567", "factory-work/issue-1-10"))
+        self.assertEqual(repr(other), kept)
         # A state in no shape seen gives lands nothing, a landing said in another word or with no commit among them.
         done = self.upto(PUSH, len(self.landing()))
         reading, _ = push.began(READING)
