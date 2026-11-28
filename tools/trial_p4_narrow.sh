@@ -114,7 +114,7 @@ drop() { [ -n "$keep" ] || rm -f -- "$@"; }
 unset SSLKEYLOGFILE token jwt signature minted minting
 # Nor does curl go through a proxy, or trust a certificate authority or TLS library, that the shell names, nor does
 # openssl, which signs with the App's key, load a configuration or a module the shell names (issue 1288).
-unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR CURL_SSL_BACKEND OPENSSL_CONF OPENSSL_ENGINES OPENSSL_MODULES
+unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR CURL_SSL_BACKEND OPENSSL_CONF OPENSSL_CONF_INCLUDE OPENSSL_ENGINES OPENSSL_MODULES
 token=""
 
 revoke() {
@@ -232,7 +232,7 @@ minting=1
 minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- \
     -H "$ACCEPT" -H "$VERSION" -H "$JSON" --data-binary "@$scratch/mint.json" \
     "$API/app/installations/$installation/access_tokens" || true)
-jwt="" minting=""
+jwt=""
 rm -f "$scratch/mint.json"
 minted_status=$(printf '%s\n' "$minted" | tail -n 1)
 token=$(printf '%s\n' "$minted" | sed '$d' | tr -d '\r' | python3 -I -c '
@@ -246,7 +246,7 @@ token = data.pop("token", "") if isinstance(data, dict) else ""
 with open(sys.argv[1], "w") as kept:
     kept.write("HTTP/2 %s\n\n%s\n" % (sys.argv[2], json.dumps(data) if data is not None else "(an answer that is not JSON, not kept)"))
 sys.stdout.write(token)' "$scratch/raw-2" "${minted_status:-000}" 2>/dev/null || true)
-minted=""
+minted="" minting=""
 (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-2" > "$out/clean-2") 2> "$out/redacted-2"
 drop "$scratch/raw-2"
 asked="$asked{\"n\": 2, \"call\": \"POST /app/installations/$installation/access_tokens\", \"body\": {\"repositories\": [\"${repo#*/}\"], \"permissions\": {\"contents\": \"read\"}}, \"status\": \"${minted_status:-none}\"},"

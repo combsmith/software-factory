@@ -580,6 +580,10 @@
       "description": "Whether the port cut the timeline of an issue the pull request closes, or that its branch binds it to, at its bound of ten pages, beside complete.acceptance false. It stays so however long the pull request waits, and anyone can comment: the Kernel defers it on its own code and calls a person (decision 0234). Not required: the port gives it in every snapshot, and facts made before it, an eval set's among them, read as not cut, which the read short defers all the same",
       "type": "boolean"
     },
+    "closes_another_issue": {
+      "description": "Whether the closing references of a pull request bound to an issue name another issue: one of another number or repo, or a count above one, beside complete.acceptance false. Its author's description names it, and no pass mends that: the Kernel defers it on its own code and calls a person (issue 1185). Not required, as acceptance_bounded is not: facts made before it read as none named, which the read short defers all the same",
+      "type": "boolean"
+    },
     "timeline_bounded": {
       "description": "Whether the port cut the pull request's own timeline, or its reviews, at its bound of ten pages, beside complete.timeline or complete.reviews false. It stays so however long the pull request waits, and anyone can comment or review: the Kernel defers it on its own code, names the reads not whole, or both where each claims to be, and calls a person (decisions 0234 and 1150). Not required, as acceptance_bounded is not: the port gives it in every snapshot, and facts made before it read as not cut, which the read short defers all the same; a value that is no truth value is a gap in those reads",
       "type": "boolean"

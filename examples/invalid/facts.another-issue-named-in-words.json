@@ -1,0 +1,101 @@
+{
+  "schema": "facts/1",
+  "item": {
+    "repo": "combsmith/software-factory",
+    "type": "pull_request",
+    "number": 42
+  },
+  "state": "open",
+  "is_draft": false,
+  "class": "maintainer",
+  "author": "don-petry",
+  "last_pusher": "don-petry",
+  "targets_protected": true,
+  "mergeable": true,
+  "content_id": "sha256:5d0c",
+  "diff": {
+    "files": 0,
+    "lines": 120,
+    "truncated": false,
+    "characters": 4800
+  },
+  "changed_paths": [],
+  "label_events": [],
+  "last_push_at": "2026-10-11T12:00:00Z",
+  "last_reopened_at": null,
+  "description_edited_at": null,
+  "expired_reviews": [],
+  "last_writer_action_at": "2026-10-11T12:00:00Z",
+  "reviews": [],
+  "threads": [],
+  "checks": [],
+  "queue": false,
+  "acts_since_writer": 2,
+  "acceptance": {
+    "approved": {
+      "digest": "sha256:c0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0de",
+      "commit": "1a2b3c4",
+      "by": {
+        "kind": "human",
+        "name": "a-colleague",
+        "can_write": true
+      },
+      "criteria": [
+        {
+          "id": "AC-1",
+          "kind": "test"
+        },
+        {
+          "id": "AC-2",
+          "kind": "test"
+        }
+      ]
+    },
+    "head": "sha256:c0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0dec0de",
+    "results": [
+      {
+        "criterion": "AC-1",
+        "content_id": "sha256:4b1a",
+        "result": "failing",
+        "check": {
+          "name": "verify",
+          "app_id": 15368,
+          "workflow": ".github/workflows/verify.yml"
+        }
+      },
+      {
+        "criterion": "AC-1",
+        "content_id": "sha256:5d0c",
+        "result": "passing",
+        "check": {
+          "name": "verify",
+          "app_id": 15368,
+          "workflow": ".github/workflows/verify.yml"
+        }
+      },
+      {
+        "criterion": "AC-2",
+        "content_id": "sha256:5d0c",
+        "result": "passing",
+        "check": {
+          "name": "verify",
+          "app_id": 15368,
+          "workflow": ".github/workflows/verify.yml"
+        }
+      }
+    ]
+  },
+  "closes_another_issue": "yes",
+  "timeline_bounded": false,
+  "complete": {
+    "acceptance": true,
+    "reviews": true,
+    "threads": true,
+    "checks": true,
+    "diff": true,
+    "changed_paths": true,
+    "runs": true,
+    "timeline": true
+  },
+  "read_at": "2026-10-11T12:20:00Z"
+}

@@ -33,7 +33,6 @@ from __future__ import annotations
 import json
 import os
 import pathlib
-import re
 import subprocess
 import sys
 
@@ -113,8 +112,18 @@ def limits(root: pathlib.Path) -> tuple:
 
 def counted(diff: str, shortstat: str) -> tuple:
     """(about the characters the Factory counts `diff` at, the lines it adds and removes, from git's `shortstat`)."""
-    lines = sum(int(n) for n in re.findall(r"(\d+) (?:insertion|deletion)", shortstat))
-    return task.carried(task.numbered(pull.canonical(diff))), lines
+    return task.carried(task.numbered(pull.canonical(diff))), _lines(shortstat)
+
+
+def _lines(shortstat: str) -> int:
+    """The lines git's `shortstat` adds and removes, `N insertions(+)` and `N deletions(-)`, read by its commas and
+    words, with no pattern that could backtrack (Sonar)."""
+    lines = 0
+    for part in shortstat.split(","):
+        words = part.split()
+        if len(words) == 2 and words[0].isdecimal() and words[1].startswith(("insertion", "deletion")):
+            lines += int(words[0])
+    return lines
 
 
 def _partial(root: pathlib.Path) -> bool:
