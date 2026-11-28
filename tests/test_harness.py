@@ -2041,7 +2041,7 @@ class PushLoop(unittest.TestCase):
             self.sent.append(req)
             return self.answers.pop(0)
 
-    def walk(self, push: dict, before: list, write: dict, after: list):
+    def through(self, push: dict, before: list, write: dict, after: list):
         """`push` begun and walked through `step`, each of `before` sent by the push's own sender on a replay of them
         and of `after`, then `write` landed by `land`: what `land` gives, and what was left unasked."""
         from adapters import github, push as port
@@ -2059,13 +2059,13 @@ class PushLoop(unittest.TestCase):
         from guards import push as guard
         # Push A, the branch read first, as the guard holds it: absent, then made at C1 and read there, landed.
         reads_a = [PUSH_A[i] for i in (4, 0, 1, 5, 6, 7, 8, 9, 10)]
-        (state, why), replay = self.walk(push_a(), reads_a, PUSH_A[11], PUSH_A[13:14])
+        (state, why), replay = self.through(push_a(), reads_a, PUSH_A[11], PUSH_A[13:14])
         self.assertIsNone(why)
         self.assertEqual(guard.landed(state), (PUSH_A[10]["response"]["body"]["sha"], PUSH_BRANCH))
         self.assertEqual(replay._left, [])
         # Push B, on the branch at C1: moved forward to C2, read there, landed.
         reads_b = [PUSH_A[13], PUSH_A[10], PUSH_A[8]] + PUSH_B[0:5]
-        (state, why), replay = self.walk(push_b(), reads_b, PUSH_B[5], PUSH_B[9:10])
+        (state, why), replay = self.through(push_b(), reads_b, PUSH_B[5], PUSH_B[9:10])
         self.assertIsNone(why)
         self.assertEqual(guard.landed(state), (PUSH_B[4]["response"]["body"]["sha"], PUSH_BRANCH))
         self.assertEqual(replay._left, [])
@@ -2077,19 +2077,19 @@ class PushLoop(unittest.TestCase):
         refused = dict(PUSH_B[5], response=PUSH_B[6]["response"])
         self.assertEqual(refused["response"]["status"], 422)
         # A 422, and the branch then read where the Decision admitted none: someone else made it, moved. It is read once.
-        (state, why), replay = self.walk(push_a(), reads_a, PUSH_A[12], PUSH_A[13:14] * 2)
+        (state, why), replay = self.through(push_a(), reads_a, PUSH_A[12], PUSH_A[13:14] * 2)
         self.assertEqual((state, why), (None, guard.BRANCH_MOVED))
         self.assertEqual(len(replay._left), 1)
         # A 422, and the branch then read where the Decision admitted it: refused by a rule, a person's.
-        (state, why), replay = self.walk(push_b(), reads_b, refused, PUSH_A[13:14])
+        (state, why), replay = self.through(push_b(), reads_b, refused, PUSH_A[13:14])
         self.assertEqual((state, why), (None, guard.ANSWER_REFUSED))
         self.assertEqual(replay._left, [])
         # A 422, and the read after it unanswered: the port's, never overtaken.
-        (state, why), _ = self.walk(push_b(), reads_b, refused, [])
+        (state, why), _ = self.through(push_b(), reads_b, refused, [])
         self.assertEqual((state, why), (None, guard.UNANSWERED))
         # A write answered as GitHub's limit is the write's own code, and nothing is read after it.
         limited = dict(PUSH_B[5], response={"status": 429, "headers": {}, "body": {"message": "API rate limit exceeded"}})
-        (state, why), replay = self.walk(push_b(), reads_b, limited, PUSH_A[13:14])
+        (state, why), replay = self.through(push_b(), reads_b, limited, PUSH_A[13:14])
         self.assertEqual((state, why), (None, guard.RATE_LIMITED))
         self.assertEqual(len(replay._left), 1)
 
