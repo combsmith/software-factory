@@ -9819,7 +9819,7 @@ class Trials(unittest.TestCase):
 
         # `make tests` prints them, as does the tests' process `make verify` starts; it runs no check.
         real = (verify.failed, verify.unittest.TextTestRunner)
-        verify.failed, verify.unittest.TextTestRunner = (lambda checks: self.fail("the checks ran")), Runner
+        verify.failed, verify.unittest.TextTestRunner = (lambda checks, *_: self.fail("the checks ran")), Runner
         try:
             with contextlib.redirect_stdout(io.StringIO()) as said:
                 self.assertEqual(verify.main(["--tests"]), 0)
@@ -14467,8 +14467,10 @@ class Verify(unittest.TestCase):
     def test_a_check_that_finds_a_problem_fails_verify(self):
         answer = lambda name, problems: (0, "a line\n%s%s\n" % (verify.ANSWER, json.dumps({"check": name, "problems": problems})), "")
         with contextlib.redirect_stdout(io.StringIO()) as said:
-            self.assertTrue(verify.failed([("always", "x", "run")], lambda _: {"always": answer("always", ["a problem"])}))
-            self.assertFalse(verify.failed([("never", "x", "run")], lambda _: {"never": answer("never", [])}))
+            self.assertTrue(verify.failed([("always", "x", "run")], lambda _: {"always": answer("always", ["a problem"])},
+                                          lambda checks: checks))
+            self.assertFalse(verify.failed([("never", "x", "run")], lambda _: {"never": answer("never", [])},
+                                           lambda checks: checks))
         self.assertIn("a problem", said.getvalue())
 
     def test_a_check_whose_process_gives_no_answer_fails_verify(self):  # issue 1377
@@ -14479,14 +14481,15 @@ class Verify(unittest.TestCase):
         for answer in (None, (1, whole + "\n", ""), (0, "", ""), (0, whole + "\nmore\n", ""), (-9, whole, ""),
                        (0, whole.replace('"one"', '"two"'), ""), (0, whole.replace("[]", '"none"'), ""),
                        (0, whole.replace("[]", "[1]"), ""), (0, whole[:-1], ""), (0, whole.replace("}", ', "x": 1}'), ""),
-                       (0, whole.replace(verify.ANSWER, "verify: "), "")):
+                       (0, whole.replace(verify.ANSWER, "verify: "), ""), (0, verify.ANSWER + "[]", ""),
+                       (0, verify.ANSWER + "null", "")):
             with self.subTest(answer=answer):
                 self.assertTrue(verify.problems_of("one", answer), answer)
         with contextlib.redirect_stdout(io.StringIO()) as said:
-            self.assertTrue(verify.failed([("one", "x", "run")], lambda _: {}))
+            self.assertTrue(verify.failed([("one", "x", "run")], lambda _: {}, lambda checks: checks))
         self.assertIn("%-22s FAILED" % "one", said.getvalue())
         # The checks' process imports no check: each is imported in its own.
-        done = subprocess.run([sys.executable, "-I", "-S", "-c", "import sys; sys.path.append(%r); from tools import verify; "
+        done = subprocess.run([sys.executable, "-B", "-I", "-S", "-c", "import sys; sys.path.append(%r); from tools import verify; "
                                "print(sorted(m for m in sys.modules if m.startswith('tools.check_')))" % str(ROOT)],
                               cwd=str(ROOT), capture_output=True, text=True, timeout=60)
         self.assertEqual(done.stdout.strip(), "[]", done.stderr)
@@ -14497,20 +14500,36 @@ class Verify(unittest.TestCase):
         entry = ("repo", "check_repo", "run")
         with tempfile.TemporaryDirectory() as where:
             root = pathlib.Path(where)
-            for rel in ("config/hooks.json", "tools/__init__.py", "tools/check_repo.py", "tools/desk.py"):
+            for rel in ("config/hooks.json", "tools/__init__.py", "tools/check_repo.py", "tools/desk.py", "tools/walk.py"):
                 (root / rel).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(ROOT / rel, root / rel)
+            (root / "tools/pkg").mkdir()
+            (root / "tools/pkg/__init__.py").write_text("")
+            # A file at the top named as a standard module is never what the check's process imports, so it moves
+            # no check out of the first phase (Claude's security read).
+            for name in ("__future__", "json", "pathlib", "os"):
+                (root / (name + ".py")).write_text("")
             self.assertEqual(verify.phase_one([entry], root), [entry])
-            source = (root / "tools/check_repo.py").read_text()
-            # An import of a file off the list, one by a worked-out name, or one relative to its package runs later.
+            source, helper = (root / "tools/check_repo.py").read_text(), (root / "tools/walk.py").read_text()
+            # An import of a file off the list, one by a worked-out name, one under another name, text run as code,
+            # or one relative to its package runs later; and so does an import of a protected file that makes one.
             for line in ("from tools import desk\n", "def f():\n    from tools import desk\n",
-                         "import importlib\n", "X = __import__\n", "from . import desk\n", "import pkgutil\n"):
+                         "import importlib\n", "X = __import__\n", "from . import desk\n", "import pkgutil\n",
+                         "from builtins import __import__ as load\n", "exec('import tools.desk')\n",
+                         "import builtins\nbuiltins.__import__('tools.desk')\n", "from tools import pkg\n",
+                         "import tools.desk\n", "from importlib import import_module\n",
+                         "from tools import walk\n"):
                 with self.subTest(line=line):
                     (root / "tools/check_repo.py").write_text(source + line)
+                    (root / "tools/walk.py").write_text(helper + ("from tools import desk\n" if "walk" in line else ""))
                     self.assertEqual(verify.phase_one([entry], root), [])
+                    (root / "tools/walk.py").write_text(helper)
+                    if "walk" in line:      # the same import, of a protected file that makes none, stays first
+                        self.assertEqual(verify.phase_one([entry], root), [entry])
             (root / "tools/check_repo.py").write_text(source)
-            (root / "config/hooks.json").write_text("{")      # a list that cannot be read protects nothing
-            self.assertEqual(verify.phase_one([entry], root), [])
+            (root / "config/hooks.json").write_text("{")      # a list that cannot be read fails; it sorts nothing later
+            with self.assertRaisesRegex(ValueError, "cannot be read"):
+                verify.phase_one([entry], root)
         # If one that runs first fails, none of the others is started; if all pass, the others run next.
         for early_fails, asked in ((True, [["a"]]), (False, [["a"], ["b", "c"]])):
             seen = []
@@ -14522,14 +14541,38 @@ class Verify(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()) as said:
                 result = verify.failed([("a", "x", "run"), ("b", "y", "run"), ("c", "z", "run")], ran,
                                        lambda checks: checks[:1])
-            self.assertEqual((result, seen), (early_fails, asked))
+            self.assertEqual((result, seen), (verify.EARLY if early_fails else 0, asked))
             self.assertEqual("role code" in said.getvalue(), early_fails)
+        # No check that runs first, or a list that cannot tell them, fails as one that failed: nothing is started.
+        def unread(checks):
+            raise ValueError("the list cannot be read")
+        for first in (lambda checks: [], unread):
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(verify.failed([("a", "x", "run")], lambda checks: self.fail("a check ran"), first),
+                                 verify.EARLY)
+
+    def test_a_check_that_runs_no_role_code_and_fails_stops_verify_and_its_own_step(self):  # issue 1377
+        # `make checks-first`, CI's step, answers 1 when one of them fails and 0 when all pass; `make verify` starts
+        # no test after one fails (Astra's and Claude's reads).
+        entry = verify.CHECKS[0]
+        for problems, answer in ((["x"], 1), ([], 0)):
+            said = {entry[0]: (0, verify.ANSWER + json.dumps({"check": entry[0], "problems": problems}), "")}
+            with mock.patch.object(verify, "phase_one", lambda checks: [entry]), \
+                    mock.patch.object(verify, "answers", lambda checks: {e[0]: said[e[0]] for e in checks}), \
+                    mock.patch.object(verify, "tested", lambda *_: self.fail("a test ran")), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(verify.main(["--checks-first"]), answer)
+                if problems:
+                    self.assertEqual(verify.main([], {}), 1)
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(ValueError):
+            verify.phase_one(verify.CHECKS, ROOT / "no-such-tree")
 
     def test_each_checks_process_keeps_its_bytecode_outside_the_tree_and_is_stopped_when_it_hangs(self):  # issue 1377
-        started = []
+        started, waits, killed = [], [], []
+        whole = verify.ANSWER + json.dumps({"check": "one", "problems": []})
 
         class Process:
-            returncode = -9
+            returncode = None
 
             def __init__(self, argv, **kw):
                 started.append(argv)
@@ -14537,12 +14580,16 @@ class Verify(unittest.TestCase):
 
             def communicate(self, timeout=None):
                 self.calls += 1
-                if timeout is not None and self.calls == 1:
+                waits.append(timeout)
+                if self.calls == 1 and timeout is None:     # waited on with no bound: it never answers
+                    return b"", b""
+                if self.calls == 1 or not killed:
                     raise subprocess.TimeoutExpired("verify", timeout)
-                return b"", b""
+                self.returncode = 0     # it ends 0 with a whole answer, but only once stopped: it failed all the same
+                return whole.encode(), b""
 
             def kill(self):
-                pass
+                killed.append(self)
         with mock.patch.object(verify.subprocess, "Popen", Process):
             said = verify.answers([("one", "x", "run")])
         argv = started[0]
@@ -14550,6 +14597,28 @@ class Verify(unittest.TestCase):
         cache = pathlib.Path(argv[4][len("pycache_prefix="):])
         self.assertTrue(argv[4].startswith("pycache_prefix=") and ROOT not in cache.parents and not cache.exists(), argv)
         self.assertIn("no answer within %d seconds" % verify.CHECK_SECONDS, said["one"][2])
+        # Stopped before its pipes are drained, so what it said then is read; and it failed all the same.
+        self.assertTrue(killed and waits[1] == verify.DRAIN_SECONDS and verify.problems_of("one", said["one"]), waits)
+        self.assertIn(whole, said["one"][1])
+        # A folder for the bytecode that TMPDIR puts inside the tree is never used: every check fails (Astra's read).
+        with mock.patch.object(verify.tempfile, "mkdtemp", lambda prefix: str(ROOT / "no-such-folder")), \
+                mock.patch.object(verify.subprocess, "Popen", lambda *a, **k: self.fail("a check was started")):
+            self.assertTrue(verify.problems_of("one", verify.answers([("one", "x", "run")])["one"]))
+        # One started before another cannot be is stopped, never left running (Astra's read).
+        killed.clear()
+        made = []
+
+        def second_fails(argv, **kw):
+            if made:
+                raise OSError("no more processes")
+            made.append(Process(argv))
+            return made[0]
+        with mock.patch.object(verify.subprocess, "Popen", second_fails), self.assertRaises(OSError):
+            verify.answers([("one", "x", "run"), ("two", "y", "run")])
+        self.assertEqual(len(killed), 1)
+        # An answer too deep to read is no answer: the check fails, and verify goes on to the next.
+        deep = verify.ANSWER + "[" * 100000 + "]" * 100000
+        self.assertTrue(verify.problems_of("one", (0, deep, "")))
 
     def test_the_legs_of_make_verify_run_every_test_once(self):
         # CI runs `make tests` in legs, after a step of `make checks` (docs/standards/workflows.md): each runs each
@@ -14583,7 +14652,7 @@ class Verify(unittest.TestCase):
                 return unittest.TestResult()
 
         real += (verify.tested,)
-        verify.failed, verify.unittest.TextTestRunner = (lambda checks: ran.append("checks") or False), Runner
+        verify.failed, verify.unittest.TextTestRunner = (lambda checks, *_: ran.append("checks") or False), Runner
         verify.tested = lambda fast, share: ran.append("tested") or 0
         try:
             with contextlib.redirect_stdout(io.StringIO()) as said:
@@ -14625,20 +14694,20 @@ class Verify(unittest.TestCase):
                 return unittest.TestResult()
 
         real = (verify.failed, verify.unittest.TextTestRunner, verify.tested)
-        verify.failed, verify.unittest.TextTestRunner = (lambda checks: False), Runner
+        verify.failed, verify.unittest.TextTestRunner = (lambda checks, *_: False), Runner
         verify.tested = lambda fast, share: ran.update(fast=fast) or 0
         try:
             # main prints the unverified rules, and on --checks the desk's note, here none
             with contextlib.redirect_stdout(io.StringIO()), mock.patch.object(verify, "desk_note", return_value=""):
                 # `make checks` is the checks alone, whether they pass or not: it runs no test (issue 438).
                 self.assertEqual((verify.main(["--checks"]), ran), (0, {}))
-                verify.failed = lambda checks: True
+                verify.failed = lambda checks, *_: True
                 self.assertEqual((verify.main(["--checks"]), ran), (1, {}))
-                verify.failed = lambda checks: False
+                verify.failed = lambda checks, *_: False
                 self.assertEqual((verify.main([]), ran), (0, {"fast": False}))
                 self.assertEqual((verify.main(["--fast"]), ran), (0, {"fast": True}))
                 # The tests' own process runs every test module, or when fast all but the slow ones, and no check.
-                verify.failed = lambda checks: self.fail("the tests' process ran the checks")
+                verify.failed = lambda checks, *_: self.fail("the tests' process ran the checks")
                 self.assertEqual(verify.main(["--tests"]), 0)
                 self.assertEqual(ran["modules"], everything)
                 verify.main(["--tests", "--fast"])
@@ -14708,6 +14777,11 @@ class Verify(unittest.TestCase):
             for name in ("ast", "json", "hashlib", "tools/json"):
                 (root / (name + ".py")).write_text('import pathlib\npathlib.Path(__file__).with_name("SHADOWED").'
                                                    'write_text("")\nimport os\nos._exit(0)\n')
+            # check_writes reads those files as the modules they are named for and fails, a check that runs no Role
+            # code, so nothing else would run (issue 1377). This copy is about the others: its run passes, after the
+            # same imports.
+            writes = root / "tools" / "check_writes.py"
+            writes.write_text(writes.read_text().replace("\ndef run(", "\ndef run_as_written(") + "\n\ndef run():\n    return []\n")
             env = {k: v for k, v in os.environ.items()
                    if k not in ("MAKEFLAGS", "MFLAGS", "MAKEFILES", "GNUMAKEFLAGS", "CHECKS_SHARD", "CHECKS_SHARDS")}
             cls.poisoned_run = (subprocess.run(["make", "-s", "verify", "PY=" + sys.executable], cwd=root, env=env,
@@ -14721,7 +14795,7 @@ class Verify(unittest.TestCase):
         try:
             with contextlib.redirect_stdout(io.StringIO()):
                 for checks_failed, tests, answer in ((True, 0, 1), (False, 1, 1), (True, 1, 1), (False, 0, 0)):
-                    verify.failed, verify.tested = (lambda checks: checks_failed), (lambda fast, share: tests)
+                    verify.failed, verify.tested = (lambda checks, *_: checks_failed), (lambda fast, share: tests)
                     self.assertEqual(verify.main([], {}), answer, (checks_failed, tests))
                     self.assertEqual(verify.main(["--checks"], {}), int(checks_failed))
         finally:
@@ -16431,7 +16505,7 @@ class SignalTraps(unittest.TestCase):
                 'as --keep-raw asked; delete it once read\\n\' %s "$scratch" >&2' % name), name)
             self.assertIn("\ntrap finish EXIT\n", text, name)
             self.assertNotIn('rm -f "$scratch/raw', text, name)
-            redacted = [n for n, line in enumerate(lines) if re.search(r'redact_trial < "\$scratch/raw-', line)]
+            redacted = [n for n, line in enumerate(lines) if re.search(r'redact_trial\.py" < "\$scratch/raw-', line)]
             self.assertTrue(redacted, name)
             for n in redacted:
                 raw = re.search(r'< "(\$scratch/raw-[^"]*)"', lines[n]).group(1)
@@ -16535,15 +16609,14 @@ class SignalTraps(unittest.TestCase):
         # A PYTHONPATH entry, and the working directory under -m, come before the standard library on the path: a json.py
         # planted in either would run inside the redaction as it reads the raw answers, and a package in site-packages
         # named tools would stand in for the repo's. Every script that redacts runs the redaction as a file under -I and
-        # -S, by the root it found, on every call. A test that the file is there is no call. The token trials that mint
-        # come in part 3 of issue 1300.
-        scripts, later = [], SCRIPTS_1300_LATER
+        # -S, by the root it found, on every call. A test that the file is there is no call.
+        scripts = []
         for script in sorted((ROOT / "tools").glob("*.sh")):
             lines = [line.replace('-f "$root/tools/redact_trial.py"', "") for line in script.read_text().splitlines()]
             calls = [line for line in lines if "redact_trial" in line and not line.lstrip().startswith("#")]
             if calls:
                 scripts.append(script.name)
-            for line in calls if script.name not in later else ():
+            for line in calls:
                 self.assertEqual(re.findall(r"python3[^|;()<>]*redact_trial[^\s)]*", line), ['python3 -I -S "$root/tools/redact_trial.py"'],
                                  (script.name, line))
         self.assertEqual(len(scripts), 18)
@@ -16600,12 +16673,6 @@ def note_in(test: unittest.TestCase, out: pathlib.Path, told: str) -> str:
     test.assertIn("redacted: 0 removed", clean.stderr)
     test.assertFalse(check_trials.shaped(note), note)
     return note
-
-
-# The token trials whose redaction runs under -I and -S from part 3 of issue 1300.
-SCRIPTS_1300_LATER = ("trial_reader_reads.sh", "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh",
-                      "trial_p80_branch_reads.sh", "trial_p58_edits.sh", "trial_p81_review_order.sh", "trial_p39_reach.sh",
-                      "trial_p4_narrow.sh", "trial_p8_cost.sh", "trial_p52_pause.sh")
 
 
 # What gh reads from the environment to choose a configuration or a pager (issue 1300).

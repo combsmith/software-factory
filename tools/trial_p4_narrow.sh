@@ -206,7 +206,7 @@ with_token() {   # METHOD PATH [BODY_FILE]
         echo "trial_p4_narrow: read $n ($1 /$2) failed in curl; nothing of it reaches OUT." >&2
         exit 1
     fi
-    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
+    (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
     drop "$scratch/raw-$n"
     # The last head's status: a proxy's block, or an interim answer, comes first and is no answer to this read.
     status=$(awk 'BEGIN { head = 1 } head && /^HTTP\// { found = "" } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$out/clean-$n")
@@ -225,7 +225,7 @@ jwt="$header.$claims.$signature"
 n=1
 printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -i -H @- -H "$ACCEPT" -H "$VERSION" \
     "$API/repos/$repo/installation" | tr -d '\r' > "$scratch/raw-1"
-(cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-1" > "$out/clean-1") 2> "$out/redacted-1"
+(cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$scratch/raw-1" > "$out/clean-1") 2> "$out/redacted-1"
 drop "$scratch/raw-1"
 installation=$(sed -n '/^{/,$p' "$out/clean-1" | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["id"])')
 asked="{\"n\": 1, \"call\": \"GET /repos/$repo/installation\", \"body\": null, \"status\": \"$(awk 'BEGIN { head = 1 } head && /^HTTP\// { found = "" } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$out/clean-1")\"},"
@@ -253,7 +253,7 @@ with open(sys.argv[1], "w") as kept:
     kept.write("HTTP/2 %s\n\n%s\n" % (sys.argv[2], json.dumps(data) if data is not None else "(an answer that is not JSON, not kept)"))
 sys.stdout.write(token)' "$scratch/raw-2" "${minted_status:-000}" 2>/dev/null || true)
 minted="" minting=""
-(cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-2" > "$out/clean-2") 2> "$out/redacted-2"
+(cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$scratch/raw-2" > "$out/clean-2") 2> "$out/redacted-2"
 drop "$scratch/raw-2"
 asked="$asked{\"n\": 2, \"call\": \"POST /app/installations/$installation/access_tokens\", \"body\": {\"repositories\": [\"${repo#*/}\"], \"permissions\": {\"contents\": \"read\"}}, \"status\": \"${minted_status:-none}\"},"
 if [ "$minted_status" != 201 ] || [ -z "$token" ]; then

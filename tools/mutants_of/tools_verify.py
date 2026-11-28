@@ -13,6 +13,7 @@ NO_ANSWER = ("tests.test_tools.Verify.test_a_check_whose_process_gives_no_answer
 ALONE = ("tests.test_tools.Verify.test_a_check_that_ends_its_process_fails_alone",)
 FIRST = ("tests.test_tools.Verify.test_the_checks_that_run_no_role_code_answer_first",)
 BYTECODE = ("tests.test_tools.Verify.test_each_checks_process_keeps_its_bytecode_outside_the_tree_and_is_stopped_when_it_hangs",)
+STOPS = ("tests.test_tools.Verify.test_a_check_that_runs_no_role_code_and_fails_stops_verify_and_its_own_step",)
 
 TARGETS = ("tools/verify.py",)
 MUTANTS = [
@@ -28,17 +29,46 @@ MUTANTS = [
      '        problems = problems_of(name, said.get(name))\n',
      '        problems = check((name,) + next(e[1:] for e in CHECKS if e[0] == name))()\n', ALONE),
     ("a check that runs Role code starts though one that runs none failed", "tools/verify.py",
-     '        print("%-22s %s" % ("role code", "not run, since a check that runs none failed"))\n        return True\n',
-     '        print("%-22s %s" % ("role code", "not run, since a check that runs none failed"))\n', FIRST),
+     "    return None if told(early, ran) else early\n", "    told(early, ran)\n    return early\n", FIRST),
     ("a check whose closure leaves the protected list runs first", "tools/verify.py",
      "        if tree is None:\n            return False\n", "        if tree is None:\n            continue\n", FIRST),
     ("an import by a worked-out name is read as closed", "tools/verify.py",
-     " or isinstance(node, ast.Name) and node.id in DYNAMIC", "", FIRST),
+     "(node.id in DYNAMIC or node.id in RUNS_TEXT)", "node.id in RUNS_TEXT", FIRST),
     ("a check's process is not isolated", "tools/verify.py",
      '[sys.executable, "-I", "-S", "-X", "pycache_prefix=" + cache,', '[sys.executable, "-X", "pycache_prefix=" + cache,',
      ISOLATED),
     ("a check's bytecode is read from the tree", "tools/verify.py",
      '"-S", "-X", "pycache_prefix=" + cache,', '"-S",', BYTECODE),
+    ("a list that cannot be read sorts every check later", "tools/verify.py",
+     '        raise ValueError("the protected list of config/hooks.json cannot be read (%s)" % type(err).__name__)\n',
+     "        return []\n", FIRST),
+    ("no check that runs first passes", "tools/verify.py", "    if not early:\n", "    if False:\n", FIRST),
+    ("a standard module's name is looked up in the tree", "tools/verify.py",
+     "                if _standard(parts[0]):\n                    continue\n", "", FIRST),
+    ("an import of a worked-out name under another name is read as closed", "tools/verify.py",
+     "                if any(part in DYNAMIC or part in RUNS_TEXT for part in parts):", "                if parts[0] in DYNAMIC:",
+     FIRST),
+    ("text run as code is read as closed", "tools/verify.py", " or node.id in RUNS_TEXT)", ")", FIRST),
+    ("make verify runs the tests after a check that runs no Role code failed", "tools/verify.py",
+     "    if checks_failed == EARLY:", "    if False:", STOPS),
+    ("make checks-first passes whatever its checks found", "tools/verify.py",
+     "        return 1 if led(CHECKS, answers, phase_one) is None else 0\n",
+     "        return 0 if led(CHECKS, answers, phase_one) is None else 0\n", STOPS),
+    ("a check that hangs is not stopped", "tools/verify.py",
+     "                process.kill()\n                try:\n", "                try:\n", BYTECODE),
+    ("a stopped check's pipes are waited on without a bound", "tools/verify.py",
+     "process.communicate(timeout=DRAIN_SECONDS)", "process.communicate()", BYTECODE),
+    ("a check that answers only once stopped passes", "tools/verify.py",
+     'code, errors = "on a timeout", errors', "code, errors = process.returncode, errors", BYTECODE),
+    ("a bytecode folder inside the tree is used", "tools/verify.py",
+     "    if pathlib.Path(cache).resolve() == ROOT or ROOT in pathlib.Path(cache).resolve().parents:", "    if False:",
+     BYTECODE),
+    ("a check started before another cannot be is left running", "tools/verify.py",
+     "            if process.returncode is None:      # one started before another could not be: never left running\n"
+     "                process.kill()\n", "            pass\n", BYTECODE),
+    ("an answer too deep to read ends verify", "tools/verify.py",
+     "    except (ValueError, RecursionError):\n        given = None\n", "    except ValueError:\n        given = None\n",
+     BYTECODE),
     ("a check that hangs holds verify", "tools/verify.py",
      "process.communicate(timeout=max(1.0, until - time.monotonic()))", "process.communicate()", BYTECODE),
     # Issue 1109: make checks prints the desk's size note, and nothing the note does fails it.
