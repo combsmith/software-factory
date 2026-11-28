@@ -217,30 +217,75 @@ def _mutants(root: pathlib.Path) -> dict:
     """{description: (file, the tests that kill it)} of every mutant `tools/mutants.py` runs in `root`, read once for
     each root and each text of its files. Two that share a description name no one mutant. Raises Unreadable."""
     try:
-        files = _mutant_files(root)
-        key = (str(root.resolve()), tuple((str(path), hashlib.sha256(path.read_bytes()).hexdigest()) for path in files))
-    except OSError as err:
-        raise Unreadable("tools/mutants.py cannot be read (%s)" % type(err).__name__)
-    if key not in _READ:
-        try:
-            read = [(name, (rel, tests)) for name, rel, tests in read_mutants(root)]
-        except Exception as err:    # noqa: BLE001 -- whatever stops it being read, the mutants are unreadable
-            raise Unreadable("tools/mutants.py cannot be read (%s)" % type(err).__name__)
-        if len({name for name, _ in read}) != len(read):
-            raise Unreadable("two mutants in tools/mutants.py share a description, so a row cannot name one of them")
-        _READ[key] = dict(read)
-    return _READ[key]
+        key = (str(root.resolve()), tuple((str(path), hashlib.sha256(path.read_bytes()).hexdigest())
+                                          for path in _mutant_files(root)))
+        if key not in _READ:
+            _READ[key] = [(name, (rel, tests)) for name, rel, tests in read_mutants(root)]
+    except Exception as err:    # noqa: BLE001 -- whatever stops it being read, the mutants are unreadable
+        why = "%s: %s" % (type(err).__name__, err) if isinstance(err, ValueError) else type(err).__name__
+        raise Unreadable("tools/mutants.py cannot be read (%s)" % why)
+    read = _READ[key]
+    if len({name for name, _ in read}) != len(read):
+        raise Unreadable("two mutants in tools/mutants.py share a description, so a row cannot name one of them")
+    return dict(read)
 
 
 _READ = {}
 
 # The mutants are read from the text of their files through ast, never imported: a file of tools/mutants_of/ that a push
-# changes could end this process at import (issue 1377). What the reader does not work out, a call or a name it was not
-# given, is UNKNOWN; a starred part it cannot work out is SPREAD. A mutant whose description, file or tests is either
-# cannot be read.
-UNKNOWN = type("Unknown", (), {"__repr__": lambda self: "UNKNOWN"})()
-SPREAD = type("Spread", (), {"__repr__": lambda self: "SPREAD"})()
+# changes could end this process at import (issue 1377). The reader takes a file only in a narrow grammar in which no
+# value, once bound, can change, and works out each value as Python would, or leaves it UNKNOWN where Python reads it
+# from outside the text, a path or a file. It refuses with ValueError whatever else it meets, so it never reads a list
+# other than the one Python would build. `tools/mutants.py`'s `areas(ROOT)`, which imports the files of mutants, is read
+# only as PINNED writes it.
+STDLIB = frozenset(("concurrent.futures", "contextlib", "importlib", "json", "os", "pathlib", "re", "signal", "subprocess",
+                    "sys", "tempfile", "unittest"))
+BUILTINS = frozenset(("dict", "iter", "len", "range", "tuple"))
+EXCEPTIONS = frozenset(("Exception", "RuntimeError", "ValueError"))
+# Of any value a file of mutants can reach, these methods and attributes change nothing: a str's, a dict's, a path's, a
+# pattern's or re's. A str's `replace` is worked out at the top alone, on a str: a path's renames a file.
+METHODS = frozenset(("endswith", "find", "fullmatch", "get", "isdigit", "items", "keys", "lower", "match", "read_text",
+                     "resolve", "rfind", "search", "startswith", "strip", "sub", "values"))
+ATTRIBUTES = frozenset(("name", "parent", "parents", "stem", "suffix"))
+MODULE_CALLS = frozenset((("pathlib", "Path"), ("re", "compile"), ("re", "sub")))
+MODULES = frozenset({name.split(".")[0] for name in STDLIB} | {"tools.walk"})
+TYPES = frozenset(("bool", "dict", "float", "int", "list", "str", "tuple"))      # an annotation may name one
+MODULE_VALUES = frozenset((("contextlib", "contextmanager"), ("importlib", "import_module"), ("re", "M")))
+EXPRESSIONS = (ast.Constant, ast.Name, ast.Load, ast.Store, ast.Tuple, ast.List, ast.Dict, ast.Starred, ast.BinOp,
+               ast.Add, ast.Sub, ast.Mult, ast.Div, ast.FloorDiv, ast.Mod, ast.Pow, ast.UnaryOp, ast.USub, ast.Not,
+               ast.Compare, ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.In, ast.NotIn, ast.Is, ast.IsNot,
+               ast.IfExp, ast.Attribute, ast.Subscript, ast.Slice, ast.ListComp, ast.DictComp, ast.GeneratorExp,
+               ast.comprehension, ast.Call, ast.keyword)
+BUDGET = {"calls": 20000, "rounds": 200000, "length": 1000000, "width": 1000, "depth": 100}
+PINNED = {
+    "ROOT": 'ROOT = pathlib.Path(__file__).resolve().parent.parent',
+    "AREA_NAME": 'AREA_NAME = re.compile(r"[a-z_][a-z0-9_]*")',
+    "area_names": 'def area_names(root: pathlib.Path) -> list:\n    """The name of each file of mutants in `root`\'s '
+                  'tools/mutants_of/: its Python files but __init__.py and common.py,\n    directly in it, as the walk '
+                  'gives them."""\n    folder = root / "tools" / "mutants_of"\n    return [path.stem for path in '
+                  'walk.files(root, "tools/mutants_of")\n            if path.parent == folder and path.suffix == ".py" '
+                  'and path.stem not in ("__init__", "common")]',
+    "areas": 'def areas(root: pathlib.Path, load=importlib.import_module) -> tuple:\n    """Each file of mutants in '
+             '`root`, loaded by `load` in the order of the names. Each name is a module name, by\n    AREA_NAME, before '
+             'it is loaded: nothing but a file of tools/mutants_of/ is imported."""\n    return tuple(load('
+             '"tools.mutants_of." + name) for name in area_names(root) if AREA_NAME.fullmatch(name))',
+    "main": 'if __name__ == "__main__":\n    sys.exit(front(os.environ, sys.argv[1:]))',
+}
 AREA = re.compile(r"[a-z_][a-z0-9_]*")       # the module names tools/mutants.py loads from tools/mutants_of/
+FORMAT = re.compile(r"%(?:\([^)]*\))?[#0 +-]*(\*|\d+)?(?:\.(\*|\d+))?")
+
+
+class _Opaque:
+    """A value the reader does not work out: a module of STDLIB, ROOT, AREA_NAME or what Python reads from outside."""
+
+    def __init__(self, what: str):
+        self.what = what
+
+    def __repr__(self):
+        return self.what
+
+
+UNKNOWN = _Opaque("UNKNOWN")
 
 
 class _Module(dict):
@@ -248,354 +293,583 @@ class _Module(dict):
 
 
 class _Function:
-    """A function of a file of mutants that the reader runs itself: positional parameters alone, and a body of
-    assignments to names, `if` statements and returns that call a name, `.items()` or `.get()` alone. Of those calls
-    it works out only another such function, `tuple`, `dict` and the two methods of a dict; any other is UNKNOWN."""
+    """A function defined at the top of a file of mutants, run by the reader when it is called, if `_safe` passes it."""
 
-    def __init__(self, node, bound: dict):
-        self.node, self.bound = node, bound
-
-    @staticmethod
-    def readable(node) -> bool:
-        args = node.args
-        if node.decorator_list or args.vararg or args.kwarg or args.kwonlyargs or args.defaults \
-                or getattr(args, "posonlyargs", []):
-            return False
-        body = node.body[1:] if node.body and _docstring(node.body[0]) else node.body
-        return all(_statement(one) for one in body)
+    def __init__(self, node, source: str, file: "_File", defaults: list):
+        self.node, self.source, self.file, self.defaults = node, source, file, defaults
 
 
-def _docstring(node) -> bool:
-    return isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)
+class _File:
+    """One file of mutants as it is read: its text, the names its top binds, and its defs bound once there."""
+
+    def __init__(self, read: "_Read", rel: str):
+        self.read, self.rel, self.bound, self.future, self.safe = read, rel, _Module(), False, set()
+        data = (read.root / rel).read_bytes()
+        self.text = data.decode("utf-8")
+        self.tree = ast.parse(data, filename=rel)
+        top = [_targets(node) for node in self.tree.body]
+        self.names = {name for names in top for name in names}
+        self.defs = {node.name: node for node in self.tree.body if isinstance(node, ast.FunctionDef)
+                     and sum(node.name in names for names in top) == 1}
 
 
-def _statement(node) -> bool:
-    """Whether a function's statement is one the reader runs: see _Function."""
-    if isinstance(node, ast.If):
-        return all(_statement(one) for one in node.body + node.orelse) and _pure(node.test)
-    if isinstance(node, ast.Assign):
-        return all(isinstance(target, ast.Name) for target in node.targets) and _pure(node.value)
-    return isinstance(node, ast.Return) and node.value is not None and _pure(node.value)
+class _Read:
+    """One reading of a tree's mutants: its root, the modules read so far, and what is left of the budget."""
+
+    def __init__(self, root: pathlib.Path):
+        self.root, self.done, self.calls, self.rounds, self.depth = root, {}, 0, 0, 0
+
+    def loaded(self, name: str) -> _Module:
+        """tools.mutants_of's module `name`, or the package for "", read once, its package first, as Python imports."""
+        folder = self.root / "tools" / "mutants_of"
+        if name and "" not in self.done:
+            self.loaded("")
+        if name not in self.done:
+            if name and ((folder / name).is_dir() or not (folder / "__init__.py").is_file()):
+                raise ValueError("tools.mutants_of.%s is not the file the reader reads" % name)
+            self.done[name] = None
+            self.done[name] = _top(self, "tools/mutants_of/%s.py" % (name or "__init__"))
+        if self.done[name] is None:
+            raise ValueError("tools.mutants_of.%s imports itself" % name)
+        return self.done[name]
 
 
-def _pure(node) -> bool:
-    """Whether an expression calls nothing but a name (a function the reader runs, `tuple` or `dict`), or `.items()`
-    and `.get()`, which change nothing."""
-    return all(isinstance(one.func, ast.Name) or (isinstance(one.func, ast.Attribute) and one.func.attr in ("items", "get"))
-               for one in ast.walk(node) if isinstance(one, ast.Call)) \
-        and not any(isinstance(one, (ast.Lambda, ast.NamedExpr)) for one in ast.walk(node))
+def _targets(node) -> set:
+    """Each name a statement at the top of a file binds."""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return {node.name}
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return {(alias.asname or alias.name).split(".")[0] for alias in node.names}
+    return {one.id for one in ast.walk(node) if isinstance(one, ast.Name) and isinstance(one.ctx, ast.Store)}
 
 
 def _mutant_files(root: pathlib.Path) -> list:
-    """tools/mutants.py, then tools/mutants_of/common.py, then each file of mutants there in the order of its name, as
-    tools/mutants.py finds them: a Python file directly in the folder, by a module name, but __init__ and common."""
+    """tools/mutants.py, then tools/mutants_of/__init__.py and common.py, then each file of mutants there in the order
+    of its name, as tools/mutants.py finds them: a Python file directly in the folder, by a module name."""
     folder = root / "tools" / "mutants_of"
     areas = [path for path in walk.files(root, "tools/mutants_of") if path.parent == folder and path.suffix == ".py"
              and path.stem not in ("__init__", "common") and AREA.fullmatch(path.stem)]
-    common = [folder / "common.py"] if (folder / "common.py").is_file() else []
-    return [root / "tools" / "mutants.py"] + common + areas
+    return [root / "tools" / "mutants.py"] + [folder / one for one in ("__init__.py", "common.py")
+                                              if (folder / one).is_file()] + areas
 
 
 def read_mutants(root: pathlib.Path) -> list:
-    """(description, file, tests) of each mutant of tools/mutants.py's MUTANTS in `root`, read as that file builds it:
-    its own, and those of each file of tools/mutants_of/, which its `areas(ROOT)` loads. Raises ValueError for a
-    mutant it cannot read."""
-    files = _mutant_files(root)
-    folder = root / "tools" / "mutants_of"
-    common = _module(folder / "common.py", {}, None) if folder / "common.py" in files else {}
-    areas = tuple(_module(path, common, None) for path in files[1:] if path.stem != "common")
-    listed = _module(files[0], common, areas).get("MUTANTS", UNKNOWN)
-    if not isinstance(listed, list):
+    """(description, file, tests) of each mutant of tools/mutants.py's MUTANTS in `root`, read as Python builds it: its
+    own, and those of each file of tools/mutants_of/ that its `areas(ROOT)` loads. Raises ValueError for a file or a
+    mutant it cannot read so."""
+    listed = _top(_Read(root), "tools/mutants.py").get("MUTANTS", UNKNOWN)
+    if type(listed) is not list:
         raise ValueError("MUTANTS is not a list read as text")
     return [_parts(mutant) for mutant in listed]
 
 
 def _parts(mutant) -> tuple:
     """(description, file, tests) of one mutant: its first, its second and its last part, of five."""
-    if not isinstance(mutant, tuple) or len(mutant) < 3 or SPREAD in (mutant[0], mutant[1], mutant[-1]):
-        raise ValueError("a mutant is not a tuple read as text")
-    if SPREAD not in mutant and len(mutant) != 5:
-        raise ValueError("a mutant has not five parts")
-    name, rel, tests = mutant[0], mutant[1], mutant[-1]
-    if not (isinstance(name, str) and isinstance(rel, str) and isinstance(tests, tuple)
-            and all(isinstance(test, str) for test in tests)):
+    if type(mutant) is not tuple or len(mutant) != 5:
+        raise ValueError("a mutant is not a tuple of five parts")
+    name, rel, tests = mutant[0], mutant[1], mutant[4]
+    if not (type(name) is str and type(rel) is str and type(tests) is tuple and all(type(t) is str for t in tests)):
         raise ValueError("a mutant's description, file or tests is not read as text")
     return name, rel, tests
 
 
-def _module(path: pathlib.Path, common: dict, areas) -> dict:
-    """The names a file of mutants binds at its top, each to what the reader works out of it, else UNKNOWN. `areas` is
-    what `areas(ROOT)` loads when the file is tools/mutants.py, and None in any other. A name any
-    other statement binds, and a list or dict that a call or any other statement names, is UNKNOWN after it."""
-    bound = _Module()
-    for node in ast.parse(path.read_text(encoding="utf-8")).body:
-        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == "tools.mutants_of.common":
-            for alias in node.names:
-                bound[alias.asname or alias.name] = common.get(alias.name, UNKNOWN)
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == "tools.mutants_of":
-            for alias in node.names:
-                bound[alias.asname or alias.name] = _Module(common) if alias.name == "common" else UNKNOWN
-        elif isinstance(node, ast.FunctionDef) and _Function.readable(node):
-            bound[node.name] = _Function(node, bound)
-        elif isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
-            value = _value(node.value, bound, areas)
-            _touched(node.value, bound)
-            for target in node.targets if isinstance(node, ast.Assign) else [node.target]:
-                _bind(target, value, bound)
-        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            # A def runs its decorators and its defaults, never its body.
-            for one in node.decorator_list + node.args.defaults + [d for d in node.args.kw_defaults if d is not None]:
-                _touched(one, bound, every=True)
-            bound[node.name] = UNKNOWN
-        else:
-            _touched(node, bound, every=True)
-    return bound
+def _top(read: _Read, rel: str) -> _Module:
+    """The names the file `rel` binds at its top, each to what the reader works out of it."""
+    file = _File(read, rel)
+    frame = _Frame(file)
+    for node in file.tree.body:
+        if _docstring(node):
+            continue
+        pinned = rel == "tools/mutants.py" and (isinstance(node, ast.If) or getattr(node, "name", "") in PINNED
+                                                or isinstance(node, ast.Assign)
+                                                and [getattr(t, "id", "") for t in node.targets] in (["ROOT"], ["AREA_NAME"]))
+        source = ast.get_source_segment(file.text, node) if pinned else None
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            _imported(node, file)
+        elif isinstance(node, ast.FunctionDef) and not node.decorator_list:
+            file.bound[node.name] = _Function(node, source, file, _signature(node, frame))
+        elif isinstance(node, ast.ClassDef):
+            _classed(node, frame)
+        elif isinstance(node, ast.Assign) and rel == "tools/mutants.py" and source in (PINNED["ROOT"], PINNED["AREA_NAME"]):
+            file.bound[node.targets[0].id] = _Opaque(node.targets[0].id)
+        elif isinstance(node, ast.Assign):
+            value = frame.value(node.value)
+            for target in node.targets:
+                _bind(target, value, file.bound)
+        elif not (isinstance(node, ast.If) and rel == "tools/mutants.py" and source == PINNED["main"]):
+            raise ValueError("%s line %d is not read" % (rel, node.lineno))
+    return file.bound
+
+
+def _docstring(node) -> bool:
+    return isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)
+
+
+def _imported(node, file: _File) -> None:
+    """Bind what an import binds: a module of STDLIB, or a name of tools/mutants_of/common.py, or common itself; in
+    tools/mutants.py also tools.walk and tools.verify's SLOW. Any other import is refused."""
+    names = [(alias.name, alias.asname) for alias in node.names]
+    if isinstance(node, ast.Import):
+        for name, asname in names:
+            if name not in STDLIB or asname:
+                raise ValueError("%s imports %s" % (file.rel, name))
+            file.bound[name.split(".")[0]] = _Opaque(name.split(".")[0])
+        return
+    module, runner = node.module, file.rel == "tools/mutants.py"
+    if node.level or any(name == "*" for name, _ in names):
+        raise ValueError("%s imports from %s" % (file.rel, module))
+    if module == "__future__" and names == [("annotations", None)]:
+        file.future = True
+    elif module == "tools.mutants_of.common" and file.rel != "tools/mutants_of/common.py":
+        common = file.read.loaded("common")
+        for name, asname in names:
+            if name not in common:
+                raise ValueError("%s imports %s, which common.py does not bind" % (file.rel, name))
+            file.bound[asname or name] = common[name]
+    elif module == "tools.mutants_of" and names == [("common", None)]:
+        file.bound["common"] = file.read.loaded("common")
+    elif runner and (module, names) in (("tools", [("walk", None)]), ("tools.verify", [("SLOW", None)])):
+        file.bound[names[0][0]] = _Opaque(module + "." + names[0][0])
+    else:
+        raise ValueError("%s imports from %s" % (file.rel, module))
+
+
+def _signature(node, frame: "_Frame") -> list:
+    """The defaults of a def, worked out as Python does when it runs the def, and its annotations checked alike."""
+    args = node.args
+    notes = [] if frame.file.future else [one.annotation for one in getattr(args, "posonlyargs", []) + args.args
+                                          + args.kwonlyargs + [args.vararg, args.kwarg] if one and one.annotation]
+    for one in notes + ([node.returns] if node.returns and not frame.file.future else []):
+        frame.inert(one)
+    return [frame.inert(one) for one in args.defaults + [d for d in args.kw_defaults if d is not None]]
+
+
+def _classed(node, frame: "_Frame") -> None:
+    """A class of the runner: bases of EXCEPTIONS, a body of defs alone, whose one decorator is contextlib's."""
+    if node.decorator_list or node.keywords or not all(isinstance(b, ast.Name) and b.id in EXCEPTIONS
+                                                       and b.id not in frame.file.bound for b in node.bases):
+        raise ValueError("%s line %d: a class is not read" % (frame.file.rel, node.lineno))
+    for one in node.body:
+        if _docstring(one):
+            continue
+        if not isinstance(one, ast.FunctionDef) or any(repr(frame.inert(d)) != "contextlib.contextmanager"
+                                                      or not isinstance(frame.inert(d), _Opaque) for d in one.decorator_list):
+            raise ValueError("%s line %d: a class is not read" % (frame.file.rel, one.lineno))
+        _signature(one, frame)
+    frame.file.bound[node.name] = UNKNOWN
 
 
 def _bind(target, value, bound: dict) -> None:
+    """Bind a name, or a tuple of names, as an assignment does."""
     if isinstance(target, ast.Name):
         bound[target.id] = value
-    elif isinstance(target, (ast.Tuple, ast.List)) and isinstance(value, (tuple, list)) and SPREAD not in value \
-            and len(value) == len(target.elts) and not any(isinstance(t, ast.Starred) for t in target.elts):
-        for one, part in zip(target.elts, value):
-            _bind(one, part, bound)
+    elif isinstance(target, (ast.Tuple, ast.List)) and all(isinstance(one, ast.Name) for one in target.elts):
+        if _plain(value) and len(list(value)) != len(target.elts):
+            raise ValueError("an assignment unpacks the wrong number of values")
+        parts = list(value) if isinstance(value, (tuple, list)) else [UNKNOWN] * len(target.elts)
+        for one, part in zip(target.elts, parts):
+            bound[one.id] = part
     else:
-        for name in _stored(target):
-            bound[name] = UNKNOWN
-
-
-def _stored(node) -> set:
-    """Every name a statement or a target binds, by any means at any depth, and each it declares global."""
-    out = set()
-    for one in ast.walk(node):
-        if isinstance(one, ast.Name) and not isinstance(one.ctx, ast.Load):
-            out.add(one.id)
-        elif isinstance(one, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            out.add(one.name)
-        elif isinstance(one, (ast.Import, ast.ImportFrom)):
-            out |= {(alias.asname or alias.name).split(".")[0] for alias in one.names}
-        elif isinstance(one, (ast.Global, ast.Nonlocal)):
-            out |= set(one.names)
-    return out
-
-
-def _touched(node, bound: dict, every: bool = False) -> None:
-    """Make UNKNOWN what `node` could change: when `every`, each name it binds and each list or dict it names; else each
-    list or dict named inside a call."""
-    names = _stored(node) if every else set()
-    calls = [n for n in ast.walk(node) if isinstance(n, ast.Call) and not _harmless(n, bound)]
-    for one in [node] if every else calls:
-        names |= {n.id for n in ast.walk(one) if isinstance(n, ast.Name) and isinstance(bound.get(n.id), (list, dict))}
-    for name in names:
-        bound[name] = UNKNOWN
-
-
-def _harmless(call, bound: dict) -> bool:
-    """Whether a call changes nothing it is given: `tuple`, `dict`, `.items()`, `.get()` or a function the reader runs."""
-    func = call.func
-    if isinstance(func, ast.Name):
-        return isinstance(bound.get(func.id), _Function) or (func.id in ("tuple", "dict") and func.id not in bound)
-    return isinstance(func, ast.Attribute) and func.attr in ("items", "get")
-
-
-def _value(node, bound: dict, areas: tuple, scope: dict = None):
-    """What `node` evaluates to, where the reader works it out from text alone; UNKNOWN otherwise."""
-    scope = bound if scope is None else scope
-    if isinstance(node, ast.Constant):
-        return node.value
-    if isinstance(node, ast.Name):
-        return scope.get(node.id, UNKNOWN)
-    if isinstance(node, (ast.Tuple, ast.List)):
-        out = []
-        for one in node.elts:
-            inner = _value(one.value if isinstance(one, ast.Starred) else one, bound, areas, scope)
-            if not isinstance(one, ast.Starred):
-                out.append(inner)
-            else:
-                out += list(inner) if isinstance(inner, (tuple, list)) else [SPREAD]
-        return tuple(out) if isinstance(node, ast.Tuple) else out
-    if isinstance(node, ast.Dict) and None not in node.keys:
-        keys = [_value(one, bound, areas, scope) for one in node.keys]
-        return dict(zip(keys, [_value(one, bound, areas, scope) for one in node.values])) if _plain(keys) else UNKNOWN
-    if isinstance(node, ast.BinOp):
-        return _operation(node, bound, areas, scope)
-    if isinstance(node, ast.Compare) and len(node.ops) == 1:
-        return _compared(node, bound, areas, scope)
-    if isinstance(node, ast.Attribute):
-        held = _value(node.value, bound, areas, scope)
-        return held.get(node.attr, UNKNOWN) if isinstance(held, _Module) else UNKNOWN
-    if isinstance(node, ast.Subscript):
-        held, at = _value(node.value, bound, areas, scope), _index(node.slice, bound, areas, scope)
-        if type(held) is dict and _plain(_value(node.slice, bound, areas, scope)):
-            return held.get(_value(node.slice, bound, areas, scope), UNKNOWN)
-        if isinstance(held, (str, tuple)) and at is not UNKNOWN and _plain(held):
-            try:
-                return held[at]
-            except (IndexError, TypeError):
-                return UNKNOWN
-        return UNKNOWN
-    if isinstance(node, (ast.ListComp, ast.GeneratorExp)):
-        made = _comprehension(node, bound, areas, scope)
-        return made if made is UNKNOWN or isinstance(node, ast.ListComp) else tuple(made)
-    if isinstance(node, ast.Call):
-        return _called(node, bound, areas, scope)
-    if isinstance(node, ast.IfExp):
-        test = _truth(_value(node.test, bound, areas, scope))
-        return UNKNOWN if test is None else _value(node.body if test else node.orelse, bound, areas, scope)
-    if isinstance(node, ast.DictComp):
-        made = _comprehension(ast.ListComp(elt=ast.Tuple(elts=[node.key, node.value], ctx=ast.Load()),
-                                           generators=node.generators), bound, areas, scope)
-        return dict(made) if made is not UNKNOWN and _plain([key for key, _ in made]) else UNKNOWN
-    return UNKNOWN
-
-
-def _called(node, bound: dict, areas: tuple, scope: dict, depth: int = 0):
-    """A call the reader works out: a function it runs, `dict(d, **e)`, `.items()` or `.get(key[, default])`."""
-    func = node.func
-    args = [_value(one, bound, areas, scope) for one in node.args]
-    if isinstance(func, ast.Attribute) and not node.keywords and func.attr in ("items", "get"):
-        held = _value(func.value, bound, areas, scope)
-        if type(held) is not dict:
-            return UNKNOWN
-        if func.attr == "items" and not args:
-            return list(held.items())
-        if func.attr == "get" and len(args) in (1, 2) and _plain(args[0]):
-            return held.get(args[0], args[1] if len(args) == 2 else None)
-        return UNKNOWN
-    if not isinstance(func, ast.Name) or node.keywords and func.id != "dict":
-        return UNKNOWN
-    if func.id == "areas" and "areas" in scope and areas is not None and len(args) == 1:
-        return areas        # tools/mutants.py's own areas(ROOT): the files of tools/mutants_of/, read alike
-    if func.id == "tuple" and "tuple" not in scope and len(args) == 1:
-        made = args[0]
-        return tuple(made) if isinstance(made, (tuple, list, dict)) and _plain(list(made)) else UNKNOWN
-    if func.id == "dict" and "dict" not in scope and len(args) <= 1:
-        out = {}
-        for one in args + [_value(k.value, bound, areas, scope) for k in node.keywords if k.arg is None]:
-            if type(one) is not dict:
-                return UNKNOWN
-            out.update(one)
-        return out if all(k.arg is None for k in node.keywords) else UNKNOWN
-    called = scope.get(func.id)
-    if isinstance(called, _Function) and not node.keywords and len(args) == len(called.node.args.args):
-        if len(_CALLS) > 50:
-            return UNKNOWN
-        _CALLS.append(func.id)
-        try:
-            return _ran(called, dict(called.bound, **{a.arg: v for a, v in zip(called.node.args.args, args)}), areas)
-        finally:
-            _CALLS.pop()
-    return UNKNOWN
-
-
-_CALLS = []     # the functions being run, so that one calling itself ends
-
-
-def _ran(function: _Function, local: dict, areas: tuple):
-    """What a function the reader runs returns: UNKNOWN where a test it meets is not worked out."""
-    body = function.node.body
-    for node in body[1:] if body and _docstring(body[0]) else body:
-        out = _step(node, local, function.bound, areas)
-        if out is not _ON:
-            return out
-    return UNKNOWN
-
-
-_ON = object()      # a statement that returned nothing: run the next one
-
-
-def _step(node, local: dict, bound: dict, areas: tuple):
-    if isinstance(node, ast.Return):
-        return _value(node.value, bound, areas, local)
-    if isinstance(node, ast.Assign):
-        value = _value(node.value, bound, areas, local)
-        for target in node.targets:
-            local[target.id] = value
-        return _ON
-    test = _truth(_value(node.test, bound, areas, local))
-    if test is None:
-        return UNKNOWN
-    for one in node.body if test else node.orelse:
-        out = _step(one, local, bound, areas)
-        if out is not _ON:
-            return out
-    return _ON
-
-
-def _compared(node, bound: dict, areas: tuple, scope: dict):
-    """`a == b`, `a != b`, `a in b` or `a not in b` of values worked out whole; UNKNOWN otherwise."""
-    left, right = _value(node.left, bound, areas, scope), _value(node.comparators[0], bound, areas, scope)
-    if not (_plain(left) and _plain(right)):
-        return UNKNOWN
-    op = type(node.ops[0])
-    if op in (ast.In, ast.NotIn) and not isinstance(right, (str, tuple, list, dict)):
-        return UNKNOWN
-    answers = {ast.Eq: lambda: left == right, ast.NotEq: lambda: left != right,
-               ast.In: lambda: left in right, ast.NotIn: lambda: left not in right}
-    return answers[op]() if op in answers else UNKNOWN
-
-
-def _operation(node, bound: dict, areas: tuple, scope: dict):
-    """`a + b` of two strings, tuples or lists, or `text % values`, worked out; UNKNOWN otherwise."""
-    left, right = _value(node.left, bound, areas, scope), _value(node.right, bound, areas, scope)
-    if isinstance(node.op, ast.Add) and type(left) is type(right) and isinstance(left, (str, tuple, list)):
-        return left + right
-    if isinstance(node.op, ast.Mod) and isinstance(left, str) and _plain(right):
-        try:
-            return left % right
-        except (TypeError, ValueError, KeyError):
-            return UNKNOWN
-    return UNKNOWN
-
-
-def _truth(value):
-    """Whether a value worked out whole is true, as `if` reads it; None for one that is not worked out."""
-    return bool(value) if _plain(value) else None
+        raise ValueError("an assignment binds what is not a name")
 
 
 def _plain(value) -> bool:
-    """Whether `value` is worked out whole: no UNKNOWN or SPREAD at any depth."""
-    if value is UNKNOWN or value is SPREAD:
-        return False
-    if isinstance(value, dict):
-        return not isinstance(value, _Module) and _plain(list(value)) and _plain(list(value.values()))
-    return all(_plain(one) for one in value) if isinstance(value, (tuple, list)) else True
+    """Whether `value` is worked out whole: no _Opaque, module or function at any depth."""
+    if value is None or type(value) in (bool, int, float, complex, str, bytes, range, slice, type(...)):
+        return True
+    if type(value) in (tuple, list, type({}.keys()), type({}.values())):
+        return all(_plain(one) for one in value)
+    if type(value) in (dict, type({}.items())):
+        return all(_plain(one) for one in (value.items() if type(value) is dict else value))
+    return False
 
 
-def _index(node, bound: dict, areas: tuple, scope: dict):
-    if isinstance(node, ast.Slice):
-        parts = [None if one is None else _index(one, bound, areas, scope) for one in (node.lower, node.upper, node.step)]
-        return slice(*parts) if UNKNOWN not in parts else UNKNOWN
-    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-        inner = _index(node.operand, bound, areas, scope)
-        return -inner if inner is not UNKNOWN else UNKNOWN
-    at = _value(node, bound, areas, scope)
-    return at if isinstance(at, int) and not isinstance(at, bool) else UNKNOWN
+def _sized(value):
+    if isinstance(value, (str, bytes, tuple, list)) and len(value) > BUDGET["length"]:
+        raise ValueError("a value is longer than the reader builds")
+    return value
 
 
-def _comprehension(node, bound: dict, areas: tuple, scope: dict):
-    """The list a comprehension builds, each of its loops over what the reader works out, with no condition."""
-    rounds = [dict(scope)]
-    for loop in node.generators:
-        if loop.is_async:
-            return UNKNOWN
-        after = []
-        for inner in rounds:
-            over = _value(loop.iter, bound, areas, inner)
-            if type(over) is dict:
-                over = list(over)
-            if not isinstance(over, (tuple, list)) or SPREAD in over:
+class _Frame:
+    """Where an expression is worked out: a file's top, or a function's call, whose `local` names `names` holds."""
+
+    def __init__(self, file: _File, local: dict = None, names: frozenset = frozenset(), top: bool = True):
+        self.file, self.local, self.names, self.top = file, local, names, top
+
+    def name(self, name: str):
+        if self.local is not None and name in self.names:
+            if name not in self.local:
+                raise ValueError("%s is read before it is bound" % name)
+            return self.local[name]
+        if name.startswith("__") and name != "__file__":
+            raise ValueError("%s is not read" % name)
+        if name in self.file.bound:
+            return self.file.bound[name]
+        if name in BUILTINS or name == "__file__":
+            return _Opaque("builtins." + name)
+        raise ValueError("%s: %s is not bound" % (self.file.rel, name))
+
+    def inert(self, node):
+        """A default, an annotation or a decorator: names, attributes, constants and tuples of them, which call nothing."""
+        if isinstance(node, ast.Constant):
+            return node.value
+        if isinstance(node, ast.Tuple):
+            return tuple(self.inert(one) for one in node.elts)
+        if isinstance(node, ast.Name):
+            local = node.id not in self.file.bound and node.id in TYPES
+            return _Opaque("builtins." + node.id) if local else self.name(node.id)
+        if isinstance(node, ast.Attribute) and not node.attr.startswith("_"):
+            held = self.inert(node.value)
+            if isinstance(held, _Module) and node.attr in held:
+                return held[node.attr]
+            if isinstance(held, _Opaque) and (held.what, node.attr) in MODULE_VALUES:
+                return _Opaque(held.what + "." + node.attr)
+        raise ValueError("%s: a default, an annotation or a decorator calls or builds a value" % self.file.rel)
+
+    def test(self, node):
+        """Whether a test is true; None where it is not worked out, which at the top of a file is refused."""
+        value = self.value(node)
+        if _plain(value):
+            return bool(value)
+        if self.top:
+            raise ValueError("%s: a test at the top is not worked out" % self.file.rel)
+        return None
+
+    def value(self, node):
+        """What `node` evaluates to, as Python would; UNKNOWN where Python reads it from outside the text."""
+        kind = type(node)
+        if kind is ast.Constant:
+            return node.value
+        if kind is ast.Name:
+            return self.name(node.id)
+        if kind in (ast.Tuple, ast.List):
+            out = []
+            for one in node.elts:
+                out += self.spread(one.value) if isinstance(one, ast.Starred) else [self.value(one)]
+            return _sized(tuple(out) if kind is ast.Tuple else out)
+        if kind is ast.Dict and None not in node.keys:
+            keys = [self.value(one) for one in node.keys]
+            values = [self.value(one) for one in node.values]
+            return _real(lambda: dict(zip(keys, values))) if _plain(keys) else UNKNOWN
+        if kind is ast.BinOp:
+            return _operation(node.op, self.value(node.left), self.value(node.right))
+        if kind is ast.UnaryOp and type(node.op) in (ast.USub, ast.Not):
+            inner = self.value(node.operand)
+            return UNKNOWN if not _plain(inner) else _real(lambda: -inner if type(node.op) is ast.USub else not inner)
+        if kind is ast.Compare:
+            return self.compared(node)
+        if kind is ast.IfExp:
+            test = self.test(node.test)
+            return UNKNOWN if test is None else self.value(node.body if test else node.orelse)
+        if kind is ast.Attribute:
+            return self.attribute(self.value(node.value), node.attr)
+        if kind is ast.Subscript:
+            held, at = self.value(node.value), self.index(node.slice)
+            return _real(lambda: held[at]) if _plain(held) and _plain(at) else UNKNOWN
+        if kind is ast.ListComp:
+            rounds = self.rounds(node)
+            return UNKNOWN if rounds is None else _sized([inner.value(node.elt) for inner in rounds])
+        if kind is ast.DictComp:
+            rounds = self.rounds(node)
+            if rounds is None:
                 return UNKNOWN
-            for item in over:
-                one = dict(inner)
-                _bind(loop.target, item, one)
-                kept = [_truth(_value(test, bound, areas, one)) for test in loop.ifs]
-                if None in kept:
-                    return UNKNOWN
-                if all(kept):
-                    after.append(one)
-        rounds = after
-    return [_value(node.elt, bound, areas, inner) for inner in rounds]
+            pairs = [(inner.value(node.key), inner.value(node.value)) for inner in rounds]
+            return _real(lambda: dict(pairs)) if _plain([key for key, _ in pairs]) else UNKNOWN
+        if kind is ast.Call:
+            return self.called(node)
+        raise ValueError("%s line %d: a %s is not read" % (self.file.rel, node.lineno, kind.__name__))
+
+    def generated(self, node):
+        """The items of a generator that is read once, whole, where it is made: given to tuple(), or looped over."""
+        rounds = self.rounds(node)
+        return UNKNOWN if rounds is None else _sized([inner.value(node.elt) for inner in rounds])
+
+    def spread(self, node) -> list:
+        """The parts `*node` gives a list or a tuple: those of a value worked out, or as many UNKNOWN as each return of
+        the function it calls gives, when it returns a tuple of one fixed length."""
+        value = self.value(node)
+        if isinstance(value, (tuple, list)) or _plain(value):
+            return _real(lambda: list(value))
+        called = self.value(node.func) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) else None
+        returns = [one.value for one in ast.walk(called.node) if isinstance(one, ast.Return)] \
+            if isinstance(called, _Function) else []
+        widths = {len(one.elts) for one in returns if isinstance(one, ast.Tuple)
+                  and not any(isinstance(part, ast.Starred) for part in one.elts)}
+        if not returns or len(widths) != 1 or not all(isinstance(one, ast.Tuple) for one in returns):
+            raise ValueError("%s: a starred part is not worked out" % self.file.rel)
+        return [UNKNOWN] * widths.pop()
+
+    def compared(self, node):
+        left = self.value(node.left)
+        for op, right in zip(node.ops, node.comparators):
+            right = self.value(right)
+            if not (_plain(left) and _plain(right)):
+                return UNKNOWN
+            if not _real(lambda: COMPARE[type(op)](left, right)):
+                return False
+            left = right
+        return True
+
+    def attribute(self, held, attr: str):
+        if attr.startswith("_"):
+            raise ValueError("%s: .%s is not read" % (self.file.rel, attr))
+        if isinstance(held, _Module) and attr in held:
+            return held[attr]
+        if attr in ATTRIBUTES:
+            return _real(lambda: getattr(held, attr)) if _plain(held) else UNKNOWN
+        if isinstance(held, _Opaque) and (held.what, attr) in MODULE_VALUES:
+            return _Opaque(held.what + "." + attr)
+        raise ValueError("%s: .%s is not read" % (self.file.rel, attr))
+
+    def index(self, node):
+        if isinstance(node, ast.Slice):
+            parts = [None if one is None else self.value(one) for one in (node.lower, node.upper, node.step)]
+            return slice(*parts) if _plain(parts) else UNKNOWN
+        return self.value(node)
+
+    def rounds(self, node):
+        """A frame for each round of a comprehension's loops that its conditions keep; None where its loops or its
+        conditions are not worked out, which at the top of a file is refused."""
+        rounds = [self]
+        for loop in node.generators:
+            after = []
+            for inner in rounds:
+                over = inner.generated(loop.iter) if isinstance(loop.iter, ast.GeneratorExp) else inner.value(loop.iter)
+                if not (type(over) in (tuple, list) or _plain(over)) or loop.is_async:
+                    if self.top:
+                        raise ValueError("%s: a loop at the top is not worked out" % self.file.rel)
+                    return None
+                for item in _real(lambda: list(over)):
+                    self.file.read.rounds += 1
+                    if self.file.read.rounds > BUDGET["rounds"]:
+                        raise ValueError("the mutants take more rounds than the reader runs")
+                    local = dict(inner.local or {})
+                    _bind(loop.target, item, local)
+                    one = _Frame(self.file, local, inner.names | set(local), self.top)
+                    kept = [one.test(test) for test in loop.ifs]
+                    if None in kept:
+                        return None
+                    if all(kept):
+                        after.append(one)
+            rounds = after
+        return rounds
+
+    def called(self, node):
+        func = node.func
+        if any(isinstance(one, ast.Starred) for one in node.args) or \
+                any(k.arg is not None for k in node.keywords) or node.keywords and getattr(func, "id", "") != "dict":
+            raise ValueError("%s line %d: a call is not read" % (self.file.rel, node.lineno))
+        if isinstance(func, ast.Attribute):
+            return self.method(node, self.value(func.value), func.attr)
+        if not isinstance(func, ast.Name):
+            raise ValueError("%s line %d: a call is not read" % (self.file.rel, node.lineno))
+        called = self.name(func.id)
+        if isinstance(called, _Opaque) and called.what == "builtins.tuple" and len(node.args) == 1 \
+                and isinstance(node.args[0], ast.GeneratorExp):
+            made = self.generated(node.args[0])
+            return made if made is UNKNOWN else tuple(made)
+        args = [self.value(one) for one in node.args] + [self.value(k.value) for k in node.keywords]
+        if isinstance(called, _Opaque) and called.what in ("builtins." + name for name in BUILTINS):
+            if not _plain(args) or called.what == "builtins.iter":
+                return UNKNOWN      # an iterator changes as it is read: what reads it is not worked out
+            if called.what == "builtins.dict" and len(node.args) <= 1:
+                return _merged(args[:len(node.args)], args[len(node.args):])
+            if called.what != "builtins.dict" and not node.keywords:
+                return _sized(_real(lambda: {"len": len, "range": range, "tuple": tuple}[called.what[9:]](*args)))
+        if isinstance(called, _Function) and _pinned(called, "areas") and self.file.rel == "tools/mutants.py" \
+                and self.top and len(args) == 1 and args[0] is self.file.bound.get("ROOT"):
+            return _areas(self.file, called)
+        if isinstance(called, _Function) and not node.keywords:
+            return _ran(called, args)
+        raise ValueError("%s line %d: %s is called" % (self.file.rel, node.lineno, func.id))
+
+    def method(self, node, held, attr: str):
+        args = [self.value(one) for one in node.args]
+        if isinstance(held, _Opaque) and (held.what, attr) in MODULE_CALLS:
+            return UNKNOWN
+        if attr == "replace" and self.top and type(held) is str and len(args) in (2, 3) \
+                and type(args[0]) is type(args[1]) is str and all(type(one) is int for one in args[2:]):
+            if len(held) + (held.count(args[0]) + 1) * len(args[1]) > BUDGET["length"]:
+                raise ValueError("a value is longer than the reader builds")
+            return held.replace(*args)
+        if attr not in METHODS or isinstance(held, (_Module, _Function)) or isinstance(held, _Opaque) and held.what in MODULES:
+            raise ValueError("%s line %d: .%s is called" % (self.file.rel, node.lineno, attr))
+        if not (_plain(held) and _plain(args)):
+            return UNKNOWN
+        return _sized(_real(lambda: getattr(held, attr)(*args)))
+
+
+COMPARE = {ast.Eq: lambda a, b: a == b, ast.NotEq: lambda a, b: a != b, ast.Lt: lambda a, b: a < b,
+           ast.LtE: lambda a, b: a <= b, ast.Gt: lambda a, b: a > b, ast.GtE: lambda a, b: a >= b,
+           ast.In: lambda a, b: a in b, ast.NotIn: lambda a, b: a not in b, ast.Is: lambda a, b: a is b,
+           ast.IsNot: lambda a, b: a is not b}
+
+
+def _merged(given: list, spread: list) -> dict:
+    """`dict(given, **one, **two)` as Python builds it: a spread key that is not a str, or that two spreads give, raises."""
+    out = _real(lambda: dict(*given))
+    seen = set()
+    for one in spread:
+        if type(one) is not dict or not all(type(key) is str and key not in seen for key in one):
+            raise ValueError("dict() is given what Python refuses")
+        seen |= set(one)
+        out.update(one)
+    return out
+
+
+def _real(work):
+    """What Python gives for an operation on values worked out whole; whatever it raises, it is refused."""
+    try:
+        return work()
+    except Exception as err:    # noqa: BLE001 -- where Python would raise, the file cannot be read
+        raise ValueError("an operation raises %s" % type(err).__name__)
+
+
+def _operation(op, left, right):
+    """`left op right`, as Python works it out, within the reader's budget; UNKNOWN for a value not worked out. Two
+    tuples or two lists are joined whatever they hold, which the join does not read."""
+    if type(op) is ast.Add and type(left) is type(right) and type(left) in (tuple, list):
+        if len(left) + len(right) > BUDGET["length"]:
+            raise ValueError("a value is longer than the reader builds")
+        return left + right
+    if not (_plain(left) and _plain(right)):
+        return UNKNOWN
+    if type(op) is ast.Mod and isinstance(left, str):
+        for width in FORMAT.finditer(left):
+            if "*" in width.group(0) or any(part and int(part) > BUDGET["width"] for part in width.groups()):
+                raise ValueError("a format is wider than the reader builds")
+    if type(op) is ast.Pow and not (type(left) is type(right) is int and 0 <= right <= 64 and abs(left) < 2 ** 64):
+        raise ValueError("a power is larger than the reader works out")
+    if type(op) is ast.Mult:
+        sizes = [len(one) for one in (left, right) if isinstance(one, (str, bytes, tuple, list))]
+        counts = [one for one in (left, right) if type(one) is int]
+        if sizes and counts and sizes[0] * max(counts[0], 0) > BUDGET["length"] or \
+                len(counts) == 2 and counts[0].bit_length() + counts[1].bit_length() > 4096:
+            raise ValueError("a product is larger than the reader works out")
+    if type(op) is ast.Add and isinstance(left, (str, bytes, tuple, list)) and isinstance(right, (str, bytes, tuple, list)):
+        if len(left) + len(right) > BUDGET["length"]:
+            raise ValueError("a value is longer than the reader builds")
+    return _sized(_real(lambda: OPERATIONS[type(op)](left, right)))
+
+
+OPERATIONS = {ast.Add: lambda a, b: a + b, ast.Sub: lambda a, b: a - b, ast.Mult: lambda a, b: a * b,
+              ast.Div: lambda a, b: a / b, ast.FloorDiv: lambda a, b: a // b, ast.Mod: lambda a, b: a % b,
+              ast.Pow: lambda a, b: a ** b}
+
+
+def _pinned(function: _Function, name: str) -> bool:
+    return function.node.name == name and function.source == PINNED[name]
+
+
+def _areas(file: _File, areas: _Function) -> tuple:
+    """What `areas(ROOT)` loads, as PINNED writes it: the files of mutants, in the order of their names."""
+    bound = file.bound
+    if not (isinstance(bound.get("area_names"), _Function) and _pinned(bound["area_names"], "area_names")
+            and isinstance(bound.get("AREA_NAME"), _Opaque) and bound["AREA_NAME"].what == "AREA_NAME"
+            and isinstance(bound.get("walk"), _Opaque) and bound["walk"].what == "tools.walk"
+            and len(areas.defaults) == 1 and isinstance(areas.defaults[0], _Opaque)
+            and areas.defaults[0].what == "importlib.import_module"):
+        raise ValueError("areas(ROOT) is not read as PINNED writes it")
+    return tuple(file.read.loaded(path.stem) for path in _mutant_files(file.read.root)[1:]
+                 if path.stem not in ("__init__", "common"))
+
+
+def _safe(node, file: _File) -> None:
+    """Refuse a function the reader may not run: one whose body could change a value or reach outside on any path, or
+    whose arguments are not positional alone. Each function it calls by name is checked alike."""
+    if id(node) in file.safe:
+        return
+    file.safe.add(id(node))
+    args = node.args
+    if node.decorator_list or args.vararg or args.kwarg or args.kwonlyargs or args.defaults \
+            or getattr(args, "posonlyargs", []):
+        raise ValueError("%s: %s takes what the reader does not give" % (file.rel, node.name))
+    local = {one.arg for one in args.args} | {one.id for one in ast.walk(node) if isinstance(one, ast.Name)
+                                               and isinstance(one.ctx, ast.Store)}
+    for one in ast.walk(node):
+        if isinstance(one, ast.stmt) and one is not node and not (
+                _docstring(one) or isinstance(one, ast.If) or isinstance(one, ast.Return) and one.value is not None
+                or isinstance(one, ast.Assign) and all(isinstance(t, ast.Name) or isinstance(t, ast.Tuple) and all(
+                    isinstance(e, ast.Name) for e in t.elts) for t in one.targets)):
+            raise ValueError("%s line %d: %s is not run by the reader" % (file.rel, one.lineno, node.name))
+    calls = {id(one.func) for one in ast.walk(node) if isinstance(one, ast.Call)}
+    tupled = {id(one.args[0]) for one in ast.walk(node) if isinstance(one, ast.Call)
+              and getattr(one.func, "id", "") == "tuple" and len(one.args) == 1} | \
+        {id(one.iter) for one in ast.walk(node) if isinstance(one, ast.comprehension)}
+    for one in ast.walk(node):
+        if isinstance(one, (ast.stmt, ast.arguments, ast.arg)):
+            continue
+        bad = not isinstance(one, EXPRESSIONS) \
+            or isinstance(one, ast.Name) and one.id.startswith("__") \
+            or isinstance(one, (ast.Attribute, ast.Subscript)) and not isinstance(one.ctx, ast.Load) \
+            or isinstance(one, ast.Attribute) and not (one.attr in ATTRIBUTES or one.attr in METHODS and id(one) in calls) \
+            or isinstance(one, ast.GeneratorExp) and id(one) not in tupled \
+            or isinstance(one, ast.Dict) and None in one.keys \
+            or isinstance(one, ast.comprehension) and one.is_async \
+            or isinstance(one, ast.Call) and _unsafe_call(one, local, file)
+        if bad:
+            raise ValueError("%s line %d: %s is not run by the reader" % (file.rel, getattr(one, "lineno", node.lineno),
+                                                                          node.name))
+
+
+def _unsafe_call(node, local: set, file: _File) -> bool:
+    """Whether a call in a function may reach what the reader does not run: anything but a method of METHODS, a name
+    of BUILTINS the file leaves unbound, or a def bound once at the top of the file, itself checked."""
+    if any(isinstance(one, ast.Starred) for one in node.args) or node.keywords:
+        return True
+    if isinstance(node.func, ast.Attribute):
+        return False
+    name = getattr(node.func, "id", None)
+    if name is None or name in local:
+        return True
+    if name in BUILTINS:
+        return name in file.names
+    if name not in file.defs:
+        return True
+    _safe(file.defs[name], file)
+    return False
+
+
+def _ran(function: _Function, args: list):
+    """What a function returns, run by the reader: UNKNOWN from the first test it does not work out."""
+    read, node = function.file.read, function.node
+    _safe(node, function.file)
+    if len(args) != len(node.args.args):
+        raise ValueError("%s is called with %d arguments" % (node.name, len(args)))
+    read.calls += 1
+    if read.calls > BUDGET["calls"] or read.depth >= BUDGET["depth"]:
+        raise ValueError("the mutants take more calls than the reader runs")
+    names = frozenset(one.id for one in ast.walk(node) if isinstance(one, ast.Name) and isinstance(one.ctx, ast.Store))
+    frame = _Frame(function.file, {one.arg: value for one, value in zip(node.args.args, args)},
+                   names | {one.arg for one in node.args.args}, top=False)
+    read.depth += 1
+    try:
+        out = _steps(node.body[1:] if node.body and _docstring(node.body[0]) else node.body, frame)
+    finally:
+        read.depth -= 1
+    return None if out is _ON else out
+
+
+_ON = _Opaque("ON")      # what a run of statements gives when none of them returns
+
+
+def _steps(body: list, frame: _Frame):
+    """Run a function's statements: what one returns, else _ON; UNKNOWN from a test not worked out."""
+    for node in body:
+        if isinstance(node, ast.Return):
+            return frame.value(node.value)
+        if isinstance(node, ast.Assign):
+            value = frame.value(node.value)
+            for target in node.targets:
+                _bind(target, value, frame.local)
+            continue
+        test = frame.test(node.test)
+        if test is None:
+            return UNKNOWN
+        out = _steps(node.body if test else node.orelse, frame)
+        if out is not _ON:
+            return out
+    return _ON
 
 
 def _is_test(killer: str, module: str, name: str) -> bool:
