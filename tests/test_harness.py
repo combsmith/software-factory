@@ -2383,6 +2383,8 @@ class Push(unittest.TestCase):
                 ("where it stands unread", dict(bases=[(None, self.DEFAULT)]), push.BASE_UNREAD, first_reads),
                 ("the default head's workflows unread", dict(files=lambda sha: (None, rules.WORKFLOWS_UNREADABLE) if sha == self.DEFAULT
                  else ({}, None)), rules.WORKFLOWS_UNREADABLE, first_reads),
+                ("the admitted commit's workflows unread", dict(files=lambda sha: (None, rules.WORKFLOWS_UNREADABLE) if sha == parent
+                 else ({}, None)), rules.WORKFLOWS_UNREADABLE, first_reads),
                 ("a command beside a secret at the admitted commit", dict(files=lambda sha: (started if sha == parent else {}, None)),
                  refused, first_reads),
                 ("a command beside a secret at the default head", dict(files=lambda sha: (started if sha == self.DEFAULT else {}, None)),
