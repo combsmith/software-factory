@@ -28,6 +28,7 @@ import re
 import shutil
 import subprocess
 
+from tools import walk
 from tools.check_context import LINK, PENDING, TOKEN, WAITING, _cells, _is_pending, _rows, _sections
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -213,22 +214,16 @@ def _changed(old: list, new: list) -> list:
 
 
 def _mutants(root: pathlib.Path) -> dict:
-    """{description: (file, the tests that kill it)} of every mutant `tools/mutants.py` holds, read once for each root and
-    each text of the file. Two
-    that share a description name no one mutant. Raises Unreadable."""
+    """{description: (file, the tests that kill it)} of every mutant `tools/mutants.py` runs in `root`, read once for
+    each root and each text of its files. Two that share a description name no one mutant. Raises Unreadable."""
     try:
-        key = (str(root.resolve()), hashlib.sha256((root / "tools" / "mutants.py").read_bytes()).hexdigest())
+        files = _mutant_files(root)
+        key = (str(root.resolve()), tuple((str(path), hashlib.sha256(path.read_bytes()).hexdigest()) for path in files))
     except OSError as err:
         raise Unreadable("tools/mutants.py cannot be read (%s)" % type(err).__name__)
     if key not in _READ:
         try:
-            if root.resolve() == ROOT.resolve():
-                from tools import mutants
-                listed = mutants.MUTANTS
-            else:
-                # Another tree's list is read as a literal, never run: nothing is loaded by a name (tools/check_writes.py).
-                listed = _literal_mutants((root / "tools" / "mutants.py").read_text(encoding="utf-8"))
-            read = [(m[0], (m[1], tuple(m[4]))) for m in listed]
+            read = [(name, (rel, tests)) for name, rel, tests in read_mutants(root)]
         except Exception as err:    # noqa: BLE001 -- whatever stops it being read, the mutants are unreadable
             raise Unreadable("tools/mutants.py cannot be read (%s)" % type(err).__name__)
         if len({name for name, _ in read}) != len(read):
@@ -239,13 +234,368 @@ def _mutants(root: pathlib.Path) -> dict:
 
 _READ = {}
 
+# The mutants are read from the text of their files through ast, never imported: a file of tools/mutants_of/ that a push
+# changes could end this process at import (issue 1377). What the reader does not work out, a call or a name it was not
+# given, is UNKNOWN; a starred part it cannot work out is SPREAD. A mutant whose description, file or tests is either
+# cannot be read.
+UNKNOWN = type("Unknown", (), {"__repr__": lambda self: "UNKNOWN"})()
+SPREAD = type("Spread", (), {"__repr__": lambda self: "SPREAD"})()
+AREA = re.compile(r"[a-z_][a-z0-9_]*")       # the module names tools/mutants.py loads from tools/mutants_of/
 
-def _literal_mutants(source: str) -> list:
-    """The `MUTANTS = [...]` of a file that writes it as a literal, which a tree other than this one holds in a test."""
-    for node in ast.parse(source).body:
-        if isinstance(node, ast.Assign) and [getattr(t, "id", None) for t in node.targets] == ["MUTANTS"]:
-            return ast.literal_eval(node.value)
-    raise ValueError("no MUTANTS")
+
+class _Module(dict):
+    """The names a file of mutants binds, which `module.name` reads."""
+
+
+class _Function:
+    """A function of a file of mutants that the reader runs itself: positional parameters alone, and a body of
+    assignments to names, `if` statements and returns that call a name, `.items()` or `.get()` alone. Of those calls
+    it works out only another such function, `tuple`, `dict` and the two methods of a dict; any other is UNKNOWN."""
+
+    def __init__(self, node, bound: dict):
+        self.node, self.bound = node, bound
+
+    @staticmethod
+    def readable(node) -> bool:
+        args = node.args
+        if node.decorator_list or args.vararg or args.kwarg or args.kwonlyargs or args.defaults \
+                or getattr(args, "posonlyargs", []):
+            return False
+        body = node.body[1:] if node.body and _docstring(node.body[0]) else node.body
+        return all(_statement(one) for one in body)
+
+
+def _docstring(node) -> bool:
+    return isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str)
+
+
+def _statement(node) -> bool:
+    """Whether a function's statement is one the reader runs: see _Function."""
+    if isinstance(node, ast.If):
+        return all(_statement(one) for one in node.body + node.orelse) and _pure(node.test)
+    if isinstance(node, ast.Assign):
+        return all(isinstance(target, ast.Name) for target in node.targets) and _pure(node.value)
+    return isinstance(node, ast.Return) and node.value is not None and _pure(node.value)
+
+
+def _pure(node) -> bool:
+    """Whether an expression calls nothing but a name (a function the reader runs, `tuple` or `dict`), or `.items()`
+    and `.get()`, which change nothing."""
+    return all(isinstance(one.func, ast.Name) or (isinstance(one.func, ast.Attribute) and one.func.attr in ("items", "get"))
+               for one in ast.walk(node) if isinstance(one, ast.Call)) \
+        and not any(isinstance(one, (ast.Lambda, ast.NamedExpr)) for one in ast.walk(node))
+
+
+def _mutant_files(root: pathlib.Path) -> list:
+    """tools/mutants.py, then tools/mutants_of/common.py, then each file of mutants there in the order of its name, as
+    tools/mutants.py finds them: a Python file directly in the folder, by a module name, but __init__ and common."""
+    folder = root / "tools" / "mutants_of"
+    areas = [path for path in walk.files(root, "tools/mutants_of") if path.parent == folder and path.suffix == ".py"
+             and path.stem not in ("__init__", "common") and AREA.fullmatch(path.stem)]
+    common = [folder / "common.py"] if (folder / "common.py").is_file() else []
+    return [root / "tools" / "mutants.py"] + common + areas
+
+
+def read_mutants(root: pathlib.Path) -> list:
+    """(description, file, tests) of each mutant of tools/mutants.py's MUTANTS in `root`, read as that file builds it:
+    its own, and those of each file of tools/mutants_of/, which its `areas(ROOT)` loads. Raises ValueError for a
+    mutant it cannot read."""
+    files = _mutant_files(root)
+    folder = root / "tools" / "mutants_of"
+    common = _module(folder / "common.py", {}, None) if folder / "common.py" in files else {}
+    areas = tuple(_module(path, common, None) for path in files[1:] if path.stem != "common")
+    listed = _module(files[0], common, areas).get("MUTANTS", UNKNOWN)
+    if not isinstance(listed, list):
+        raise ValueError("MUTANTS is not a list read as text")
+    return [_parts(mutant) for mutant in listed]
+
+
+def _parts(mutant) -> tuple:
+    """(description, file, tests) of one mutant: its first, its second and its last part, of five."""
+    if not isinstance(mutant, tuple) or len(mutant) < 3 or SPREAD in (mutant[0], mutant[1], mutant[-1]):
+        raise ValueError("a mutant is not a tuple read as text")
+    if SPREAD not in mutant and len(mutant) != 5:
+        raise ValueError("a mutant has not five parts")
+    name, rel, tests = mutant[0], mutant[1], mutant[-1]
+    if not (isinstance(name, str) and isinstance(rel, str) and isinstance(tests, tuple)
+            and all(isinstance(test, str) for test in tests)):
+        raise ValueError("a mutant's description, file or tests is not read as text")
+    return name, rel, tests
+
+
+def _module(path: pathlib.Path, common: dict, areas) -> dict:
+    """The names a file of mutants binds at its top, each to what the reader works out of it, else UNKNOWN. `areas` is
+    what `areas(ROOT)` loads when the file is tools/mutants.py, and None in any other. A name any
+    other statement binds, and a list or dict that a call or any other statement names, is UNKNOWN after it."""
+    bound = _Module()
+    for node in ast.parse(path.read_text(encoding="utf-8")).body:
+        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == "tools.mutants_of.common":
+            for alias in node.names:
+                bound[alias.asname or alias.name] = common.get(alias.name, UNKNOWN)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module == "tools.mutants_of":
+            for alias in node.names:
+                bound[alias.asname or alias.name] = _Module(common) if alias.name == "common" else UNKNOWN
+        elif isinstance(node, ast.FunctionDef) and _Function.readable(node):
+            bound[node.name] = _Function(node, bound)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)) and node.value is not None:
+            value = _value(node.value, bound, areas)
+            _touched(node.value, bound)
+            for target in node.targets if isinstance(node, ast.Assign) else [node.target]:
+                _bind(target, value, bound)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            # A def runs its decorators and its defaults, never its body.
+            for one in node.decorator_list + node.args.defaults + [d for d in node.args.kw_defaults if d is not None]:
+                _touched(one, bound, every=True)
+            bound[node.name] = UNKNOWN
+        else:
+            _touched(node, bound, every=True)
+    return bound
+
+
+def _bind(target, value, bound: dict) -> None:
+    if isinstance(target, ast.Name):
+        bound[target.id] = value
+    elif isinstance(target, (ast.Tuple, ast.List)) and isinstance(value, (tuple, list)) and SPREAD not in value \
+            and len(value) == len(target.elts) and not any(isinstance(t, ast.Starred) for t in target.elts):
+        for one, part in zip(target.elts, value):
+            _bind(one, part, bound)
+    else:
+        for name in _stored(target):
+            bound[name] = UNKNOWN
+
+
+def _stored(node) -> set:
+    """Every name a statement or a target binds, by any means at any depth, and each it declares global."""
+    out = set()
+    for one in ast.walk(node):
+        if isinstance(one, ast.Name) and not isinstance(one.ctx, ast.Load):
+            out.add(one.id)
+        elif isinstance(one, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            out.add(one.name)
+        elif isinstance(one, (ast.Import, ast.ImportFrom)):
+            out |= {(alias.asname or alias.name).split(".")[0] for alias in one.names}
+        elif isinstance(one, (ast.Global, ast.Nonlocal)):
+            out |= set(one.names)
+    return out
+
+
+def _touched(node, bound: dict, every: bool = False) -> None:
+    """Make UNKNOWN what `node` could change: when `every`, each name it binds and each list or dict it names; else each
+    list or dict named inside a call."""
+    names = _stored(node) if every else set()
+    calls = [n for n in ast.walk(node) if isinstance(n, ast.Call) and not _harmless(n, bound)]
+    for one in [node] if every else calls:
+        names |= {n.id for n in ast.walk(one) if isinstance(n, ast.Name) and isinstance(bound.get(n.id), (list, dict))}
+    for name in names:
+        bound[name] = UNKNOWN
+
+
+def _harmless(call, bound: dict) -> bool:
+    """Whether a call changes nothing it is given: `tuple`, `dict`, `.items()`, `.get()` or a function the reader runs."""
+    func = call.func
+    if isinstance(func, ast.Name):
+        return isinstance(bound.get(func.id), _Function) or (func.id in ("tuple", "dict") and func.id not in bound)
+    return isinstance(func, ast.Attribute) and func.attr in ("items", "get")
+
+
+def _value(node, bound: dict, areas: tuple, scope: dict = None):
+    """What `node` evaluates to, where the reader works it out from text alone; UNKNOWN otherwise."""
+    scope = bound if scope is None else scope
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name):
+        return scope.get(node.id, UNKNOWN)
+    if isinstance(node, (ast.Tuple, ast.List)):
+        out = []
+        for one in node.elts:
+            inner = _value(one.value if isinstance(one, ast.Starred) else one, bound, areas, scope)
+            if not isinstance(one, ast.Starred):
+                out.append(inner)
+            else:
+                out += list(inner) if isinstance(inner, (tuple, list)) else [SPREAD]
+        return tuple(out) if isinstance(node, ast.Tuple) else out
+    if isinstance(node, ast.Dict) and None not in node.keys:
+        keys = [_value(one, bound, areas, scope) for one in node.keys]
+        return dict(zip(keys, [_value(one, bound, areas, scope) for one in node.values])) if _plain(keys) else UNKNOWN
+    if isinstance(node, ast.BinOp):
+        return _operation(node, bound, areas, scope)
+    if isinstance(node, ast.Compare) and len(node.ops) == 1:
+        return _compared(node, bound, areas, scope)
+    if isinstance(node, ast.Attribute):
+        held = _value(node.value, bound, areas, scope)
+        return held.get(node.attr, UNKNOWN) if isinstance(held, _Module) else UNKNOWN
+    if isinstance(node, ast.Subscript):
+        held, at = _value(node.value, bound, areas, scope), _index(node.slice, bound, areas, scope)
+        if type(held) is dict and _plain(_value(node.slice, bound, areas, scope)):
+            return held.get(_value(node.slice, bound, areas, scope), UNKNOWN)
+        if isinstance(held, (str, tuple)) and at is not UNKNOWN and _plain(held):
+            try:
+                return held[at]
+            except (IndexError, TypeError):
+                return UNKNOWN
+        return UNKNOWN
+    if isinstance(node, (ast.ListComp, ast.GeneratorExp)):
+        made = _comprehension(node, bound, areas, scope)
+        return made if made is UNKNOWN or isinstance(node, ast.ListComp) else tuple(made)
+    if isinstance(node, ast.Call):
+        return _called(node, bound, areas, scope)
+    if isinstance(node, ast.IfExp):
+        test = _truth(_value(node.test, bound, areas, scope))
+        return UNKNOWN if test is None else _value(node.body if test else node.orelse, bound, areas, scope)
+    if isinstance(node, ast.DictComp):
+        made = _comprehension(ast.ListComp(elt=ast.Tuple(elts=[node.key, node.value], ctx=ast.Load()),
+                                           generators=node.generators), bound, areas, scope)
+        return dict(made) if made is not UNKNOWN and _plain([key for key, _ in made]) else UNKNOWN
+    return UNKNOWN
+
+
+def _called(node, bound: dict, areas: tuple, scope: dict, depth: int = 0):
+    """A call the reader works out: a function it runs, `dict(d, **e)`, `.items()` or `.get(key[, default])`."""
+    func = node.func
+    args = [_value(one, bound, areas, scope) for one in node.args]
+    if isinstance(func, ast.Attribute) and not node.keywords and func.attr in ("items", "get"):
+        held = _value(func.value, bound, areas, scope)
+        if type(held) is not dict:
+            return UNKNOWN
+        if func.attr == "items" and not args:
+            return list(held.items())
+        if func.attr == "get" and len(args) in (1, 2) and _plain(args[0]):
+            return held.get(args[0], args[1] if len(args) == 2 else None)
+        return UNKNOWN
+    if not isinstance(func, ast.Name) or node.keywords and func.id != "dict":
+        return UNKNOWN
+    if func.id == "areas" and "areas" in scope and areas is not None and len(args) == 1:
+        return areas        # tools/mutants.py's own areas(ROOT): the files of tools/mutants_of/, read alike
+    if func.id == "tuple" and "tuple" not in scope and len(args) == 1:
+        made = args[0]
+        return tuple(made) if isinstance(made, (tuple, list, dict)) and _plain(list(made)) else UNKNOWN
+    if func.id == "dict" and "dict" not in scope and len(args) <= 1:
+        out = {}
+        for one in args + [_value(k.value, bound, areas, scope) for k in node.keywords if k.arg is None]:
+            if type(one) is not dict:
+                return UNKNOWN
+            out.update(one)
+        return out if all(k.arg is None for k in node.keywords) else UNKNOWN
+    called = scope.get(func.id)
+    if isinstance(called, _Function) and not node.keywords and len(args) == len(called.node.args.args):
+        if len(_CALLS) > 50:
+            return UNKNOWN
+        _CALLS.append(func.id)
+        try:
+            return _ran(called, dict(called.bound, **{a.arg: v for a, v in zip(called.node.args.args, args)}), areas)
+        finally:
+            _CALLS.pop()
+    return UNKNOWN
+
+
+_CALLS = []     # the functions being run, so that one calling itself ends
+
+
+def _ran(function: _Function, local: dict, areas: tuple):
+    """What a function the reader runs returns: UNKNOWN where a test it meets is not worked out."""
+    body = function.node.body
+    for node in body[1:] if body and _docstring(body[0]) else body:
+        out = _step(node, local, function.bound, areas)
+        if out is not _ON:
+            return out
+    return UNKNOWN
+
+
+_ON = object()      # a statement that returned nothing: run the next one
+
+
+def _step(node, local: dict, bound: dict, areas: tuple):
+    if isinstance(node, ast.Return):
+        return _value(node.value, bound, areas, local)
+    if isinstance(node, ast.Assign):
+        value = _value(node.value, bound, areas, local)
+        for target in node.targets:
+            local[target.id] = value
+        return _ON
+    test = _truth(_value(node.test, bound, areas, local))
+    if test is None:
+        return UNKNOWN
+    for one in node.body if test else node.orelse:
+        out = _step(one, local, bound, areas)
+        if out is not _ON:
+            return out
+    return _ON
+
+
+def _compared(node, bound: dict, areas: tuple, scope: dict):
+    """`a == b`, `a != b`, `a in b` or `a not in b` of values worked out whole; UNKNOWN otherwise."""
+    left, right = _value(node.left, bound, areas, scope), _value(node.comparators[0], bound, areas, scope)
+    if not (_plain(left) and _plain(right)):
+        return UNKNOWN
+    op = type(node.ops[0])
+    if op in (ast.In, ast.NotIn) and not isinstance(right, (str, tuple, list, dict)):
+        return UNKNOWN
+    answers = {ast.Eq: lambda: left == right, ast.NotEq: lambda: left != right,
+               ast.In: lambda: left in right, ast.NotIn: lambda: left not in right}
+    return answers[op]() if op in answers else UNKNOWN
+
+
+def _operation(node, bound: dict, areas: tuple, scope: dict):
+    """`a + b` of two strings, tuples or lists, or `text % values`, worked out; UNKNOWN otherwise."""
+    left, right = _value(node.left, bound, areas, scope), _value(node.right, bound, areas, scope)
+    if isinstance(node.op, ast.Add) and type(left) is type(right) and isinstance(left, (str, tuple, list)):
+        return left + right
+    if isinstance(node.op, ast.Mod) and isinstance(left, str) and _plain(right):
+        try:
+            return left % right
+        except (TypeError, ValueError, KeyError):
+            return UNKNOWN
+    return UNKNOWN
+
+
+def _truth(value):
+    """Whether a value worked out whole is true, as `if` reads it; None for one that is not worked out."""
+    return bool(value) if _plain(value) else None
+
+
+def _plain(value) -> bool:
+    """Whether `value` is worked out whole: no UNKNOWN or SPREAD at any depth."""
+    if value is UNKNOWN or value is SPREAD:
+        return False
+    if isinstance(value, dict):
+        return not isinstance(value, _Module) and _plain(list(value)) and _plain(list(value.values()))
+    return all(_plain(one) for one in value) if isinstance(value, (tuple, list)) else True
+
+
+def _index(node, bound: dict, areas: tuple, scope: dict):
+    if isinstance(node, ast.Slice):
+        parts = [None if one is None else _index(one, bound, areas, scope) for one in (node.lower, node.upper, node.step)]
+        return slice(*parts) if UNKNOWN not in parts else UNKNOWN
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        inner = _index(node.operand, bound, areas, scope)
+        return -inner if inner is not UNKNOWN else UNKNOWN
+    at = _value(node, bound, areas, scope)
+    return at if isinstance(at, int) and not isinstance(at, bool) else UNKNOWN
+
+
+def _comprehension(node, bound: dict, areas: tuple, scope: dict):
+    """The list a comprehension builds, each of its loops over what the reader works out, with no condition."""
+    rounds = [dict(scope)]
+    for loop in node.generators:
+        if loop.is_async:
+            return UNKNOWN
+        after = []
+        for inner in rounds:
+            over = _value(loop.iter, bound, areas, inner)
+            if type(over) is dict:
+                over = list(over)
+            if not isinstance(over, (tuple, list)) or SPREAD in over:
+                return UNKNOWN
+            for item in over:
+                one = dict(inner)
+                _bind(loop.target, item, one)
+                kept = [_truth(_value(test, bound, areas, one)) for test in loop.ifs]
+                if None in kept:
+                    return UNKNOWN
+                if all(kept):
+                    after.append(one)
+        rounds = after
+    return [_value(node.elt, bound, areas, inner) for inner in rounds]
 
 
 def _is_test(killer: str, module: str, name: str) -> bool:

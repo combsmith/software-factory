@@ -7683,6 +7683,31 @@ class Decisions(unittest.TestCase):
             FIRST: plain + "| Another thing | waiting on `roles/x.py` |\n", "tools/mutants.py": "MUTANTS = [\n"},
             commit=True)), [])
 
+    def test_the_mutants_are_read_as_text_and_never_run(self):  # issue 1377
+        # A file of tools/mutants_of/ is read through ast, its helpers and comprehensions worked out: what would end the
+        # process at import, above its MUTANTS, never runs, and the row finds the mutant it names.
+        area = ('import os\nos._exit(0)\nfrom tools.mutants_of.common import Y\nW = "tools/check_w.py"\n\n\n'
+                'def tests(name):\n    """Its test."""\n    return ("tests.test_x.T." + name,) if name else ()\n\n\n'
+                'MUTANTS = [*[("%s is undone" % thing, W, "a", "b", tests(test)) for thing, test in (("x", "test_y"),)]]\n')
+        files = {"tools/mutants_of/common.py": 'Y = 1\n', "tools/mutants_of/tools_check_w.py": area,
+                 "tools/mutants.py": "raise SystemExit(0)\nfrom tools.mutants_of import common\n\n\ndef areas(root):\n"
+                                     "    return ()\n\n\n" + RECORD_MUTANTS.replace(
+                     "MUTANTS = [\n", "AREAS = areas(ROOT)\nMUTANTS = [m for a in AREAS for m in a.MUTANTS] + [\n")}
+        named = RECORD.replace("one thing is undone", "x is undone").replace("tools/check_x.py", "tools/check_w.py")
+        self.assertEqual(check_decisions.run(edited(history(files), {FIRST: named}, commit=True)), [])
+        self.assertIn(("x is undone", "tools/check_w.py", ("tests.test_x.T.test_y",)),
+                      check_decisions.read_mutants(history(files)))
+        # What the reader cannot work out, or what another statement could change, holds no row.
+        for broken in (RECORD_MUTANTS.replace('"b", ("tests.test_x.T.test_y",)),', '("tests.test_x.T.test_y",)),', 1),
+                       RECORD_MUTANTS + "MUTANTS.append(1)\n", RECORD_MUTANTS + "MUTANTS = list(MUTANTS)\n",
+                       RECORD_MUTANTS.replace('("tests.test_x.T.test_y",)),', 'tests(),', 1)):
+            with self.subTest(broken=broken[-40:]):
+                self.assertTrue(refused({"tools/mutants.py": broken}, "tools/mutants.py cannot be read"))
+
+    def test_the_mutants_read_as_text_are_those_the_runner_runs(self):  # issue 1377
+        from tools import mutants
+        self.assertEqual(check_decisions.read_mutants(ROOT), [(m[0], m[1], tuple(m[4])) for m in mutants.MUTANTS])
+
     def test_a_row_main_holds_fails_when_any_mutant_it_names_is_gone(self):  # issue 1242
         # A row of three mutants, held on main in a live record and in one replaced by another, names each: any one taken
         # from the mutants, the first, the middle or the last, fails the row as it would alone.
