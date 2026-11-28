@@ -12,10 +12,13 @@ reads the diff and the Run's own files and nothing from GitHub, and it holds one
 
 `advice-cost.json`, an `advice-cost/1`, is all the Controller reads of the Run, and it is true whenever the step is
 stopped (the Factory Builder, 2026-11-19). `harness.unasked` wrote it with no asks. Before its first request this step
-replaces it with the number of readers it is about to ask and a cost of null, which a pass counts at the worst case;
-after the last reader, and whatever fault ended the step, it replaces it with the asks sent and their cost summed, null
-where a reader that was asked has no count. An ask is counted as it is sent, and only then. A Run that asks nobody
-leaves no asks and no cost. Nothing is made for a Run the step cannot name.
+replaces it with the most asks it may send, two for each reader it is about to ask, and a cost of null, which a pass
+counts at the worst case; after the last reader, and whatever fault ended the step, it replaces it with the asks sent
+and their cost summed, null where a reader that was asked has no count. An ask is counted as it is sent, and only
+then. A Run that asks nobody leaves no asks and no cost. Nothing is made for a Run the step cannot name. Limits: a job
+GitHub cancels is stopped by a signal, which is no `Exception`: the step then fails its job, and the last file is
+written only where the signal lets its `finally` run; where it is not, the file before the first request stands, and
+the pass counts the worst case.
 
 Attempts. The pass's yes is a grant for one attempt, the Run's first, which the day's ceiling was checked for; GitHub
 names the attempt in `GITHUB_RUN_ATTEMPT`, and a re-run keeps the run's id. A later attempt asks no reader, whatever
@@ -32,7 +35,8 @@ no such word the Result is `budget` (decision 0224, Spend). A diff too large for
 Time. The readers share WHOLE seconds from the step's start, asked one after another: a reader's turn ends where only
 the `share` of each reader after it that is to be asked is left, and the last runs to the step's end (trial P-78). A
 share that cannot be read is none. A request waits the reader's `seconds`, or what is left of its turn where that is
-less. No workflow runs the step yet.
+less; an ask after a rate limit's wait is built again, and waits only what is left of its turn then. No workflow runs
+the step yet.
 
 What a reader is sent: a fixed instruction, `roles/pr-review/advisory-reader.md` of the Release, then the base's rules
 where the reader's folder holds them, then the whole diff, as data. It is given no tool.
@@ -97,19 +101,24 @@ def turn_of(later: list, until: float) -> float:
 
 
 def unbilled(answer: dict) -> bool:
-    """Whether an answer is a rate limit that billed nothing: a 429 whose body counts no tokens. Azure bills no request
-    it refuses for its rate, so the one more ask after it keeps a reader within the one billed ask a Run's worst case
-    prices (decision 0243); a 429 that counts tokens may have been billed, and is not asked again."""
+    """Whether an answer is a rate limit that billed nothing: a 429 whose body is read and counts no tokens, or counts
+    each as nought. Azure bills no request it refuses for its rate, so the one more ask after it keeps a reader within
+    the one billed ask a Run's worst case prices (decision 0243). A 429 that counts tokens, or whose body or counts
+    cannot be read, may have been billed, and is not asked again (the Factory Builder, 2026-11-28). Limits: that a 429
+    with no count billed nothing is Azure's word, which nothing here can check."""
     body = answer.get("body")
-    return answer.get("status") == 429 and not (isinstance(body, dict) and "usage" in body)
+    if answer.get("status") != 429 or not isinstance(body, dict):
+        return False
+    usage = body.get("usage", {})
+    return isinstance(usage, dict) and all(type(count) is int and count == 0 for count in usage.values())
 
 
 def waited(answer: dict, left: float):
-    """The seconds a rate limit says to wait, where an unbilled 429 names a whole number that is short enough and fits
-    the reader's time; else None."""
+    """The seconds a rate limit says to wait, where an unbilled 429 names a whole number that is short enough and
+    leaves POLL of the reader's time for the ask after it; else None."""
     said = answer.get("headers", {}).get("retry-after", "") if unbilled(answer) else ""
     seconds = int(said) if isinstance(said, str) and said.isascii() and said.isdigit() and len(said) < 4 else None
-    return seconds if seconds is not None and seconds <= LONGEST_WAIT and seconds < left else None
+    return seconds if seconds is not None and seconds <= LONGEST_WAIT and seconds + POLL <= left else None
 
 
 def lasted(began: float, clock) -> float:
@@ -132,6 +141,8 @@ def asked(send, reader: dict, request: dict, until: float, clock, sleep) -> tupl
         if wait is None:
             break
         sleep(wait)
+        if clock() + POLL > until:
+            break       # the wait outlasted the turn: the rate limit is the Result, and nothing more is asked
     body = answer.get("body")
     if reader["api"] != "responses" or answer.get("status") != 200 or not isinstance(body, dict):
         return answer, asks
@@ -182,11 +193,16 @@ def one(reader: dict, told: dict, prompt: str, barred, key, until: float, sent: 
     if why is not None:
         return advice.unasked(told, why, 0, 0, shared.SCHEMAS)
 
-    live = transport(reader["host"], key, min(reader["seconds"], max(1, int(until - began))))
+    def limited():
+        """A transport that waits the reader's `seconds`, or what is left of its turn where that is less."""
+        return transport(reader["host"], key, min(reader["seconds"], max(1, int(until - clock()))))
+    live = [limited()]
 
     def send(request: dict) -> dict:
+        if request["act"] in ("create", "chat") and sent:
+            live[0] = limited()     # the ask after a rate limit's wait waits only what is left of its turn
         sent.append(request["act"])
-        return live.send(request)
+        return live[0].send(request)
     answer, asks = asked(send, reader, body_of(reader, told["effort"], prompt), until, clock, sleep)
     return advice.read(told, answer, asks, lasted(began, clock), shared.SCHEMAS)
 
@@ -280,8 +296,9 @@ def job(task_folder: str, out: str, env: dict, root: pathlib.Path = ROOT, base=N
         key = env.get(KEY)
         asking = [lens for lens in names if due(readers[lens], prompt, barred, key)]
         if asking:
-            # Before the first request: a step stopped from here on has said how many readers it set out to ask.
-            replace(made, unasked.COST, dict(cost_of(run, attempt, release, []), asks=len(asking), cost_usd=None))
+            # Before the first request: a step stopped from here on has said the most asks it set out to send, two a
+            # reader, so that one stopped after a rate limit's second ask is not counted short.
+            replace(made, unasked.COST, dict(cost_of(run, attempt, release, []), asks=2 * len(asking), cost_usd=None))
         for n, lens in enumerate(names):
             sent, told, began = [], None, clock()
             ledger.append([sent, None])
