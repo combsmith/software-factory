@@ -61,6 +61,8 @@ MUTANTS = [
      " or not rel.startswith(within):", ":", CLOSED),
     ("a check off the protected list is held to its closure", "tools/verify.py",
      ' if len(files) == 2 and held(files[-1]) else None\n', "\n", CLOSED),
+    ("a protected file that cannot be read is read as closed", "tools/verify.py",
+     '            return "%s cannot be read" % rel\n', "            continue\n", CLOSED),
     ("a star import is read as closed", "tools/verify.py",
      'isinstance(node, ast.ImportFrom) and (node.level or "*" in [a.name for a in node.names])',
      "isinstance(node, ast.ImportFrom) and node.level", CLOSED),

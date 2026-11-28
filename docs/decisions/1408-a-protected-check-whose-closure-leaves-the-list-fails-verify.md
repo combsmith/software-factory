@@ -1,4 +1,4 @@
-# 0000. A protected check whose closure leaves the list fails verify
+# 1408. A protected check whose closure leaves the list fails verify
 
 Status: accepted. 2026-11-28, the Factory Builder; issue 1377; extends record 1402.
 
@@ -13,6 +13,7 @@ Imports are followed as Python runs them: the package's `tools/__init__.py` firs
 Limits:
 - The closure is counted over `tools/` alone. An import of `kernel/`, `harness/` or `adapters/` is not followed here; that check runs in phase 2, as record 1402 says.
 - It follows imports only, as record 1402's closure does.
+- It reads only source files. A compiled module or package beside one is held because the list names each module at any suffix and with its package.
 
 ## Why
 

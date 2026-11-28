@@ -14583,6 +14583,10 @@ class Verify(unittest.TestCase):
                     (root / "tools/walk.py").write_text(helper + walk)
                     self.assertEqual(verify.unclosed([entry, other], root), [why] if why else [])
                     self.assertEqual(verify.phase_one([entry], root), [])
+            (root / "tools/check_repo.py").write_text(source)
+            (root / "tools/walk.py").write_text("def (\n")      # a protected file that cannot be read leaves too
+            self.assertEqual(verify.unclosed([entry], root), ["tools/walk.py cannot be read"])
+            (root / "tools/walk.py").write_text(helper)
             (root / "config/hooks.json").write_text("{")
             with self.assertRaisesRegex(ValueError, "cannot be read"):
                 verify.unclosed([entry], root)
