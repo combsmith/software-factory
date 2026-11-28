@@ -6,7 +6,7 @@ Status: accepted. 2026-11-28, the Factory Builder and the Solution Architect; is
 
 `check_decisions` reads `tools/mutants.py` and the files of `tools/mutants_of/` through ast, and imports none of them. It works out each value as Python would, in a narrow grammar where no value can change once bound. Whatever falls outside that grammar fails the check, and so does any mutant whose description, file or tests it cannot work out.
 
-The runner's `areas(ROOT)`, which imports the files of mutants, is read only as `PINNED` in `tools/check_decisions.py` writes it. That file holds the exact grammar.
+The runner's `areas(ROOT)`, which imports the files of mutants, is read only as `PINNED` in `tools/check_decisions.py` writes it. That file holds the exact grammar. A file or folder at the top of the tree named as a module of Python's own library fails the check, since Python would import it in that module's place.
 
 Limits:
 - A change to `areas(ROOT)` fails the check until `PINNED` follows it.
@@ -26,4 +26,5 @@ The checks imported `tools/mutants.py`, which loads every file of `tools/mutants
 | A call that could change a value cannot be read, on any path of a function | `tests/test_tools.py::Decisions.test_the_mutants_are_read_as_text_and_never_run`, `tools/check_decisions.py`, mutant: "a function that may change a value on a path it does not take is run" |
 | A mutant of other than five parts cannot be read | `tests/test_tools.py::Decisions.test_the_mutants_are_read_as_text_and_never_run`, `tools/check_decisions.py`, mutant: "a mutant of six parts is read" |
 | An `areas(ROOT)` other than the pinned one cannot be read | `tests/test_tools.py::Decisions.test_the_mutants_are_read_as_text_and_never_run`, `tools/check_decisions.py`, mutant: "areas(ROOT) is read whatever it pins" |
+| A file at the top of the tree named as a module of Python's library cannot be read | `tests/test_tools.py::Decisions.test_the_mutants_are_read_as_text_and_never_run`, `tools/check_decisions.py`, mutant: "a file at the top of the tree may stand in for Python's own module" |
 | A change to one file of mutants alone is read again | `tests/test_tools.py::Decisions.test_a_change_to_a_file_of_mutants_alone_is_read_again`, `tools/check_decisions.py`, mutant: "a change to a file of mutants but tools/mutants.py is not read again" |
