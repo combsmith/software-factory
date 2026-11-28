@@ -76,9 +76,11 @@ FIRST_NEW = '{ sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0
 # Issue 1288: the line each token script unsets the proxy, TLS and openssl variables curl and openssl read with.
 UNPROXIED = "unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR CURL_SSL_BACKEND OPENSSL_CONF OPENSSL_CONF_INCLUDE OPENSSL_ENGINES OPENSSL_MODULES\n"
 # Issue 1300: each script runs the redaction as a file under -I, which reads no PYTHONPATH and no module of the working
-# directory; the test that holds every script to it, and the mutant that puts back the -m it ran with before.
-ISOLATED = 'python3 -I "$root/tools/redact_trial.py"'
+# directory, and -S, which reads no site-packages and runs no .pth file there; the test that holds every script to it,
+# and the mutants that put back the -m it ran with before, or drop -S.
+ISOLATED = 'python3 -I -S "$root/tools/redact_trial.py"'
 UNISOLATED = "python3 -m tools.redact_trial"
+WITH_SITE = 'python3 -I "$root/tools/redact_trial.py"'
 ISOLATED_TEST = ("tests.test_tools.SignalTraps.test_every_redaction_reads_no_module_the_shell_names",)
 
 

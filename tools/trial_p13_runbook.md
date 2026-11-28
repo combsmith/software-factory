@@ -96,7 +96,7 @@ In the scratch directory, draft the fixture from the pass-condition draft:
 Then:
 
 ```
-python3 -I tools/redact_trial.py < "$D/P-13.json" > "$D/P-13.clean.json"   # the draft, once more
+python3 -I -S tools/redact_trial.py < "$D/P-13.json" > "$D/P-13.clean.json"   # the draft, once more
 cp "$D/P-13.clean.json" trials/P-13.json
 python3 -m tools.check_trials
 ```

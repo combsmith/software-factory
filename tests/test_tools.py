@@ -11347,7 +11347,7 @@ if url.endswith("/installation/token"):
         made = '#!/bin/sh\nexec /usr/bin/mktemp -d "%s/out.XXXXXX"\n' % self.scratch
         # python3 stands in only for a redaction it is told to fail: of the exchanges, or of a capture.
         python = """#!/bin/sh
-if [ "$1" = -I ] && [ "$2" = "%(root)s/tools/redact_trial.py" ]; then
+if [ "$1 $2" = "-I -S" ] && [ "$3" = '%(root)s/tools/redact_trial.py' ]; then
     input=$(cat)
     case "$input" in
         '{'*) [ -e "%(bin)s/bad-exchanges" ] && exit 3 ;;
@@ -12925,7 +12925,7 @@ class Redaction(unittest.TestCase):
             self.assertIn("opens no path", said.getvalue())
         self.assertFalse((folder / "out").exists())
         # As the scripts run it: in through a pipe, out through a pipe, and what it took out named on standard error.
-        ran = subprocess.run([sys.executable, "-I", str(ROOT / "tools" / "redact_trial.py")], capture_output=True, text=True,
+        ran = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "tools" / "redact_trial.py")], capture_output=True, text=True,
                              input="HTTP/2.0 200 OK\nAuthorization: x\nContent-Type: text/plain\n\nfine\n", timeout=60)
         self.assertEqual((ran.returncode, ran.stdout), (0, "HTTP/2.0 200 OK\nContent-Type: text/plain\n\nfine\n"))
         self.assertIn("the header Authorization", ran.stderr)
@@ -12947,7 +12947,7 @@ class Redaction(unittest.TestCase):
         # The App's script sends the report to its pipe and the clean text to its file: in that order, or the report
         # would go to the file.
         script = (ROOT / "tools" / "trial_as_app.sh").read_text()
-        self.assertIn('python3 -I "$root/tools/redact_trial.py" < "$1" 2>&1 > "${1%.raw}.clean") | sed', script)
+        self.assertIn('python3 -I -S "$root/tools/redact_trial.py" < "$1" 2>&1 > "${1%.raw}.clean") | sed', script)
         # Its redact(), run alone: a capture that redacts is deleted beside its clean file; one that fails is deleted
         # unread with its partial clean file, since both lie in OUT, which a session reads, and the failure is returned.
         function = re.search(r"^redact\(\) \{.*?^\}$", script, re.M | re.S).group(0)
@@ -12966,18 +12966,24 @@ class Redaction(unittest.TestCase):
     def test_it_runs_as_a_file_under_isolation_and_takes_no_module_the_shell_names(self):  # issue 1300
         # A PYTHONPATH entry, and under -m the working directory, are searched before the standard library: a json.py
         # planted in either would run inside the redaction while it reads the raw answers. The scripts run it as a file
-        # under -I, which reads neither, and it finds the repo's own modules by its place.
+        # under -I, which reads neither, and -S, which reads no site-packages; it finds the repo's own modules by its place.
         planted = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
         (planted / "json.py").write_text("import pathlib\npathlib.Path(%r).write_text('ran')\nraise SystemExit(7)\n"
                                          % str(planted / "ran"))
+        # And a package named tools, read later than json, so that a path that took the working directory back after json
+        # was imported would be told too.
+        (planted / "tools").mkdir()
+        (planted / "tools" / "__init__.py").write_text("import pathlib\npathlib.Path(%r).write_text('ran')\nraise SystemExit(8)\n"
+                                                       % str(planted / "tools-ran"))
         capture = "HTTP/2.0 200 OK\nAuthorization: x\nContent-Type: application/json\n\n{\"ok\": 1}\n"
         steered = dict(os.environ, PYTHONPATH=str(planted))
-        isolated = subprocess.run([sys.executable, "-I", str(ROOT / "tools" / "redact_trial.py")], cwd=str(planted), env=steered,
+        isolated = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "tools" / "redact_trial.py")], cwd=str(planted), env=steered,
                                   capture_output=True, text=True, input=capture, timeout=60)
         self.assertEqual((isolated.returncode, isolated.stdout),
                          (0, 'HTTP/2.0 200 OK\nContent-Type: application/json\n\n{\n  "ok": 1\n}\n'), isolated.stderr)
         self.assertIn("the header Authorization", isolated.stderr)
         self.assertFalse((planted / "ran").exists())
+        self.assertFalse((planted / "tools-ran").exists())
         # The way it was run before, the planted module runs: the test can tell the difference.
         loose = subprocess.run([sys.executable, "-m", "tools.redact_trial"], cwd=str(ROOT), env=steered, capture_output=True,
                                text=True, input=capture, timeout=60)
@@ -16318,8 +16324,9 @@ class SignalTraps(unittest.TestCase):
 
     def test_every_redaction_reads_no_module_the_shell_names(self):  # issue 1300
         # A PYTHONPATH entry, and the working directory under -m, come before the standard library on the path: a json.py
-        # planted in either would run inside the redaction as it reads the raw answers. Every script that redacts runs
-        # the redaction as a file under -I, by the root it found, on every call. A test that the file is there is no call.
+        # planted in either would run inside the redaction as it reads the raw answers, and a package in site-packages
+        # named tools would stand in for the repo's. Every script that redacts runs the redaction as a file under -I and
+        # -S, by the root it found, on every call. A test that the file is there is no call.
         scripts = []
         for script in sorted((ROOT / "tools").glob("*.sh")):
             lines = [line.replace('-f "$root/tools/redact_trial.py"', "") for line in script.read_text().splitlines()]
@@ -16327,7 +16334,7 @@ class SignalTraps(unittest.TestCase):
             if calls:
                 scripts.append(script.name)
             for line in calls:
-                self.assertEqual(re.findall(r"python3[^|;()<>]*redact_trial[^\s)]*", line), ['python3 -I "$root/tools/redact_trial.py"'],
+                self.assertEqual(re.findall(r"python3[^|;()<>]*redact_trial[^\s)]*", line), ['python3 -I -S "$root/tools/redact_trial.py"'],
                                  (script.name, line))
         self.assertEqual(len(scripts), 18)
 

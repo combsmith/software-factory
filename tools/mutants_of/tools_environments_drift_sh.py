@@ -1,11 +1,11 @@
 """The mutants of `tools/environments_drift.sh`: tools/mutants.py runs them."""
 
 TARGETS = ("tools/environments_drift.sh",)
-from tools.mutants_of.common import ISOLATED, ISOLATED_TEST, UNISOLATED  # noqa: E402
+from tools.mutants_of.common import ISOLATED, ISOLATED_TEST, UNISOLATED, WITH_SITE  # noqa: E402
 MUTANTS = [
     # Issue 463: each factory environment is main alone, read by hand.
     ('an answer is kept unredacted here', 'tools/environments_drift.sh',
-     'python3 -I "$root/tools/redact_trial.py" < "$dir/raw-$1" > "$dir/$1" 2> /dev/null ||', 'cat "$dir/raw-$1" > "$dir/$1" ||', ('tests.test_tools.EnvironmentsDrift.test_the_script_reads_each_environment_redacts_it_and_compares',)),
+     'python3 -I -S "$root/tools/redact_trial.py" < "$dir/raw-$1" > "$dir/$1" 2> /dev/null ||', 'cat "$dir/raw-$1" > "$dir/$1" ||', ('tests.test_tools.EnvironmentsDrift.test_the_script_reads_each_environment_redacts_it_and_compares',)),
     ('this script leaves its scratch directory', 'tools/environments_drift.sh',
      'trap \'rm -rf "$dir"\' EXIT\n', '', ('tests.test_tools.EnvironmentsDrift.test_the_script_reads_each_environment_redacts_it_and_compares',)),
     ('this script may scratch inside the repo', 'tools/environments_drift.sh',
@@ -23,5 +23,7 @@ MUTANTS = [
      "trap 'exit 1' HUP INT TERM\n", "trap 'exit 0' HUP INT TERM\n", ('tests.test_tools.SignalTraps.test_every_script_turns_a_signal_into_its_exit',)),
     # Issue 1300: its redaction runs as a file under -I.
     ("environments_drift.sh runs a redaction the shell's modules can steer", "tools/environments_drift.sh", ISOLATED + ' < "$dir/raw-$1"', UNISOLATED + ' < "$dir/raw-$1"',
+     ISOLATED_TEST),
+    ("environments_drift.sh runs a redaction that reads site-packages", "tools/environments_drift.sh", ISOLATED + ' < "$dir/raw-$1"', WITH_SITE + ' < "$dir/raw-$1"',
      ISOLATED_TEST),
 ]
