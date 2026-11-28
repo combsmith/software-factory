@@ -61,6 +61,7 @@ def mark_1245(script):
 # a token each could not revoke.
 NOTE_1245 = 'note() { [ -z "$noted" ] || printf \'%s\\n\' "$*" >> "$out/finish.log" || true; }'
 NOTED = "tests.test_tools.SignalTraps.test_every_token_script_tells_a_token_that_may_be_live_in_out_too"
+DIGITS_1245 = 'case "$minted_status" in [0-9][0-9][0-9]) ;; *) minted_status="" ;; esac\n'
 NARROWED = "tests.test_tools.NarrowedToken."
 REVOKED_1245 = dict({s: ("tests.test_tools.%s.test_a_refused_mint_or_revocation_stops_the_run_and_says_so" % c,) for s, c in FAMILY_1215.items()},
                     **{"trial_p39_reach.sh": ("tests.test_tools.ReachScript.test_a_revocation_that_is_not_204_is_told_and_tried_once_more",),
@@ -1447,4 +1448,6 @@ MUTANTS = [
        'note "%s: $slug: $refused"' % script[:-3], (MINT_REFUSED,)) for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
     ("P-4 tells a mint it read no token from on the terminal alone", "tools/trial_p4_narrow.sh", 'live "trial_p4_narrow: no token was read',
      'echo >&2 "trial_p4_narrow: no token was read', (NARROWED + "test_a_refused_mint_stops_with_nothing_read_and_the_answer_redacted",)),
+    *[("%s keeps a mint status that is not three digits" % script, "tools/" + script, DIGITS_1245, "", (MINT_REFUSED,))
+      for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
 ]

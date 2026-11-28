@@ -155,4 +155,6 @@ MUTANTS = [
      (MINT_REFUSED,)),
     ("P-52 notes a refusal that minted nothing", "tools/trial_p52_pause.sh", '[ -z "$minting" ] || note "trial_p52_pause:',
      'note "trial_p52_pause:', (MINT_REFUSED,)),
+    ("P-52 keeps a mint status that is not three digits", "tools/trial_p52_pause.sh",
+     'case "$minted_status" in [0-9][0-9][0-9]) ;; *) minted_status="" ;; esac\n', "", (MINT_REFUSED,)),
 ]

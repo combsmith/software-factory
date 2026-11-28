@@ -30,7 +30,6 @@
 # A mint that curl fails or GitHub refuses, or a revocation that does not return 204, stops the script with a
 # non-zero exit; a refused mint shows its status and GitHub's answer, redacted, and a token that may be live is told
 # to the Maintainer.
-# A token that may be live is told in OUT's finish.log too: the script's own words alone, never part of a fixture.
 set -eu
 # Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
 # (issue 1215).
@@ -121,9 +120,8 @@ unset SSLKEYLOGFILE token jwt signature minted minting
 # openssl, which signs with the App's key, load a configuration or a module the shell names (issue 1288).
 unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR CURL_SSL_BACKEND OPENSSL_CONF OPENSSL_CONF_INCLUDE OPENSSL_ENGINES OPENSSL_MODULES
 token=""
-# A token that may be live is told on the terminal and, since the terminal may be gone by then, in OUT's finish.log: a
-# note of the script's own words, with no credential and no answer of GitHub's, from which no fixture is built (issue
-# 1245). It is written first, so that a terminal gone loses nothing, and only once this run has made OUT.
+# A token that may be live is noted in OUT's finish.log, for a terminal gone by then, and told on the terminal: the
+# script's own words alone, no fixture's, noted first and only once this run has made OUT (issue 1245).
 noted=""
 note() { [ -z "$noted" ] || printf '%s\n' "$*" >> "$out/finish.log" || true; }
 live() { note "$*"; echo "$*" >&2; }
@@ -254,6 +252,8 @@ with_token() {   # PERMISSION
     minted_exit=$(printf '%s\n' "$minted" | tail -n 1)
     minted=$(printf '%s\n' "$minted" | sed '$d')
     minted_status=$(printf '%s\n' "$minted" | tail -n 1)
+    # Three whole digits, or none: a last line curl did not write is the answer's (issue 1245).
+    case "$minted_status" in [0-9][0-9][0-9]) ;; *) minted_status="" ;; esac
     token=$(printf '%s\n' "$minted" | sed '$d' | python3 -I -c '
 import json, sys
 answer = json.load(sys.stdin)
