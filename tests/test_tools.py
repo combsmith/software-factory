@@ -14546,8 +14546,8 @@ class Verify(unittest.TestCase):
                                  verify.EARLY)
 
     def test_a_check_that_runs_no_role_code_and_fails_stops_verify_and_its_own_step(self):  # issue 1377
-        # `make checks-first`, CI's step, answers 1 when one of them fails and 0 when all pass; `make verify` starts
-        # no test after one fails (Astra's and Claude's reads).
+        # `--checks-first`, which CI's step will run, answers 1 when one of them fails and 0 when all pass; `make verify`
+        # starts no test after one fails (Astra's and Claude's reads).
         entry = verify.CHECKS[0]
         for problems, answer in ((["x"], 1), ([], 0)):
             said = {entry[0]: (0, verify.ANSWER + json.dumps({"check": entry[0], "problems": problems}), "")}

@@ -347,7 +347,7 @@ def main(argv: list, environ=None) -> int:
             print("%-22s leg %d of %d counted from 0" % ("tests", share[0], share[1]))
         result = unittest.TextTestRunner(verbosity=1).run(suite("--fast" in argv, share))
         return 0 if result.wasSuccessful() else 1
-    if "--checks-first" in argv:    # CI's step before `make checks`: the checks that run no Role code, alone
+    if "--checks-first" in argv:    # the checks that run no Role code, alone: CI's own step, by part 3 of issue 1377
         return 1 if led(CHECKS, answers, phase_one) is None else 0
     checks_failed = failed(CHECKS, answers, phase_one)
     if checks_failed == EARLY:      # nothing that runs Role code starts: no other check, no note, no test

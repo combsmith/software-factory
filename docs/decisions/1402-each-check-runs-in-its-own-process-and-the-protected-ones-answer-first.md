@@ -4,7 +4,7 @@ Status: accepted. 2026-11-28, the Solution Architect via the Factory Builder; is
 
 ## Decision
 
-`tools/verify.py` imports no check. It runs each check in its own isolated process, with bytecode in a fresh folder outside the tree. A check answers on its last line, naming itself; any other ending fails it.
+Verify's own process imports no check. It runs each check in its own isolated process, with bytecode outside the tree. A check answers on its last line, naming itself; any other ending fails it.
 
 No Role code runs until every check that runs none has answered and passed. Phase 1 is set by the list, not by name: a check whose whole import closure is on the protected list of `config/hooks.json`. An import by a worked-out name, or a relative one, is not closed; a standard module's name is never looked up in the tree. If a phase 1 check fails, phase 1 is empty, or the list is unreadable, `verify` exits 1 and starts nothing more. Phase 2 is every other check, then the tests. `tools/verify.py` holds the exact form.
 
