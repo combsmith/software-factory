@@ -5,8 +5,8 @@
 
 TASK is the folder `python3 -m harness.read` wrote; OUT the folder `python3 -m harness.unasked` made, or one this step
 makes. For a review of a change that is no dependency's, the step asks each reader `config/harness.json` configures, in
-the order `advisory` names them, once. It reads the diff and the Run's own files and nothing from GitHub, and it holds
-one secret, the Azure key, under `ADVISORY_AZURE_KEY`. It writes
+the order `advisory` names them, once, and once more only after the wait a rate limit names. It reads the diff
+and the Run's own files and nothing from GitHub, and it holds one secret, the Azure key, under `ADVISORY_AZURE_KEY`. It writes
 `advice.<lens>.json`, an `advice/1`, and its digest beside it, for every reader that can be asked: `completed`,
 `incomplete` or `failed`. A reader whose name or settings build no `advice/1` is not asked, and has none.
 
@@ -25,8 +25,8 @@ UTF-8 as decision 0243 prices it, is not asked: `too_large`.
 Time. The readers share WHOLE seconds from the step's start, asked one after another: a reader's turn ends where only
 the `share` of each reader after it that is to be asked is left, and the last runs to the step's end (trial P-78). A
 share that cannot be read is none. A request waits the reader's `seconds`, or what is left of its turn where that is
-less. Limits: a read of a response, and its cancel, wait as long as the ask that made it, so one sent near its turn's
-end may run past it. No workflow runs the step yet.
+less; each request after the first, a read, a cancel or an ask after a rate limit's wait, is built again, and waits
+only what is left of its turn then. No workflow runs the step yet.
 
 What a reader is sent: a fixed instruction, `roles/pr-review/advisory-reader.md` of the Release, then the base's rules
 where the reader's folder holds them, then the whole diff, as data. It is given no tool.
@@ -51,7 +51,9 @@ INSTRUCTION = ("roles", "pr-review", "advisory-reader.md")
 # tools/check_examples.py holds the readers' shares to. The workflow that runs the step is to give it a limit past it.
 WHOLE = 1440
 POLL = 10               # seconds between two reads of a response still running
+LONGEST_WAIT = 90       # the longest wait a rate limit may name and be waited for; a longer one is not
 RUNNING = ("queued", "in_progress")
+ENDED = ("completed", "incomplete", "failed", "cancelled")      # a response in any other state may still be billed
 # Where a change is read at the highest effort: the Kernel, the guards, the Harness, the hooks, the workflows, the
 # Release's rules, and the files that hold a credential's or an App's reach (the desk's rule, the Maintainer's ruling 8).
 CRITICAL = ("kernel/", "guards/", "harness/", "tools/hooks/", ".github/workflows/", "release/", "config/apps.json",
@@ -88,6 +90,14 @@ def turn_of(later: list, until: float) -> float:
     return until - sum(share_of(reader) for reader in later)
 
 
+def waited(answer: dict, left: float):
+    """The seconds a rate limit says to wait, where a 429 names a whole number that is short enough and leaves POLL of
+    the reader's time for the ask after it; else None."""
+    said = answer.get("headers", {}).get("retry-after", "") if answer.get("status") == 429 else ""
+    seconds = int(said) if isinstance(said, str) and said.isascii() and said.isdigit() and len(said) < 4 else None
+    return seconds if seconds is not None and seconds <= LONGEST_WAIT and seconds + POLL <= left else None
+
+
 def lasted(began: float, clock) -> float:
     return round(clock() - began, 1)
 
@@ -98,22 +108,38 @@ def asks_of(sent: list) -> int:
 
 
 def asked(send, reader: dict, request: dict, until: float, clock, sleep) -> tuple:
-    """`(answer, asks)` for one reader: the request sent once; a
-    response of the Responses API read until it has ended, and cancelled where it has not by `until`."""
-    asks, answer = 1, send(request)
+    """`(answer, asks)` for one reader: the request sent once, and once more after the wait a rate limit names; a
+    response of the Responses API read until it has ended, and cancelled wherever this leaves it not known to have."""
+    asks, answer = 0, None
+    while True:
+        asks += 1
+        answer = send(request)
+        wait = waited(answer, until - clock()) if asks < 2 else None
+        if wait is None:
+            break
+        sleep(wait)
+        if clock() + POLL > until:
+            break       # the wait outlasted the turn: the rate limit is the Result, and nothing more is asked
     body = answer.get("body")
     if reader["api"] != "responses" or answer.get("status") != 200 or not isinstance(body, dict):
         return answer, asks
-    ident = body.get("id")
-    while body.get("status") in RUNNING:
-        if clock() + POLL >= until:
-            send(azure.cancel(ident))       # not left to run on and be billed
-            break
-        sleep(POLL)
-        answer = send(azure.read(ident))
-        body = answer.get("body")
-        if answer.get("status") != 200 or not isinstance(body, dict):
-            break
+    ident, state = body.get("id"), body.get("status")
+    try:
+        while state in RUNNING and clock() + POLL < until:
+            sleep(POLL)
+            state = None        # not known again until this read is answered whole
+            answer = send(azure.read(ident))
+            body = answer.get("body")
+            if answer.get("status") != 200 or not isinstance(body, dict):
+                break
+            state = body.get("status")
+    finally:
+        # Out of time, a read that failed or one not answered: the response is not left to run on and be billed.
+        if state not in ENDED:
+            try:
+                send(azure.cancel(ident))
+            except Exception:       # NOSONAR best effort: what a cancel answers, or that it does not, changes nothing
+                pass
     return answer, asks
 
 
@@ -143,11 +169,16 @@ def one(reader: dict, told: dict, prompt: str, admitted: bool, key, until: float
     if why is not None:
         return advice.unasked(told, why, 0, 0, shared.SCHEMAS)
 
-    live = transport(reader["host"], key, min(reader["seconds"], max(1, int(until - began))))
+    def limited():
+        """A transport that waits the reader's `seconds`, or what is left of its turn where that is less."""
+        return transport(reader["host"], key, min(reader["seconds"], max(1, int(until - clock()))))
+    live = [limited()]
 
     def send(request: dict) -> dict:
+        if sent:
+            live[0] = limited()     # a later request waits only what is left of its turn, never the whole of its seconds
         sent.append(request["act"])
-        return live.send(request)
+        return live[0].send(request)
     answer, asks = asked(send, reader, body_of(reader, told["effort"], prompt), until, clock, sleep)
     return advice.read(told, answer, asks, lasted(began, clock), shared.SCHEMAS)
 
