@@ -1754,6 +1754,11 @@ class Records(unittest.TestCase):
         other_run = {("r_00000XZ", "2026-10-21T00:00:00Z", 1): {"advisory_asks": 1, "advisory_cost_usd": 0.01}}
         got, _ = self.read(one, *costs[0], day="2026-10-21", advised=other_run)
         self.assertEqual((said(got), stamped(got)), ([{"advisory_asks": 2, "advisory_cost_usd": 1.42}], 1))
+        # A file that is another Run's is none of this one's, though it is a cost.
+        got, _ = self.read(one, *cost(0, outcome_zip(dict(good, run="r_000009Z"), member=artifacts.ADVICE_COST_MEMBER)), day="2026-10-21")
+        self.assertEqual(said(got), [{"advisory_cost_usd": None}])
+        # A key a later record lists twice keeps nothing, though an earlier record kept it.
+        self.assertEqual(records.advised([{"runs": first["runs"][:1]}, {"runs": first["runs"][:1] * 2}]), {})
         # One read asks for the costs of so many Runs and no more: the rest are left off, and asked for the pass after.
         with mock.patch.object(records, "COSTS", 2):
             capped, _ = self.read(rows, *costs[0], *costs[1], *costs[2], *costs[3], day="2026-10-21")
