@@ -7738,7 +7738,7 @@ class Decisions(unittest.TestCase):
             "GeneratorExp is not read": runner + "X = (m for m in ())\n",
             "read before it is bound": runner + "G = 1\n\n\ndef f():\n    x = G\n    G = 2\n    return x\n\n\nY = f()\n",
             "not read as PINNED writes it": runner.replace('r"[a-z_][a-z0-9_]*"', 'r"[a-z]*"'),
-            "areas takes what the reader does not give": runner.replace("AREAS = areas(ROOT)", "ROOT = ROOT.parent\nAREAS = areas(ROOT)"),
+            "binds a name twice   ": runner.replace("AREAS = areas(ROOT)", "ROOT = ROOT.parent\nAREAS = areas(ROOT)"),
             "the class T is read": runner + "class T(Exception):\n    def get(self):\n        return 1\n\n\nX = T.get(1)\n",
             "g is not run by the reader": runner + "class T(Exception):\n    \"\"\"T.\"\"\"\n\n\ndef g(p):\n    if p:\n"
                                                    "        return T.get(MUTANTS)\n    return 1\n\n\nX = g(pathlib.Path('a'))\n",
@@ -7751,14 +7751,24 @@ class Decisions(unittest.TestCase):
             "text and its change": runner.replace('"a", "b", ("tests.test_x.T.test_y",)),', '1, None, ("tests.test_x.T.test_y",)),', 1),
             "tests is not read as text": runner.replace('("tests.test_x.T.test_y",)),', '(7,)),', 1),
             "raises error": runner + "P = re.compile('[')\n",
+            "binds a name twice": runner + "def tuple(g):\n    return ()\n",
+            "binds a name twice ": runner.replace("AREAS = areas(ROOT)", "__file__ = '/a/b/c'\nAREAS = areas(ROOT)"),
+            "binds a name twice  ": runner + "X = 1\nX = 2\n",
+            "the function g is read as a value": runner + "def g(m):\n    return ''\n\n\nX = re.sub('a', g, 'a')\n",
+            "iter() is given": runner + "X = iter(range(3), None)\n",
+            "UTF-8 alone": "# coding: unicode_escape\n" + runner,
         }
         areas = {"imports from": area.replace("import Y", "import *"), "line 24 is not read": area + "raise SystemExit(7)\n",
-                 "calls or builds a value": area + 'def f(x: len("a")):\n    return x\n'}
+                 "calls or builds a value": area + 'def f(x: len("a")):\n    return x\n',
+                 "imports from __future__": area + "from __future__ import annotations\n"}
         broken = [{"tools/mutants.py": text} for text in cases.values()] + \
             [{"tools/mutants_of/tools_check_w.py": text} for text in areas.values()] + \
             [{"tools/mutants_of/tools_check_w/__init__.py": "MUTANTS = []\n"}, {"tools/mutants/__init__.py": "MUTANTS = []\n"},
              {"tools/mutants_of/__init__.py": "common = 1\n"}]
-        more = ["not the file the reader reads", "not the file Python imports", "__init__.py binds common"]
+        broken += [{"tools/mutants_of/__init__.py": "__path__ = []\n"},
+                   {"tempfile.py": "X = 1\n", "tools/mutants_of/tools_check_w.py": area + "import tempfile\n"}]
+        more = ["not the file the reader reads", "not the file Python imports", "__init__.py binds common",
+                "binds a name twice", "imports tempfile"]
         for words, overlay in zip(list(cases) + list(areas) + more, broken):
             with self.subTest(words=words), self.assertRaisesRegex(ValueError, re.escape(words.strip())):
                 check_decisions.read_mutants(edited(history(files), overlay))
