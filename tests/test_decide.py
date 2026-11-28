@@ -2714,6 +2714,50 @@ class Acceptance(unittest.TestCase):
         for state in ("merged", "closed"):
             self.assertEqual(go(facts(acceptance_bounded=True, complete=cut, state=state), REVIEWED)["reason"], state)
 
+    def test_a_bound_pull_request_whose_closing_references_name_another_issue_calls_a_person(self):  # issue 1185
+        # Its author's description names an issue it is not bound to, and no pass mends that: it defers on its own code,
+        # before any list read short and whatever complete.acceptance claims, and calls a person; queued, it is taken out.
+        short = dict(facts()["complete"], acceptance=False)
+        for reviews in ([], APPROVED):
+            for read in (False, True):      # an acceptance read short or whole, beside another list read short
+                for others in ((), ("reviews",), ("threads",), ("timeline",)):
+                    d = go(facts(closes_another_issue=True, reviews=reviews,
+                                 complete=dict(short, acceptance=read, **{s: False for s in others})), REVIEWED)
+                    self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                     (None, "closes_another_issue", ["acceptance"], "defer", "needs_you"), (reviews, read, others))
+        d = go(facts(closes_another_issue=True, queue=True, reviews=APPROVED, complete=short), REVIEWED)
+        self.assertEqual((d["reason"], d["outcome"], d.get("action"), d["attention"]),
+                         ("closes_another_issue", "act", "dequeue", "needs_you"))
+        self.assertEqual(go(facts(closes_another_issue=True), REVIEWED)["reason"], "closes_another_issue")
+        # As it is for a pull request whose facts name the issue it was opened for (Astra).
+        d = go(facts(closes_another_issue=True, opened_for=36, issue_stands="open", complete=short), REVIEWED)
+        self.assertEqual((d["reason"], d["attention"]), ("closes_another_issue", "needs_you"))
+        # A cut acceptance read beside it is said first; a cut timeline after it.
+        self.assertEqual(go(facts(closes_another_issue=True, acceptance_bounded=True, complete=short),
+                            REVIEWED)["reason"], "acceptance_bounded")
+        self.assertEqual(go(facts(closes_another_issue=True, timeline_bounded=True,
+                                  complete=dict(short, timeline=False)), REVIEWED)["reason"], "closes_another_issue")
+        # The other side: false, its read short defers as facts_incomplete, needing no person, and read whole it
+        # converges; absent, as in facts read before the field, it is false.
+        self.assertEqual(go(facts(closes_another_issue=False, complete=short), REVIEWED)["reason"], "facts_incomplete")
+        self.assertEqual(go(facts(closes_another_issue=False), REVIEWED)["reason"], "approval_due")
+        for complete, reason in ((facts()["complete"], "approval_due"), (short, "facts_incomplete")):
+            f = facts(complete=complete)
+            del f["closes_another_issue"]
+            self.assertEqual(go(f, REVIEWED)["reason"], reason, complete)
+        # Present but no truth value, it cannot be read: a gap in acceptance, read short or whole, never a convergence.
+        for named in (None, "true", 1, 0, [], {}):
+            for complete in (facts()["complete"], short):
+                d = go(facts(closes_another_issue=named, complete=complete, reviews=APPROVED), REVIEWED)
+                self.assertEqual((d["reason"], d["evidence"], d["attention"]), ("facts_incomplete", ["acceptance"], "none"),
+                                 (named, complete))
+        # Beside another list read short, the gap is added to it (Astra).
+        d = go(facts(closes_another_issue=None, complete=dict(facts()["complete"], threads=False)), REVIEWED)
+        self.assertEqual((d["reason"], d["evidence"]), ("facts_incomplete", ["acceptance", "threads"]))
+        # A merged or closed pull request is what it is.
+        for state in ("merged", "closed"):
+            self.assertEqual(go(facts(closes_another_issue=True, complete=short, state=state), REVIEWED)["reason"], state)
+
     def test_a_contract_read_short_is_incomplete(self):  # I-13, I-20, the ruling on #17
         # Whether the contract, or that there is none, was read in full is `complete.acceptance`, read with the other
         # flags: a read short defers as facts_incomplete, a wait that needs no person. No contract read short is not

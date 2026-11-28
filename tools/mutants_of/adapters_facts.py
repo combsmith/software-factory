@@ -172,8 +172,8 @@ MUTANTS = [
      '    if not isinstance(err, Moved):\n', '    if True:\n', ('tests.test_adapters.Snapshot.test_a_snapshot_names_the_part_github_did_not_answer',)),
     # Issue 295: a pull request the Factory opens is bound to its issue by its branch, never its body.
     ('the snapshot is not told the opener', 'adapters/facts.py',
-     '    contract, contract_whole, contract_cut = acceptance.bounded(transport, first, accounts, opener, opened)\n',
-     '    contract, contract_whole, contract_cut = acceptance.bounded(transport, first, accounts, opened=opened)\n', ('tests.test_adapters.Snapshot.test_a_snapshot_reads_the_ask_of_the_openers_pull_request_by_its_branch',)),
+     '    contract, contract_whole, contract_cut, contract_other = acceptance.bounded(transport, first, accounts, opener, opened)\n',
+     '    contract, contract_whole, contract_cut, contract_other = acceptance.bounded(transport, first, accounts, opened=opened)\n', ('tests.test_adapters.Snapshot.test_a_snapshot_reads_the_ask_of_the_openers_pull_request_by_its_branch',)),
     ('an untold opener is read as none', 'adapters/facts.py',
      '        return acceptance.UNTOLD\n', '        return None\n', ('tests.test_controller.Entry.test_the_app_that_opens_pull_requests_is_read_from_the_configuration_by_its_role',)),
     ("another App's account is the opener's", 'adapters/facts.py',
@@ -242,4 +242,8 @@ MUTANTS = [
      '"timeline_bounded": timeline_cut or reviews_cut,', '"timeline_bounded": contract_cut,', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_acceptance_read_was_cut',)),
     ("a reviews list read short is kept as cut", 'adapters/facts.py',
      'raw["cut"] = {"events": timeline_cut, "reviews": reviews_cut}', 'raw["cut"] = {"events": timeline_cut, "reviews": not reviews_whole}', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_its_own_timeline_was_cut',)),
+    ("the snapshot leaves out whether another issue is named", 'adapters/facts.py',
+     '        "closes_another_issue": contract_other,\n', '', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_closing_references_name_another_issue',)),
+    ("the snapshot says no other issue is named", 'adapters/facts.py',
+     '"closes_another_issue": contract_other,', '"closes_another_issue": False,', ('tests.test_adapters.Snapshot.test_a_snapshot_says_whether_closing_references_name_another_issue',)),
 ]

@@ -7683,6 +7683,19 @@ class Decisions(unittest.TestCase):
             FIRST: plain + "| Another thing | waiting on `roles/x.py` |\n", "tools/mutants.py": "MUTANTS = [\n"},
             commit=True)), [])
 
+    def test_a_row_main_holds_fails_when_any_mutant_it_names_is_gone(self):  # issue 1242
+        # A row of three mutants, held on main in a live record and in one replaced by another, names each: any one taken
+        # from the mutants, the first, the middle or the last, fails the row as it would alone.
+        row = ('| One thing | `tools/check_x.py`, `tests/test_x.py::test_y`, `tests/test_x.py::test_z`, mutant: "one thing is '
+               'undone", mutant: "two tests undo it", mutant: "another thing is undone" |')
+        for files in ({FIRST: RECORD.replace(ONE_ROW, row)}, {FIRST: REPLACED.replace(ONE_ROW, row), LATER: REPLACING}):
+            self.assertEqual(check_decisions.run(history(files)), [], files)
+            for gone in ("one thing is undone", "two tests undo it", "another thing is undone"):
+                with self.subTest(gone=gone, files=sorted(files)):
+                    root = edited(history(files), {"tools/mutants.py": RECORD_MUTANTS.replace('"%s"' % gone, '"%s, once"' % gone)})
+                    self.assertTrue(caught(check_decisions.run(root), '%s, boundary 1: names mutant "%s", which tools/mutants.py '
+                                                                       'does not hold' % (FIRST, gone)))
+
     def test_a_row_main_holds_names_no_mutant_until_its_check_changes(self):  # issue 590
         plain = RECORD.replace(ONE_ROW, "| One thing | `tests/test_x.py` |")
         self.assertEqual(check_decisions.run(history({FIRST: plain})), [])
@@ -14042,6 +14055,33 @@ class Writes(unittest.TestCase):
             self.assertFalse(caught(check_writes.run(clone(files)), "tools/takes.py:1 " + taken))
         with mock.patch.object(check_writes, "NAME_LOADERS", check_writes.NAME_LOADERS + ("controller/takes.py",)):
             self.assertTrue(caught(check_writes.run(clone(files)), "controller/takes.py:1 " + taken))
+
+    def test_a_bare_import_of_a_file_of_its_own_folder_fails(self):  # issue 1276
+        # Run as a script, a file has its own folder first on its path: a bare name of a file or a package there loads
+        # it, under a name this check does not read. From the root, or by a name the folder does not hold, it passes.
+        files = {"tools/bare.py": "import mutants\n", "tools/from_bare.py": "from mutants_of import common\n",
+                 "tools/dotted.py": "import mutants_of.common as c\n", "tools/hooks/near.py": "import os\nimport protected\n",
+                 "tools/space/inside.py": "X = 1\n", "tools/to_space.py": "import space.inside\n",
+                 "tools/probe.py": "def probe():\n    import os, mutants\n", "tools/hooks/init.py": "from __init__ import x\n",
+                 "tools/ci.jobs/report.py": "import calendar\n", "tools/ci/jobs/calendar.py": "X = 1\n",
+                 "harness/json.py": "X = 1\n", "harness/uses.py": "import json\n",
+                 "tools/rooted.py": "from tools import walk\nimport os, json\n", "tools/hooks/up.py": "from .. import walk\n",
+                 "tools/hooks/beside.py": "from .shell import words\n", "rootfile.py": "import tools\n",
+                 "controller/other.py": "import walk\n"}
+        problems = check_writes.run(clone(files))
+        said = "imports %s by its bare name, which run as a script may load %s beside it in its place"
+        for rel, line, name, near in (("tools/bare.py", 1, "mutants", "tools/mutants"),
+                                      ("tools/from_bare.py", 1, "mutants_of", "tools/mutants_of"),
+                                      ("tools/dotted.py", 1, "mutants_of.common", "tools/mutants_of"),
+                                      ("tools/hooks/near.py", 2, "protected", "tools/hooks/protected"),
+                                      ("tools/to_space.py", 1, "space.inside", "tools/space"),
+                                      ("tools/probe.py", 2, "mutants", "tools/mutants"),
+                                      ("tools/hooks/init.py", 1, "__init__", "tools/hooks/__init__"),
+                                      ("harness/uses.py", 1, "json", "harness/json")):
+            self.assertTrue(caught(problems, "%s:%d %s" % (rel, line, said % (name, near))), (rel, problems))
+        for rel in ("tools/rooted.py:", "tools/hooks/up.py:", "tools/hooks/beside.py:", "rootfile.py:", "tools/ci.jobs/report.py:",
+                    "controller/other.py:", "tools/hooks/near.py:1"):
+            self.assertFalse(caught(problems, rel), (rel, problems))
 
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \

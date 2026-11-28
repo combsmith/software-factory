@@ -1,7 +1,6 @@
-"""What the day's advisory reads have spent, as the run records give it: the sum the day's ceiling is held to, which a
-pass is to hand a review Run as a yes or no beside its Decision (decision 0224, Spend; the part after this one). It is a
-function of the run records, `now` and the worst case. It reads no clock, no file and nothing from GitHub, and it asks
-the Kernel nothing: an advisory Lens changes no Decision.
+"""Whether the day's ceiling admits one more advisory read: the yes or no a pass hands a review Run beside its Decision
+(decision 0224, Spend). It is a function of the run records, `now` and the configuration. It reads no clock, no file
+and nothing from GitHub, and it asks the Kernel nothing: an advisory Lens changes no Decision.
 
 The day is the UTC date of the pass's `now`. Every record of a review Run counts, two records of one Run among them,
 unless it is shown to be another day's; a record whose start or Intent cannot be read is counted, since it cannot be
@@ -19,6 +18,13 @@ read counts as many as a Run may have (the Solution Architect, 2026-11-27: a re-
   it says; one whose advice was not read; one that asked and gives no cost, or nought, which no read costs; and one
   whose fields do not agree. A read is not refused because another is in flight (the Factory Builder, 2026-11-18:
   quality first), and an unknown cost is never nought.
+
+The answer is yes only where the configuration holds a reader, a ceiling and a worst case, each a figure its schema
+would hold, `now` is a time in the one form, the run records were read whole, and the day's sum and this Run's own
+worst case together do not pass the ceiling. Neither figure has a default: with either missing, no reader is asked.
+Whatever it is handed, it answers, and what it cannot read it answers no to. A caller that admits more than one review
+in a pass hands each the ones before it, as records still running, so that each counts the others' worst case; and so
+too each Run the records read but cannot name yet (issue 932).
 """
 from __future__ import annotations
 
@@ -26,9 +32,10 @@ import datetime
 import re
 
 REVIEWING = "review-change"
+CEILING, WORST = "advisory_ceiling_usd_per_day", "advisory_worst_case_usd"
 COST, ASKS, ATTEMPT = "advisory_cost_usd", "advisory_asks", "advisory_attempt"
-# The bounds run-record/1 holds a cost, a count of asks and an attempt to.
-DEAREST, ASKED_MOST, ATTEMPTS = 100000, 100, 100
+# The bounds the schemas hold each figure to: harness/1's two figures, and run-record/1's cost, count and attempt.
+LEAST, MOST, DEAREST, ASKED_MOST, ATTEMPTS = 0.01, 10000, 100000, 100, 100
 INTENT = re.compile(r"[a-z][a-z-]*[a-z]")      # an Intent's name as run-record/1 holds it
 TIME = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z")
 DAY = len("2026-01-01")
@@ -57,10 +64,11 @@ def _another(intent) -> bool:
 
 
 def _earlier(record) -> int:
-    """How many attempts before the record's own it counts: none for a first, which names no attempt, and as many as a
-    Run may have for one whose attempt cannot be read."""
+    """How many attempts before the record's own it counts: none for a first, which names no attempt and no re-runner,
+    and as many as a Run may have for one whose attempt cannot be read."""
     if ATTEMPT not in record:
-        return 0
+        # A re-run's record names who re-ran it: one that does and names no attempt cannot show it is a first.
+        return ATTEMPTS - 1 if "rerun_by_dispatcher" in record else 0
     attempt = record[ATTEMPT]
     return attempt - 1 if type(attempt) is int and 2 <= attempt <= ATTEMPTS else ATTEMPTS - 1
 
@@ -108,3 +116,28 @@ def spent(records: list, now: str, worst: float) -> float:
             continue
         total += counted(record, worst)
     return total
+
+
+def _exact(figure) -> tuple:
+    """A figure as written, as whole units of a tenth to the power of its places: a float's shortest form, which is the
+    text JSON gave it. A figure from a hundredth to ten thousand, which repr writes with no power of ten."""
+    whole, _, part = repr(figure).partition(".")
+    return int(whole + part), len(part)
+
+
+def admits(records, whole, now, harness) -> bool:
+    """Whether one more review Run may ask its readers today."""
+    if not isinstance(harness, dict) or not isinstance(records, list) or whole is not True \
+            or not _placed(now):
+        return False
+    ceiling, worst, readers = harness.get(CEILING), harness.get(WORST), harness.get("readers")
+    if not _number(ceiling, LEAST, MOST) or not _number(worst, LEAST, MOST) or not isinstance(readers, dict) or not readers \
+            or not all(isinstance(block, dict) for block in readers.values()):
+        return False
+    # The day's sum to the nearest millionth of a dollar, as a cost is written, so that it is not refused for the error
+    # of adding floats; this Run's own worst case and the ceiling exactly as written, so that a worst case above the
+    # ceiling by any amount is above it, and one equal to it is not.
+    figures = [(round(spent(records, now, worst) * 1000000), 6), _exact(worst), _exact(ceiling)]
+    places = max(place for _, place in figures)
+    total, own, most = (digits * 10 ** (places - place) for digits, place in figures)
+    return total + own <= most

@@ -22,11 +22,11 @@ import zipfile
 from unittest import mock
 
 from adapters import acceptance, applied, artifacts, branches, checks, draft_checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
-    passes, pull, push, records, pause, rules, texts, threads, timeline
+    opening, passes, pull, push, records, pause, rules, texts, threads, timeline
 from controller import shared
 from guards import patch
 from guards import push as guard
-from harness import task
+from harness import apply, task
 from kernel import brakes, terms
 from tests.support import pending
 
@@ -2232,6 +2232,79 @@ class Artifacts(unittest.TestCase):
         expired = stored("o/r", 7, zipped, expired=True)[:1]
         self.assertEqual(artifacts.outcome(github.Replay(expired), "o/r", 7, self.RUN), (None, True))
 
+    def test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed(self):  # decision 0224
+        # The same requests and the same bounds as an outcome's, with another name and another file inside: the list,
+        # the download's redirect, the storage's answer. Only the artifact's name and its file differ from the shapes
+        # trial P-68 recorded for an outcome; no trial has recorded a second name, or what a re-run lists, yet.
+        # The file is held to codes alone, as advice/1 is, by the examples check.
+        from tools import check_examples
+        self.assertIn("advice-cost", check_examples.CODES_ONLY)
+        good = {"schema": "advice-cost/1", "run": self.RUN, "attempt": 1, "release": "factory/v0.3.1", "asks": 2, "cost_usd": 1.42}
+
+        def kept(zipped, **listed) -> list:
+            found = stored("o/r", 7, zipped, **dict({"name": artifacts.ADVICE_COST}, **listed))
+            found[0]["request"]["call"] = found[0]["request"]["call"].replace("name=outcome", "name=advice-cost")
+            return found
+
+        def read(record, member: str = "advice-cost.json", attempt: int = 1, **listed) -> tuple:     # the file's name as the step writes it
+            zipped = record if isinstance(record, bytes) or record is None else outcome_zip(record, member=member)
+            return artifacts.advice_cost(github.Replay(kept(zipped, **listed)), "o/r", 7, self.RUN, attempt)
+        self.assertEqual(read(good), ({"asks": 2, "cost_usd": 1.42}, True))
+        # A re-run keeps its run's id, so a file is its attempt's alone: another attempt's, as a re-run may list, is
+        # none for this one, which then counts the worst case (the Solution Architect, 2026-11-27).
+        self.assertEqual(read(dict(good, attempt=3), attempt=3), ({"asks": 2, "cost_usd": 1.42}, True))
+        for written, asked in ((1, 2), (2, 1), (100, 1)):
+            self.assertEqual(read(dict(good, attempt=written), attempt=asked), (None, False), (written, asked))
+        self.assertEqual(read(dict(good, attempt=100), attempt=100), ({"asks": 2, "cost_usd": 1.42}, True))
+        for attempt in (0, 101, True, "1", 1.0, None):
+            self.assertEqual(read(dict(good, attempt=attempt)), (None, False), attempt)
+        # An attempt asked for that is no whole number matches none, though Python holds True and 1.0 equal to 1.
+        for attempt in (True, 1.0, "1", None):
+            self.assertEqual(read(good, attempt=attempt), (None, False), attempt)
+        self.assertEqual(read({k: v for k, v in good.items() if k != "attempt"}), (None, False))
+        self.assertEqual(read(dict(good, attempt=0), attempt=0), (None, False))
+        self.assertEqual(read(dict(good, attempt=101), attempt=101), (None, False))
+        self.assertEqual(read(dict(good, asks=1, cost_usd=None)), ({"asks": 1, "cost_usd": None}, True))
+        self.assertEqual(read(dict(good, asks=0, cost_usd=0)), ({"asks": 0, "cost_usd": 0}, True))
+        # A file nested past what the decoder parses is no cost, and never an error that ends the pass.
+        with mock.patch.object(artifacts.json, "loads", side_effect=RecursionError("too deep")):
+            self.assertEqual(read(good), (None, False))
+        # A Run that left none, or whose artifact is past its retention, has none: read whole, and still no cost.
+        self.assertEqual(read(None), (None, True))
+        self.assertEqual(read(good, expired=True), (None, True))
+        # What cannot be read whole, breaks advice-cost/1, or is another Run's is no cost, and never a part of one.
+        twice = json.dumps(good)[:-1] + ', "asks": 0, "cost_usd": 0}'
+        # Each key given twice on its own, and each figure just past its bound, at which it is still one.
+        self.assertEqual(read(dict(good, asks=100, cost_usd=100000)), ({"asks": 100, "cost_usd": 100000}, True))
+        for record in (dict(good, run="r_OTHER1"), dict(good, cost_usd=-1), dict(good, cost_usd="1.42"), dict(good, asks=-1),
+                       twice, json.dumps(good)[:-1] + ', "asks": 0}', json.dumps(good)[:-1] + ', "cost_usd": 0}',
+                       dict(good, asks=101), dict(good, cost_usd=100000.01), json.dumps(good).replace("1.42", "NaN"),
+                       dict(good, asks=1.5), dict(good, findings=0), dict(good, schema="advice-cost/2"),
+                       {k: v for k, v in good.items() if k != "asks"}, {k: v for k, v in good.items() if k != "cost_usd"},
+                       {k: v for k, v in good.items() if k != "release"}, {k: v for k, v in good.items() if k != "run"},
+                       json.dumps(dict(good, attempt=2))[:-1] + ', "attempt": 1}', json.dumps(good)[:-1] + ', "run": "%s"}' % self.RUN,
+                       "[]", "not json", b"PK\x03\x04 not a zip", outcome_zip(" " * (artifacts.HELD + 1), member=artifacts.ADVICE_COST_MEMBER),
+                       outcome_zip(good, member="advice.astra.json"), outcome_zip(good, member=artifacts.MEMBER),
+                       outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER, more=("advice.astra.json",))):
+            self.assertEqual(read(record), (None, False), str(record)[:60])
+        for listed in ({"digest": "sha256:" + "0" * 64}, {"name": artifacts.NAME}, {"name": "advice-astra"}):
+            self.assertEqual(read(good, **listed), (None, False), listed)
+        # The bounds are an outcome's own, and held: a file that is a cost and is over them is none, and a zip listed
+        # over them is not downloaded at all, which the replay would refuse as a request it does not hold.
+        text = json.dumps(good)
+        self.assertEqual(read(text + " " * (artifacts.HELD - len(text))), ({"asks": 2, "cost_usd": 1.42}, True))
+        self.assertEqual(read(text + " " * (artifacts.HELD + 1 - len(text))), (None, False))
+        over = kept(outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER), size_in_bytes=artifacts.ZIPPED + 1)[:1]
+        self.assertEqual(artifacts.advice_cost(github.Replay(over), "o/r", 7, self.RUN, 1), (None, False))
+        # What the list answered is handed to the caller, which stamps the read; a list not answered is raised, as an
+        # outcome's is, for the caller to catch.
+        answered = []
+        artifacts.advice_cost(github.Replay(kept(outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER))), "o/r", 7, self.RUN, 1,
+                              answered.append)
+        self.assertEqual([a["status"] for a in answered], [200])
+        with self.assertRaises(github.Unanswered):
+            artifacts.advice_cost(github.Replay([]), "o/r", 7, self.RUN, 1)
+
     def test_an_outcome_that_cannot_be_read_whole_is_not_whole(self):
         good = outcome_of(self.RUN, "item")
         zipped = outcome_zip(good)
@@ -3349,19 +3422,22 @@ class Acceptance(unittest.TestCase):
     OPENED = dict(PULL, user={"login": "combsmith-sf-dev-lead[bot]", "id": 12, "type": "Bot"},
                   head={"ref": "factory-work/issue-36-1", "repo": {"full_name": "o/r"}})
 
-    def read(self, *found, pull=None, opener=None, opened=None, cut=False):
-        """`acceptance.read`'s answer, or with `cut` `acceptance.bounded`'s, which says the cut too."""
+    def read(self, *found, pull=None, opener=None, opened=None, cut=False, named=False):
+        """`acceptance.read`'s answer, or with `cut` `acceptance.bounded`'s, which says the cut too; with `named`, all of
+        `acceptance.bounded`'s, which says whether another issue is named as well."""
         router = Router(github.Replay(list(found)), {"don-petry": "admin", "reader": "read"})
-        return (acceptance.bounded if cut else acceptance.read)(
+        got = (acceptance.bounded if cut or named else acceptance.read)(
             router, pull or self.PULL, timeline.Accounts(router, "o/r", MACHINE, {}), opener,
             opened if opened is not None else NOT_OPENED)
+        return got if named or not cut else got[:3]
 
-    def opened(self, *found, ref="factory-work/issue-36-1", user=None, repo="o/r", opener=OPENER, made=None, cut=False):
+    def opened(self, *found, ref="factory-work/issue-36-1", user=None, repo="o/r", opener=OPENER, made=None, cut=False,
+               named=False):
         """What the pull request the opener's App opened on branch `ref` reads as, its opening Runs' records `made`."""
         pull = dict(self.OPENED, head={"ref": ref, "repo": {"full_name": repo}})
         if user is not None:
             pull["user"] = user
-        return self.read(*found, pull=pull, opener=opener, opened=made, cut=cut)
+        return self.read(*found, pull=pull, opener=opener, opened=made, cut=cut, named=named)
 
     def test_the_role_that_opens_pull_requests_is_the_configurations(self):  # issue 342
         # The opening Runs are read for the Role the configuration names for open-pull-request: none in slice 1.
@@ -3469,6 +3545,36 @@ class Acceptance(unittest.TestCase):
         # Nor are closing references read short.
         self.assertEqual(self.opened(closing_answer("o/r", 26, [36], total=11)), (None, False))
         self.assertEqual(self.opened(closing_answer("o/r", 26, [36], elsewhere="o/other")), (None, False))
+
+    def test_closing_references_that_name_another_issue_than_the_bound_one_say_so(self):  # issue 1185
+        # Another number, another repo, or a count above one, past the page read too: GitHub lists an issue once, so a
+        # bound pull request's closing references name another issue, and the facts say so, for a person to be called.
+        named = (([37], None, None), ([36, 37], None, None), ([37, 36], None, None), ([36], None, "o/other"),
+                 ([36], 2, None), ([36] * 10, 11, None), ([], 2, None), ([37], 0, None), ([36, 37], 1, None))
+        for issues, total, elsewhere in named:
+            got = self.opened(closing_answer("o/r", 26, issues, total=total, elsewhere=elsewhere), named=True)
+            self.assertEqual(got, (None, False, False, True), (issues, total, elsewhere))
+        # The other side: the bound issue alone, or none; a count GitHub has not caught up with, one beside no issue;
+        # a person's pull request, which keeps the closing references' reading, whatever they name.
+        for issues, total, reads, whole in (([36], None, (issue_timeline("o/r", 36, []),), True),
+                                            ([], None, (issue_answer("o/r", 36), issue_timeline("o/r", 36, [])), True),
+                                            ([], 1, (), False), ([36], 0, (), False)):
+            got = self.opened(closing_answer("o/r", 26, issues, total=total), *reads, named=True)
+            self.assertEqual(got, (None, whole, False, False), (issues, total))
+        self.assertEqual(self.read(closing_answer("o/r", 26, [36], total=11), named=True), (None, False, False, False))
+        # GitHub's answer in another shape names no issue it can tell.
+        for refs in (None, [], {"totalCount": "2", "nodes": []}, {"totalCount": 1, "nodes": [None]},
+                     {"totalCount": 1, "nodes": [{"number": "37", "repository": {"nameWithOwner": "o/r"}}]},
+                     {"totalCount": 1, "nodes": [{"number": 37, "repository": None}]},
+                     {"totalCount": 1, "nodes": [{"number": 36, "repository": {"nameWithOwner": ""}}]},
+                     {"totalCount": 1, "nodes": [{"number": 0, "repository": {"nameWithOwner": "o/r"}}]},
+                     {"totalCount": 1, "nodes": [{"number": True, "repository": {"nameWithOwner": "o/r"}}]},
+                     {"totalCount": 1, "nodes": 1}, {"totalCount": True, "nodes": None}):
+            self.assertIs(acceptance.another(refs, "o/r", 36), False, refs)
+        # One it cannot read does not hide the next (Carbon); an opener's pull request bound to nothing names none.
+        other = {"number": 37, "repository": {"nameWithOwner": "o/r"}}
+        self.assertIs(acceptance.another({"totalCount": 1, "nodes": [None, other]}, "o/r", 36), True)
+        self.assertEqual(self.opened(ref="factory/issue-36-1", named=True), (None, False, False, False))
 
     def test_a_branch_of_another_shape_binds_nothing_and_the_openers_pull_request_is_not_whole(self):  # issue 295
         for ref in ("factory-work/issue-036-1", "factory-work/issue-36-01", "factory-work/issue-0-1",
@@ -4768,6 +4874,31 @@ class Snapshot(unittest.TestCase):
         self.assertIs(got["acceptance_bounded"], True)
         self.assertIs(got["timeline_bounded"], False)        # the closing issue's cut is not its own (Astra)
 
+    def test_a_snapshot_says_whether_closing_references_name_another_issue(self):  # issue 1185
+        # The port always gives the fact: false for a person's pull request, and true for the opener's own, bound to
+        # issue 36 by its branch, whose closing references name issue 37, beside acceptance not whole.
+        got, _ = self.read(1)
+        self.assertIs(got["closes_another_issue"], False)
+        seq = self.sequence(1)
+        ref = seq[0]["response"]["body"]["head"]["ref"]
+        for at in (0, len(seq) - 1):
+            seq[at] = copy.deepcopy(seq[at])
+            seq[at]["response"]["body"]["user"] = {"login": "combsmith-sf-dev-lead[bot]", "id": 12, "type": "Bot"}
+            seq[at]["response"]["body"]["head"]["ref"] = "factory-work/issue-36-1"
+        # The head branch's activity is asked by the branch's name.
+        seq[2] = json.loads(json.dumps(seq[2]).replace("refs/heads/" + ref, "refs/heads/factory-work/issue-36-1"))
+        seq[len(seq) - 4] = closing_answer(canary(), 26, [37])
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW, opener=(12, "Bot"), recorded=NOTHING, opened=NOT_OPENED)
+        self.assertEqual((got["acceptance"], got["complete"]["acceptance"], got["closes_another_issue"]), (None, False, True))
+        # A bound list GitHub has not caught up with is read short, and names no other issue (Astra).
+        seq[len(seq) - 4] = closing_answer(canary(), 26, [], total=1)
+        router = Router(github.Replay(seq), {"don-petry": "admin"})
+        got, _ = facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
+                                lambda: self.NOW, opener=(12, "Bot"), recorded=NOTHING, opened=NOT_OPENED)
+        self.assertEqual((got["complete"]["acceptance"], got["closes_another_issue"]), (False, False))
+
     def test_a_snapshot_says_whether_its_own_timeline_was_cut(self):  # issue 1009, decision 0234
         # Anyone can comment on, or review, a pull request, so its timeline and its reviews are read to ten pages each. A
         # tenth that names an eleventh is not whole, the eleventh is never asked, and a cut timeline is said; a
@@ -4923,7 +5054,7 @@ class Snapshot(unittest.TestCase):
         router = Router(github.Replay(seq), {"don-petry": "admin"})
         with mock.patch.object(facts.acceptance, "bounded",
                                lambda transport, pull_, accounts, opener=None, opened=None: handed.append(opened)
-                               or (None, True, False)):
+                               or (None, True, False, False)):
             facts.snapshot(router, canary(), 26, person(), timeline.Accounts(router, canary(), MACHINE, {}), True,
                            lambda: self.NOW, opener=(author["id"], author["type"]), recorded=NOTHING, opened=made)
         self.assertIs(handed[0], made)
@@ -9564,6 +9695,166 @@ class Push(unittest.TestCase):
         self.assertEqual((push.READS_TOO_LARGE, push.TREE_UNFETCHED), ("push_reads_too_large", "push_tree_unfetched"))
         # A person's code is the Kernel's `person` fault, which holds the item for a person (decision 1224).
         self.assertEqual(push.PERSON, terms.ENDED_PERSON)
+
+
+OPENED_IN = "combsmith/widgets"
+OPENED_FROM = "factory-work/issue-12-1"
+OPENER = "combsmith-sf-qa-lead[bot]"
+LANDED = "a" * 40
+
+
+class Opening(unittest.TestCase):
+    """The opening port (issue 838, decision 0238): one draft opened from the work branch to the base, read back."""
+
+    class Scripted:
+        """A transport that answers each request by its method and path from a script, and keeps what was sent."""
+        def __init__(self, script):
+            self.script, self.sent = dict(script), []
+
+        def send(self, req):
+            self.sent.append(req)
+            answer = self.script.get((req["method"], req["path"]))
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+    LIST = ("GET", "/repos/%s/pulls?head=combsmith:%s&state=all&per_page=100" % (OPENED_IN, OPENED_FROM))
+    OPEN = ("POST", "/repos/%s/pulls" % OPENED_IN)
+    READ = ("GET", "/repos/%s/pulls/7" % OPENED_IN)
+
+    @staticmethod
+    def pull(number=7, login=OPENER, ref=OPENED_FROM, repo=OPENED_IN, base="main", draft=True):
+        return {"number": number, "state": "open", "user": {"login": login, "type": "Bot"},
+                "head": {"ref": ref, "sha": LANDED, "repo": {"full_name": repo}}, "base": {"ref": base}, "draft": draft}
+
+    def opened(self, script, title="docs: say it (#12)", body="Closes #12\n\nText.", base="main"):
+        """What the port read back, through the Role's token narrowed to the opening, and what it sent."""
+        scripted = self.Scripted(script)
+        sender = effects.Allowed(scripted, *opening.allowed(OPENED_IN, OPENED_FROM, base, title, body))
+        return opening.write(sender, OPENED_IN, OPENED_FROM, base, LANDED, title, body, OPENER), scripted.sent
+
+    def test_a_drafts_text_is_held_to_githubs_bounds_in_bytes_of_utf_8(self):
+        for title, body, code in (("t" * 256, "b", None), ("t" * 257, "b", opening.TITLE_BYTES),
+                                  ("\U0001f600" * 64, "b", None), ("\U0001f600" * 64 + "t", "b", opening.TITLE_BYTES),
+                                  ("é" * 128, "b", None), ("é" * 129, "b", opening.TITLE_BYTES),
+                                  ("t", "b" * 65536, None), ("t", "b" * 65537, opening.BODY_BYTES),
+                                  ("t", "€" * 21845 + "b", None), ("t", "€" * 21846, opening.BODY_BYTES),
+                                  ("t" * 257, "b" * 65537, opening.TITLE_BYTES),
+                                  ("t\ud800", "b", opening.UNREADABLE), ("t", "\udfffb", opening.UNREADABLE),
+                                  (None, "b", opening.UNREADABLE), ("t", b"b", opening.UNREADABLE),
+                                  (type("Text", (str,), {})("t"), "b", opening.UNREADABLE)):
+            self.assertEqual(opening.refusal(title, body), code, (title[:3] if isinstance(title, str) else title, code))
+
+    def test_a_roles_token_opens_one_draft_from_its_branch_to_its_base_and_reads_it_alone(self):
+        permits, patterns = opening.allowed(OPENED_IN, OPENED_FROM, "main", "t", "b")
+        allowed = effects.Allowed(self.Scripted({}), permits, patterns)
+        good = {"title": "t", "body": "b", "head": OPENED_FROM, "base": "main", "draft": True}
+        for req, sends in ((github.request(*self.LIST), True), (github.request(*self.READ), True),
+                           (github.request("POST", self.OPEN[1], body=good), True),
+                           (github.request("GET", "/repos/%s/pulls/07" % OPENED_IN), False),
+                           (github.request("GET", "/repos/%s/pulls/7/files" % OPENED_IN), False),
+                           (github.request("GET", "/repos/combsmith/other/pulls/7"), False),
+                           (github.request("POST", "/repos/combsmith/other/pulls", body=good), False),
+                           (github.request("PATCH", self.READ[1], body={"draft": False}), False),
+                           (github.request("GET", self.LIST[1].replace("state=all", "state=open")), False)) + tuple(
+                (github.request("POST", self.OPEN[1], body=dict(good, **{key: value})), False)
+                for key, value in (("draft", False), ("draft", 1), ("head", "factory-work/issue-13-1"),
+                                   ("base", "release"), ("title", "t" * 257), ("body", "b" * 65537),
+                                   ("title", "u"), ("body", "Closes #13"),
+                                   ("maintainer_can_modify", True))):
+            try:
+                allowed.send(req)
+                sent = True
+            except github.Unanswered:
+                sent = False
+            self.assertEqual(sent, sends, (req["method"], req["path"], req["body"]))
+        for repo, branch, base in (("combsmith/..", OPENED_FROM, "main"), (OPENED_IN, "main", "main"),
+                                   (OPENED_IN, OPENED_FROM + "x/y", "main"), (OPENED_IN, OPENED_FROM, "a..b"),
+                                   (OPENED_IN, OPENED_FROM, "-main"), (OPENED_IN, OPENED_FROM, "main.lock"),
+                                   (OPENED_IN, OPENED_FROM, "main/"), (OPENED_IN, OPENED_FROM, "a//b"),
+                                   (OPENED_IN, OPENED_FROM, "ma in"), (OPENED_IN, OPENED_FROM, None)):
+            self.assertEqual(opening.allowed(repo, branch, base, "t", "b"), ({}, []), (repo, branch, base))
+        self.assertEqual(opening.allowed(OPENED_IN, OPENED_FROM, "main", "t" * 257, "b"), ({}, []))
+        self.assertNotEqual(opening.allowed(OPENED_IN, OPENED_FROM, "release/v1.2", "t", "b"), ({}, []))
+
+    def test_a_draft_is_opened_once_and_claimed_only_when_read_back_by_its_number(self):
+        back, sent = self.opened({self.LIST: {"status": 200, "body": [self.pull(5, login="someone")]},
+                                  self.OPEN: {"status": 201, "body": {"number": 7}},
+                                  self.READ: {"status": 200, "body": self.pull()}})
+        self.assertEqual(back, {"state": "applied", "number": 7, "head": OPENED_FROM, "reason": None})
+        self.assertEqual([(r["method"], r["path"]) for r in sent], [self.LIST, self.OPEN, self.READ])
+        self.assertEqual(sent[1]["body"], {"title": "docs: say it (#12)", "body": "Closes #12\n\nText.",
+                                           "head": OPENED_FROM, "base": "main", "draft": True})
+        # What `apply` records of it: keyed by the number read back, on the branch the Run was admitted to open.
+        self.assertEqual(apply.opened("e1", 12, OPENED_FROM, back),
+                         {"id": "e1", "type": "open_pull_request", "state": "applied", "key": "7", "reason": None})
+
+    def test_a_draft_its_app_already_opened_from_the_branch_is_recovered_and_none_is_opened(self):
+        for listed in ([self.pull()], [self.pull(5, login="someone"), self.pull(draft=False)],
+                       [self.pull(5, ref="factory-work/issue-12-2"), self.pull()]):
+            back, sent = self.opened({self.LIST: {"status": 200, "body": listed},
+                                      self.READ: {"status": 200, "body": dict(listed[-1], number=7)}})
+            self.assertEqual(back, {"state": "already_applied", "number": 7, "head": OPENED_FROM, "reason": None})
+            self.assertNotIn(self.OPEN, [(r["method"], r["path"]) for r in sent])
+        # A recovered draft is claimed only as its read by number says: at another head, it is not this push's.
+        back, _ = self.opened({self.LIST: {"status": 200, "body": [self.pull()]},
+                               self.READ: {"status": 200, "body": dict(self.pull(), head={
+                                   "ref": OPENED_FROM, "sha": "b" * 40, "repo": {"full_name": OPENED_IN}})}})
+        self.assertEqual(back["state"], "sent")
+
+    def test_an_opening_not_read_back_whole_claims_nothing_and_says_why(self):
+        listed = {"status": 200, "body": []}
+        made = {"status": 201, "body": {"number": 7}}
+        for script, state, reason in (
+                ({self.LIST: {"status": 200, "body": {"total": 0}}}, "failed", "pulls_unreadable"),
+                ({self.LIST: {"status": 200, "body": [self.pull(n, login="x") for n in range(1, 101)]}}, "failed",
+                 "pulls_unreadable"),
+                ({self.LIST: {"status": 500, "body": None}}, "failed", "pulls_unreadable"),
+                ({self.LIST: {"status": 200, "body": [], "headers": {"Link": '<x?page=2>; rel="next"'}}}, "failed",
+                 "pulls_unreadable"),
+                ({self.LIST: {"status": 200, "body": [dict(self.pull(), user=None)]}}, "failed", "pulls_unreadable"),
+                ({self.LIST: {"status": 200, "body": ["#7"]}}, "failed", "pulls_unreadable"),
+                ({self.LIST: github.Unanswered("no answer")}, "failed", "pulls_unreadable"),
+                ({self.LIST: {"status": 200, "body": [self.pull(), self.pull(8)]}}, "failed", "opened_twice"),
+                ({self.LIST: {"status": 200, "body": [dict(self.pull(), state="closed")]}}, "failed", "opened_closed"),
+                ({self.LIST: listed, self.OPEN: {"status": 422, "body": {}}}, "failed", "write_refused"),
+                ({self.LIST: listed, self.OPEN: {"status": 502, "body": None}}, "failed", "write_unanswered"),
+                ({self.LIST: listed, self.OPEN: OSError("reset")}, "failed", "write_unanswered"),
+                ({self.LIST: listed, self.OPEN: ValueError("odd")}, "failed", "write_unanswered"),
+                ({self.LIST: listed, self.OPEN: {"status": "201", "body": {"number": 7}}}, "failed",
+                 "write_unanswered"),
+                ({self.LIST: {"status": 403, "body": {}}}, "refused", "token_refused"),
+                ({self.LIST: listed, self.OPEN: {"status": 401, "body": {}}}, "refused", "token_refused"),
+                ({self.LIST: listed, self.OPEN: made, self.READ: {"status": 403, "body": {}}}, "sent", None),
+                ({self.LIST: listed, self.OPEN: {"status": 201, "body": None}}, "sent", None)) + tuple(
+                ({self.LIST: listed, self.OPEN: made, self.READ: {"status": 200, "body": body}}, "sent", None)
+                for body in (self.pull(login="someone"), self.pull(ref="factory-work/issue-12-2"),
+                             self.pull(repo="someone/widgets"), self.pull(base="release"),
+                             self.pull(draft=False), self.pull(draft=None), self.pull(number=8),
+                             dict(self.pull(), state="closed"), dict(self.pull(), number=True),
+                             dict(self.pull(), user={"login": OPENER, "type": "User"}),
+                             dict(self.pull(), head={"ref": OPENED_FROM, "sha": "b" * 40,
+                                                     "repo": {"full_name": OPENED_IN}}),
+                             dict(self.pull(), base="main"), dict(self.pull(), head=None), None)) + (
+                ({self.LIST: listed, self.OPEN: made, self.READ: {"status": 404, "body": {}}}, "sent", None),
+                ({self.LIST: listed, self.OPEN: {"status": 201, "body": {"number": "7"}}}, "sent", None),
+                ({self.LIST: listed, self.OPEN: {"status": 201, "body": {"number": 0}}}, "sent", None)):
+            back, _ = self.opened(script)
+            self.assertEqual((back["state"], back["number"], back["reason"]), (state, None, reason), (script, state))
+            self.assertEqual(apply.opened("e1", 12, OPENED_FROM, back)["key"], None)
+
+    def test_an_opening_told_wrongly_sends_nothing(self):
+        for repo, branch, base, title, body, login, *commit in (
+                ("combsmith/..", OPENED_FROM, "main", "t", "b", OPENER), (OPENED_IN, "main", "main", "t", "b", OPENER),
+                (OPENED_IN, OPENED_FROM, "a..b", "t", "b", OPENER),
+                (OPENED_IN, OPENED_FROM, "main", "t" * 257, "b", OPENER),
+                (OPENED_IN, OPENED_FROM, "main", "t", "b" * 65537, OPENER),
+                (OPENED_IN, OPENED_FROM, "main", "t", "b", ""), (OPENED_IN, OPENED_FROM, "main", "t", "b", None),
+                (OPENED_IN, OPENED_FROM, "main", "t", "b", OPENER, "A" * 40)):
+            scripted = self.Scripted({})
+            back = opening.write(scripted, repo, branch, base, (commit or [LANDED])[0], title, body, login)
+            self.assertEqual((back, scripted.sent), ({"state": "refused", "number": None, "head": None,
+                                                      "reason": opening.TOLD_WRONGLY}, []), (repo, branch, base))
 
 if __name__ == "__main__":
     unittest.main()
