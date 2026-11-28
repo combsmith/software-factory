@@ -7689,6 +7689,19 @@ class Decisions(unittest.TestCase):
             FIRST: plain + "| Another thing | waiting on `roles/x.py` |\n", "tools/mutants.py": "MUTANTS = [\n"},
             commit=True)), [])
 
+    def test_a_row_main_holds_fails_when_any_mutant_it_names_is_gone(self):  # issue 1242
+        # A row of three mutants, held on main in a live record and in one replaced by another, names each: any one taken
+        # from the mutants, the first, the middle or the last, fails the row as it would alone.
+        row = ('| One thing | `tools/check_x.py`, `tests/test_x.py::test_y`, `tests/test_x.py::test_z`, mutant: "one thing is '
+               'undone", mutant: "two tests undo it", mutant: "another thing is undone" |')
+        for files in ({FIRST: RECORD.replace(ONE_ROW, row)}, {FIRST: REPLACED.replace(ONE_ROW, row), LATER: REPLACING}):
+            self.assertEqual(check_decisions.run(history(files)), [], files)
+            for gone in ("one thing is undone", "two tests undo it", "another thing is undone"):
+                with self.subTest(gone=gone, files=sorted(files)):
+                    root = edited(history(files), {"tools/mutants.py": RECORD_MUTANTS.replace('"%s"' % gone, '"%s, once"' % gone)})
+                    self.assertTrue(caught(check_decisions.run(root), '%s, boundary 1: names mutant "%s", which tools/mutants.py '
+                                                                       'does not hold' % (FIRST, gone)))
+
     def test_a_row_main_holds_names_no_mutant_until_its_check_changes(self):  # issue 590
         plain = RECORD.replace(ONE_ROW, "| One thing | `tests/test_x.py` |")
         self.assertEqual(check_decisions.run(history({FIRST: plain})), [])
