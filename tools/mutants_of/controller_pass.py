@@ -532,4 +532,10 @@ MUTANTS = [
     ('a yes told at no moment raises no doubt', 'controller/pass_.py',
      'type(run) is not str or seconds(now, at) is None or seconds(now, at) < 0 for run, at in observed)',
      'type(run) is not str or seconds(now, at) is not None and seconds(now, at) < 0 for run, at in observed)', ('tests.test_controller.Record.test_a_review_told_yes_a_pass_before_counts_until_its_run_is_listed',)),
+    ("a yes told in the pass's own second is not carried", 'controller/pass_.py',
+     '        if type(rid) is str and seconds(now, at) is not None and seconds(now, at) >= 0:',
+     '        if type(rid) is str and seconds(now, at) is not None and seconds(now, at) > 0:', ('tests.test_controller.Record.test_a_review_told_yes_a_pass_before_counts_until_its_run_is_listed',)),
+    ("a yes with no Run is carried", 'controller/pass_.py',
+     '        if type(rid) is str and seconds(now, at) is not None and seconds(now, at) >= 0:',
+     '        if seconds(now, at) is not None and seconds(now, at) >= 0:', ('tests.test_controller.Record.test_a_review_told_yes_a_pass_before_counts_until_its_run_is_listed',)),
 ]

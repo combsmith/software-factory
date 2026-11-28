@@ -513,6 +513,9 @@ class Record(unittest.TestCase):
         self.assertEqual(asks(previous=(dict(quiet, advisory_unlisted=[]), dict(later, advisory_unlisted=aged))), [True])
         hour = [dict(e, told_at="2026-10-11T12:00:00Z") for e in later["advisory_unlisted"]]
         self.assertEqual(asks(previous=(dict(quiet, advisory_unlisted=[]), dict(later, advisory_unlisted=hour))), [False])
+        # One told in the pass's own second still counts.
+        same = [dict(e, told_at=NOW) for e in later["advisory_unlisted"]]
+        self.assertEqual(asks(previous=(dict(quiet, advisory_unlisted=[]), dict(later, advisory_unlisted=same))), [False])
         # Each yes keeps the moment it was first told as it is carried: two passes on, an hour after it, it lapses.
         self.assertEqual({e["told_at"] for e in quiet["advisory_unlisted"] + later["advisory_unlisted"]}, {first["now"]})
         self.assertEqual(asks(previous=(dict(first, now="2026-10-11T11:59:59Z", advisory_unlisted=[]),)), [True])
