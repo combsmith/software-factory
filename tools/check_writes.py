@@ -17,7 +17,9 @@ imports as a namespace package, is read as one. A bare import of a name the file
 `tools/`, is a problem too: run as a script, the file has that folder first on its path (issue 1276). Two things are this
 check's limits, not read: a change to `sys.path`, which lets a bare name load a file of the folder it adds; and a file
 named as a module of Python's own library, `tools/decimal.py`, which a script beside it loads in that module's place
-when Python's own code imports it (Astra).
+when Python's own code imports it (Astra). Nor are library calls in honest daily use, mostly in tests, that load a
+module by a dotted name or run code given as text, such as the `unittest` loaders, `unittest.mock.patch`, the `class`
+and `()` keys of `logging.config.dictConfig`, and `timeit` (issue 1348).
 """
 from __future__ import annotations
 
@@ -95,8 +97,9 @@ FIELDS = ("method", "path", "body")
 # A module's names as a value: what is read from them cannot be.
 NAMESPACES = ("__dict__", "__getattribute__", "__getattr__")
 # The modules by which code loads a module by its name, and every name by which a module is reached as a value: as a
-# literal key, `getattr` or `get` argument, each is a load by name (issues 640, 655; imp and zipimport, issue 1335).
-LOADER_MODULES = ("importlib", "builtins", "pkgutil", "runpy", "imp", "zipimport")
+# literal key, `getattr` or `get` argument, each is a load by name (issues 640, 655; imp and zipimport, issue 1335;
+# pydoc, issue 1348).
+LOADER_MODULES = ("importlib", "builtins", "pkgutil", "runpy", "imp", "zipimport", "pydoc")
 BY_NAME = ("sys", "modules", "__builtins__", "__import__") + LOADER_MODULES
 # Where a package finds its modules: changed, it loads a file under a name the syntax reads as another (issue 1323).
 PACKAGE_PATHS = ("__path__", "submodule_search_locations", "__package__")
