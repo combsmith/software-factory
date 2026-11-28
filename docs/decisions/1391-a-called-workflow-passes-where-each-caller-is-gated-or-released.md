@@ -8,7 +8,7 @@ Decision 1390 still refuses a command in a workflow that `workflow_call` starts,
 
 - A workflow whose one trigger is `workflow_call` passes where every job in the folder that names it is a caller of one of two forms: it calls the file by its `./` path from a workflow itself gated, or it calls the home repo's file at a Release or Channel tag, word for word. At least one caller must exist.
 - Any other job that names the file refuses it: a branch, a commit, another repo or a tag of another shape. So does a chain of callers past `DEPTH`, three callers up, or one that comes back.
-- The poller's frozen shim passes word for word but for its comments. A test pins it to `POLLER_SHIM`.
+- The poller's frozen shim passes at its own path, `.github/workflows/poller.yml`, word for word but for its comments. A test pins it to `POLLER_SHIM`.
 
 `guards/workflows.py` holds both.
 

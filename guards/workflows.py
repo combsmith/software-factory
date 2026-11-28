@@ -50,7 +50,7 @@ says is refused, never passed.
   too, where every job in the folder that names it, at least one, calls it at `home`'s tag in that form, or by its
   path here from a workflow itself passed so. Any other call that names it refuses it, and so does a chain of callers
   past `DEPTH` or one that comes back. A command in a workflow that `workflow_call` starts and that is not passed so
-  is refused, as `STARTED`. The poller's shim, `SHIM`, passes on the list word for word but for its comments, its
+  is refused, as `STARTED`. The poller's shim, `SHIM`, passes at its path, `POLLER`, on the list word for word but for its comments, its
   call held as a gated job's is.
 
 Every route that points SonarCloud's scan at another settings file is refused: the scan's `args` and `projectBaseDir`
@@ -148,6 +148,7 @@ HOSTED = ("ubuntu-latest", "ubuntu-24.04", "ubuntu-22.04", "ubuntu-24.04-arm", "
 # The poller's shim, frozen, word for word but for its comments: it checks out nothing, calls the pass at the home
 # repo's Channel, and reads nothing of what woke it, so a run a work branch ends gives that branch only the timing
 # (the Solution Architect's option A of 2026-11-28). `tests/test_guards.py` pins it to `tools/check_workflows.py`'s.
+POLLER = "poller.yml"
 SHIM = """name: sf-poller
 on:
   schedule:
@@ -341,7 +342,8 @@ def _started(root: dict, default) -> bool:
 
 
 def _number(said: str) -> bool:
-    return bool(said) and all(c in DIGITS for c in said)
+    """Whether `said` is a number as a version writes one: digits, and no 0 before another digit."""
+    return bool(said) and all(c in DIGITS for c in said) and (said == "0" or said[:1] != "0")
 
 
 def _tag(tag: str) -> bool:
@@ -485,7 +487,7 @@ def _read(path, text, listed, narrow: bool, default, roots=None, home=None):
     held = [job for job in jobs["kids"] if not narrow or _holds(job, outer, given)]
     if not held:
         return None
-    if narrow and (_listed(path, listed) and lines == _lines(SHIM) or _gated(path, roots, listed, default, home, ())):
+    if narrow and (path == FOLDER + POLLER and _listed(path, listed) and lines == _lines(SHIM) or _gated(path, roots, listed, default, home, ())):
         return None if not _capital(root["kids"]) and all(_call(job, roots, home, listed) for job in held) else UNREADABLE
     top = _keys(root, TOP + ("env", "jobs"))
     if top is None or not _env(top.get("env")):
