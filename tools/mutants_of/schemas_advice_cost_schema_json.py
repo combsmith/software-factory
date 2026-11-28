@@ -1,0 +1,36 @@
+"""The mutants of `schemas/advice-cost.schema.json`: tools/mutants.py runs them."""
+
+TARGETS = ("schemas/advice-cost.schema.json",)
+MUTANTS = [
+    # Decision 0224: the advisory cost a review Run leaves.
+    ('an advisory cost may hold more asks than a Run may', 'schemas/advice-cost.schema.json',
+     '"minimum": 0,\n      "maximum": 100\n',
+     '"minimum": 0,\n      "maximum": 101\n', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
+    ('an advisory cost may be more than a record holds', 'schemas/advice-cost.schema.json',
+     '"minimum": 0,\n      "maximum": 100000\n',
+     '"minimum": 0,\n      "maximum": 100001\n', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
+    ('an advisory cost may name no attempt', 'schemas/advice-cost.schema.json',
+     '    "run",\n    "attempt",\n',
+     '    "run",\n', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
+    ('an advisory cost may name an attempt GitHub never numbers', 'schemas/advice-cost.schema.json',
+     '"type": "integer",\n      "minimum": 1,',
+     '"type": "integer",\n      "minimum": 0,', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
+    ('an advisory cost may hold fewer asks than none', 'schemas/advice-cost.schema.json',
+     '"minimum": 0,\n      "maximum": 100\n',
+     '"minimum": -1,\n      "maximum": 100\n', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
+    ('an advisory cost may count its asks in parts', 'schemas/advice-cost.schema.json',
+     '"asks": {\n      "type": "integer",',
+     '"asks": {\n      "type": "number",', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
+    ('an advisory cost may name an attempt in parts', 'schemas/advice-cost.schema.json',
+     '"attempt": {\n      "type": "integer",',
+     '"attempt": {\n      "type": "number",', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
+    ('an advisory cost may name an attempt past those a Run may have', 'schemas/advice-cost.schema.json',
+     '"minimum": 1,\n      "maximum": 100\n',
+     '"minimum": 1,\n      "maximum": 99\n', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
+    ('an advisory cost may name no Run', 'schemas/advice-cost.schema.json',
+     '    "schema",\n    "run",\n',
+     '    "schema",\n', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
+    ('an advisory cost may name no Release', 'schemas/advice-cost.schema.json',
+     '    "release",\n    "asks",\n',
+     '    "asks",\n', ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
+]
