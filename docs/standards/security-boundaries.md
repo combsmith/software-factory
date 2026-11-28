@@ -111,4 +111,4 @@ pushed:  kernel/derive.py   tools/check_context.py
 ```
 
 Org standard: codeowners-standard.md, "Rule": the code owners file is the org's, word for word.
-Held by: `tests/test_tools.py::test_code_owners_are_the_orgs_word_for_word`; the refusal: `tests/test_apply.py::test_a_push_is_held_to_the_bases_list_by_each_class_of_path`
+Held by: `tests/test_tools.py::test_code_owners_are_the_orgs_word_for_word`; the refusal: `tests/test_apply.py::test_a_push_is_held_to_the_bases_list_by_each_class_of_path`; the hold at convergence: `tests/test_decide.py::test_every_other_class_needs_a_model_review`
