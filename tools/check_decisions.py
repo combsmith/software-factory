@@ -343,7 +343,7 @@ class _Read:
         if name not in self.done:
             if name and ((folder / name).is_dir() or not (folder / "__init__.py").is_file()):
                 raise ValueError("tools.mutants_of.%s is not the file the reader reads" % name)
-            self.done[name] = None
+            self.done[name] = None    # NOSONAR: a false positive; None marks the module as being read, so a cycle is caught
             self.done[name] = _top(self, "tools/mutants_of/%s.py" % (name or "__init__"))
         if self.done[name] is None:
             raise ValueError("tools.mutants_of.%s imports itself" % name)

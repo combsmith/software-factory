@@ -7754,7 +7754,7 @@ class Decisions(unittest.TestCase):
             "a bytes format": runner + "X = b'%1001s' % b'x'\n",
             "text and its change": runner.replace('"a", "b", ("tests.test_x.T.test_y",)),', '1, None, ("tests.test_x.T.test_y",)),', 1),
             "tests is not read as text": runner.replace('("tests.test_x.T.test_y",)),', '(7,)),', 1),
-            "raises error": runner + "P = re.compile('[')\n",
+            "an operation raises": runner + "P = re.compile('[')\n",
             "binds a name twice": runner + "def tuple(g):\n    return ()\n",
             "binds a name twice ": runner.replace("AREAS = areas(ROOT)", "__file__ = '/a/b/c'\nAREAS = areas(ROOT)"),
             "binds a name twice  ": runner + "X = 1\nX = 2\n",
