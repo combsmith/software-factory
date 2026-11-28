@@ -6280,17 +6280,21 @@ class Workflows(unittest.TestCase):
                 ("a job that needs no run checks out what the run handed on", good.replace("    needs: run\n", "", 1))):
             self.assertNotEqual(text, good, why)
             self.assertNotEqual(runs_the_items_code(text), [], why)
-        # Every workflow the guard passes whole beside a secret, as no work branch can start it (guards/workflows.py):
-        # none checks out an item's head. A checkout
+        # Every workflow the guard passes whole beside a secret, as no work branch can start it, or as the poller's shim
+        # (guards/workflows.py): none checks out an item's head. A checkout
         # names the Release's own commit, or no ref, the commit its dispatch or schedule is for; no command fetches,
         # checks out or switches to another.
         from guards import workflows
+        home = "combsmith/software-factory"
         listed = [e["path"] for e in json.loads((ROOT / "config" / "hooks.json").read_text())["protected"]]
         files = {".github/workflows/" + p.name: p.read_text() for p in sorted(self.LIVE.iterdir()) if p.suffix in (".yml", ".yaml")}
         roots = {path: workflows._root(text) for path, text in files.items()}
-        passed = sorted(path for path in files if workflows._gated(path, roots, listed, "main"))
+        passed = sorted(path for path, text in files.items() if workflows._gated(path, roots, listed, "main", home, ())
+                        or workflows._lines(text) == workflows._lines(workflows.SHIM))
+        self.assertIsNone(workflows.refusal_at(files, listed, "main", home))
         self.assertEqual([p[len(".github/workflows/"):] for p in passed],
-                         ["approve.yml", "eval.yml", "queue.yml", "release.yml", "run.yml"])
+                         ["approve-job.yml", "approve.yml", "eval.yml", "pass.yml", "poller.yml", "queue-job.yml", "queue.yml",
+                          "release.yml", "run-jobs.yml", "run.yml"])
 
         def checks_out_an_item(text):
             entries, bad = check_workflows.read(text)

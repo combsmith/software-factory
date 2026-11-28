@@ -9,6 +9,8 @@ WHOLE = ('tests.test_guards.Secrets.test_at_a_commit_every_workflow_is_read_whol
 BLOCK = ('tests.test_guards.Commands.test_a_keys_block_scalar_is_read_as_its_value',)
 STARTS = ('tests.test_guards.Commands.test_a_command_beside_a_secret_passes_only_where_the_default_branch_alone_may_start_it',)
 GATED = ('tests.test_guards.Gated.test_a_listed_workflow_no_work_branch_can_start_passes_whole',)
+CALLS = ('tests.test_guards.Gated.test_a_called_workflow_passes_where_every_job_naming_it_is_gated_or_at_the_home_tag',)
+SHIMS = ('tests.test_guards.Gated.test_the_pollers_shim_passes_word_for_word_on_the_list',)
 
 TARGETS = ("guards/workflows.py",)
 MUTANTS = [
@@ -324,14 +326,14 @@ MUTANTS = [
      '    if type(default) is not str or not default or any(c in PATTERN for c in default) or not on:\n', STARTS),
     # A workflow no work branch can start passes whole; in it, a secret job calls by path or at the home tag, or is hosted.
     ("a gated workflow is read as the table says", 'guards/workflows.py',
-     '    if narrow and _gated(path, roots, listed, default):\n',
-     '    if False:\n', GATED),
+     ' or _gated(path, roots, listed, default, home, ())):\n',
+     '):\n', GATED),
     ("an unlisted workflow passes whole", 'guards/workflows.py',
-     '    return root is not None and _listed(path, listed) and not _started(root, default)\n',
-     '    return root is not None and not _started(root, default)\n', GATED),
+     '    if root is None or not _listed(path, listed) or path in seen',
+     '    if root is None or path in seen', GATED),
     ("a workflow a work branch may start passes whole", 'guards/workflows.py',
-     '    return root is not None and _listed(path, listed) and not _started(root, default)\n',
-     '    return root is not None and _listed(path, listed)\n', GATED),
+     '        return not _started(root, default)\n',
+     '        return True\n', GATED),
     ("a gated workflow's secret jobs are not held", 'guards/workflows.py',
      '        return None if all(_call(job, roots, home) for job in held) else UNREADABLE\n',
      '        return None\n', GATED),
@@ -371,4 +373,33 @@ MUTANTS = [
     ("a call to a file under a folder passes", 'guards/workflows.py',
      '    return any(name.endswith(end) for end in WORKFLOW_ENDS) and all(c in NAME for c in name)\n',
      '    return any(name.endswith(end) for end in WORKFLOW_ENDS)\n', GATED),
+    # A workflow only another starts passes where every job naming it calls it at the home tag or from a gated workflow.
+    ("a called workflow with no caller passes", 'guards/workflows.py',
+     '    return bool(naming) and all(',
+     '    return all(', CALLS),
+    ("a called workflow is not followed to its callers", 'guards/workflows.py',
+     '    if not _called(root):\n',
+     '    if True:\n', CALLS),
+    ("a caller in another form passes", 'guards/workflows.py',
+     'all(_home(uses, home) == name or uses == LOCAL + name\n',
+     'all(_home(uses, home) == name or True\n', CALLS),
+    ("a caller by path a work branch may start passes", 'guards/workflows.py',
+     '\n                                and _gated(at, roots, listed, default, home, seen + (path,)) for at, uses in naming)\n',
+     ' for at, uses in naming)\n', CALLS),
+    ("a chain of callers past its depth passes", 'guards/workflows.py',
+     ' or path in seen or len(seen) == len(DEPTH):\n',
+     ' or path in seen:\n', CALLS),
+    ("a called workflow beside another trigger passes", 'guards/workflows.py',
+     ' or [kid["key"] for kid in on[0]["kids"]] == [CALL])\n',
+     ' or CALL in [kid["key"] for kid in on[0]["kids"]])\n', CALLS),
+    ("a file whose name ends as another's is named by it", 'guards/workflows.py',
+     '.endswith("/" + FOLDER + name)]\n',
+     '.endswith(name)]\n', CALLS),
+    # The poller's shim passes on the list, word for word but for its comments.
+    ("the poller's shim is read as any workflow", 'guards/workflows.py',
+     '(_listed(path, listed) and lines == _lines(SHIM) or _gated(',
+     '(_gated(', SHIMS),
+    ("the poller's shim passes off the list", 'guards/workflows.py',
+     '(_listed(path, listed) and lines == _lines(SHIM) or _gated(',
+     '(lines == _lines(SHIM) or _gated(', SHIMS),
 ]

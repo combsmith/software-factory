@@ -2569,11 +2569,18 @@ jobs:
 CALLER_AT = ".github/workflows/zcaller.yml"
 HOME_CALL = HOME + "/.github/workflows/called.yml@factory/v0-next"
 LOCAL_CALL = "./.github/workflows/called.yml"
+POLLER_AT = ".github/workflows/poller.yml"
+LIVE = pathlib.Path(__file__).resolve().parent.parent / ".github" / "workflows"
 
 
 def caller(uses: str, on: str = "on:\n  workflow_dispatch:\n", name: str = "lane") -> str:
     """A workflow of one job that calls `uses` with every secret, started on `on`."""
     return "name: Caller\n%sjobs:\n  %s:\n    uses: %s\n    secrets: inherit\n" % (on, name, uses)
+
+
+def calling(text: str, uses: str) -> str:
+    """`text` with one more job, which calls `uses`."""
+    return text + "  next:\n    uses: %s\n    secrets: inherit\n" % uses
 
 
 def judged(files: dict, listed=None, home=HOME):
@@ -2608,11 +2615,9 @@ class Gated(unittest.TestCase):
         for uses in (HOME_CALL, HOME_CALL.replace("v0-next", "v0-stable"), HOME_CALL.replace("v0-next", "v12.0.3"),
                      HOME_CALL.replace("v0-next", "v10-next"), HOME_CALL.replace(".yml@", ".yaml@")):
             self.assertIsNone(judged({CALLER_AT: caller(uses)}), uses)
-        # A call by its path reaches a workflow the commit holds; that one is read for itself, and `workflow_call` is
-        # refused there: what calls it is not read.
-        self.assertEqual(judged({".github/workflows/a.yml": caller("./.github/workflows/zcalled.yml"),
-                                 ".github/workflows/zcalled.yml": CALLED}), workflows.STARTED)
-        self.assertEqual(judged({".github/workflows/a.yml": caller("./.github/workflows/zcalled.yml")}), workflows.UNREADABLE)
+        # A call by its path reaches a workflow the commit holds.
+        self.assertIsNone(judged({CALLER_AT: caller(LOCAL_CALL), CALLED_AT: CALLED}))
+        self.assertEqual(judged({CALLER_AT: caller("./.github/workflows/missing.yml"), CALLED_AT: CALLED}), workflows.STARTED)
         for uses in ("o/r/.github/workflows/called.yml@factory/v0-next", HOME_CALL.replace("factory/v0-next", "main"),
                      HOME_CALL.replace("factory/v0-next", "a" * 40), HOME_CALL.replace("v0-next", "v1.2"),
                      HOME_CALL.replace("v0-next", "v1.2.3.4"), HOME_CALL.replace("v0-next", "vx-next"),
@@ -2627,6 +2632,73 @@ class Gated(unittest.TestCase):
         # The home repo is the one the caller names: another, or none, passes no call.
         for home in ("combsmith/other", "combsmith", "", None, "combsmith/software-factory/x", "a/b c"):
             self.assertEqual(judged({CALLER_AT: caller(HOME_CALL)}, home=home), workflows.UNREADABLE, home)
+
+
+    def test_a_called_workflow_passes_where_every_job_naming_it_is_gated_or_at_the_home_tag(self):
+        # Every job that names it calls it at the home repo's tag: what runs is the Release's, never this commit's.
+        self.assertIsNone(judged({CALLED_AT: CALLED, CALLER_AT: caller(HOME_CALL)}))
+        self.assertIsNone(judged({CALLED_AT: CALLED, CALLER_AT: caller(HOME_CALL), ".github/workflows/zz.yml": caller(HOME_CALL)}))
+        # A job that calls another file, though its name ends as this one's, does not name it.
+        self.assertIsNone(judged({CALLED_AT: CALLED, CALLER_AT: caller(HOME_CALL), ".github/workflows/zz.yml":
+                                  caller(HOME_CALL.replace("called.yml", "precalled.yml"))}))
+        # Or by its path here, from a workflow itself gated; or both.
+        self.assertIsNone(judged({CALLED_AT: CALLED, CALLER_AT: caller(LOCAL_CALL)}))
+        self.assertIsNone(judged({CALLED_AT: CALLED, CALLER_AT: caller(LOCAL_CALL), ".github/workflows/zz.yml": caller(HOME_CALL)}))
+        # No caller at all: refused, a command beside its secret.
+        self.assertEqual(judged({CALLED_AT: CALLED}), workflows.STARTED)
+        self.assertEqual(judged({CALLED_AT: CALLED, CALLER_AT: caller(HOME_CALL.replace("called", "other"))}), workflows.STARTED)
+        # One job that names it in any other form refuses it, beside callers that would pass.
+        for other in (HOME_CALL.replace("factory/v0-next", "main"), HOME_CALL.replace("factory/v0-next", "a" * 40),
+                      "o/r/.github/workflows/called.yml@factory/v0-next", HOME_CALL.replace("v0-next", "v0-beta"),
+                      LOCAL_CALL + "@main"):
+            files = {CALLED_AT: CALLED, ".github/workflows/zz.yml": caller(other), CALLER_AT: caller(HOME_CALL)}
+            self.assertEqual(judged(files), workflows.STARTED, other)
+        # A caller by its path that a work branch may start refuses it.
+        self.assertEqual(judged({CALLED_AT: CALLED, CALLER_AT: caller(LOCAL_CALL, "on:\n  pull_request:\n")}), workflows.STARTED)
+        # Its one trigger is the call: beside another, or off the list, it is refused, called at the tag or not.
+        beside = CALLED.replace("  workflow_call:\n", "  workflow_call:\n  workflow_dispatch:\n")
+        self.assertEqual(judged({CALLED_AT: beside, CALLER_AT: caller(HOME_CALL)}), workflows.STARTED)
+        self.assertIsNone(judged({CALLED_AT: CALLED.replace("on:\n  workflow_call:\n", "on: workflow_call\n"), CALLER_AT: caller(HOME_CALL)}))
+        self.assertEqual(judged({CALLED_AT: CALLED, CALLER_AT: caller(HOME_CALL)}, listed=[CALLER_AT]), workflows.STARTED)
+        # Callers that come back to it refuse it, and so does a chain past its depth.
+        a, b = ".github/workflows/a.yml", ".github/workflows/b.yml"
+        cycle = {a: calling(CALLED, "./" + b), b: calling(CALLED, "./" + a)}
+        self.assertEqual(judged(cycle), workflows.STARTED)
+        self.assertEqual(judged(dict(cycle, **{CALLER_AT: caller("./" + a)})), workflows.STARTED)
+        chain = {CALLER_AT: caller("./.github/workflows/c1.yml"), ".github/workflows/c1.yml": calling(CALLED, "./.github/workflows/c2.yml"),
+                 ".github/workflows/c2.yml": CALLED}
+        self.assertIsNone(judged(chain))
+        chain[".github/workflows/c2.yml"] = calling(CALLED, "./.github/workflows/c3.yml")
+        chain[".github/workflows/c3.yml"] = CALLED
+        self.assertEqual(len(workflows.DEPTH), len(("c3's caller", "c2's caller", "c1's caller")))
+        self.assertEqual(judged(chain), workflows.STARTED)
+
+    def test_the_pollers_shim_passes_word_for_word_on_the_list(self):
+        from tools import check_workflows
+        self.assertEqual(workflows.SHIM, check_workflows.POLLER_SHIM)
+        self.assertIsNone(judged({POLLER_AT: workflows.SHIM}))
+        self.assertIsNone(judged({POLLER_AT: (LIVE / "poller.yml").read_text()}))
+        self.assertIsNone(judged({POLLER_AT: "# a comment\n" + workflows.SHIM.replace("inherit\n", "inherit # all\n")}))
+        # Any change but a comment is a workflow a work branch may start, and its call is read nowhere.
+        for old, new in (('"13 * * * *"', '"14 * * * *"'), ("    secrets: inherit\n", "    secrets: inherit\n    with:\n      x: y\n"),
+                         ("  pass:\n", "  pass:\n    if: github.event.workflow_run.head_branch != ''\n"),
+                         ("@factory/v0-next", "@main"), ("      - ci\n", "      - ci\n      - other\n"),
+                         ("permissions: {}\n", "")):
+            self.assertEqual(judged({POLLER_AT: workflows.SHIM.replace(old, new)}), workflows.UNREADABLE, new)
+        # Off the list, or for another home repo, it is refused too.
+        self.assertEqual(judged({POLLER_AT: workflows.SHIM}, listed=["sonar-project.properties"]), workflows.UNREADABLE)
+        self.assertEqual(judged({POLLER_AT: workflows.SHIM}, home="combsmith/other"), workflows.UNREADABLE)
+
+    def test_this_repos_own_workflows_pass_against_its_own_list(self):
+        listed = [e["path"] for e in json.loads((LIVE.parent.parent / "config" / "hooks.json").read_text())["protected"]]
+        files = {".github/workflows/" + p.name: p.read_text() for p in sorted(LIVE.iterdir()) if p.suffix in (".yml", ".yaml")}
+        self.assertIn(POLLER_AT, files)
+        self.assertIsNone(workflows.refusal_at(files, listed, "main", HOME))
+        # Each called one passes for its callers alone: without them, it is refused.
+        for path in (".github/workflows/pass.yml", ".github/workflows/run-jobs.yml", ".github/workflows/approve-job.yml",
+                     ".github/workflows/queue-job.yml"):
+            alone = {p: t for p, t in files.items() if p == path or "@factory/" not in t}
+            self.assertIsNotNone(workflows.refusal_at(alone, listed, "main", HOME), path)
 
 
 if __name__ == "__main__":

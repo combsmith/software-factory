@@ -44,7 +44,10 @@ says is refused, never passed.
   workflow, a job that holds a secret must call a workflow of this folder by its path, or `home`'s at a Release's or
   a Channel's tag, `factory/v1.2.3` or `factory/v0-next`, word for word, or run on a label `HOSTED` names; else it
   is `UNREADABLE`. Every job that holds a secret and runs steps runs on a label `HOSTED` names, wherever its workflow
-  stands. A workflow started by `workflow_call` is refused: what calls it is not read here.
+  stands. A workflow whose one trigger is `workflow_call` passes so too, where every job in the folder that names it,
+  at least one, calls it at `home`'s tag in that form, or by its path here from a workflow itself passed so. Any other
+  call that names it refuses it, and so does a chain of callers past `DEPTH` or one that comes back. The poller's
+  shim, `SHIM`, passes on the list word for word but for its comments, its call held as a gated job's is.
 
 Every route that points SonarCloud's scan at another settings file is refused: the scan's `args` and `projectBaseDir`
 are inputs its row does not name, and `SONAR_SCANNER_OPTS`, `SONAR_SCANNER_JSON_PARAMS` and `SONARQUBE_SCANNER_PARAMS`
@@ -61,9 +64,11 @@ Its stated limits:
   ref a person dispatches. A command a person wrote that fetches a work branch, or checks one out, runs that
   branch's files beside its secret, from the schedule too: what a listed workflow says is a person's. A person or an App that may dispatch a workflow on a work branch runs that branch's files
   beside its secret; that is theirs, as the ruling says, never a Role's.
-- A job that calls another workflow is read only in a workflow passed whole. What a call at the home repo's tag
-  runs is the Release's, so whoever may move a `factory/` tag changes it: the tag's protection is the boundary. So,
-  with the workflows `workflow_call` starts, every push here is still refused.
+- A job that calls another workflow is read only in a workflow passed whole, or as the shim's. What a call at the
+  home repo's tag runs is the Release's, so whoever may move a `factory/` tag changes it: the tag's protection is the
+  boundary. A repo outside the folder that calls a workflow here, at any ref, runs it with its own secrets, never
+  this repo's; for a Consumer that is a term of the grant. Callers are read in `files` alone: that the caller gives
+  both the base's and the branch head's is the caller's.
 - The Actions cache a job may write is not read: no action the table names restores one, and a command is given no
   cache's token by the table.
 - What an action reads at its pin is read from its source by a person when its row is written: the rows hold the pins
@@ -122,6 +127,7 @@ PATTERN = "*?+[]!"
 # A workflow a job calls: by its path in this folder, run at the caller's own commit, or in the home repo at a Release's
 # tag, `factory/v1.2.3`, or a Channel's, `factory/v0-next` or `factory/v0-stable`, run as released (the Solution
 # Architect's rulings of 2026-11-28).
+CALL = "workflow_call"
 LOCAL = "./.github/workflows/"
 TAG = "@factory/"
 CHANNELS = ("next", "stable")
@@ -129,9 +135,39 @@ SEMVER = ("major", "minor", "patch")
 DIGITS = "0123456789"
 NAME = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-."
 WORKFLOW_ENDS = (".yml", ".yaml")
+# How many workflows deep a called one's callers are followed: a chain longer, or one that comes back to itself, refuses.
+DEPTH = ("caller", "its caller", "the caller of that")
 # The labels of GitHub's own Linux runners, the only ones a job that holds a secret may run on: any other, a
 # self-hosted runner's among them, or an expression, is refused (the Solution Architect's ruling of 2026-11-28).
 HOSTED = ("ubuntu-latest", "ubuntu-24.04", "ubuntu-22.04", "ubuntu-24.04-arm", "ubuntu-22.04-arm")
+# The poller's shim, frozen, word for word but for its comments: it checks out nothing, calls the pass at the home
+# repo's Channel, and reads nothing of what woke it, so a run a work branch ends gives that branch only the timing
+# (the Solution Architect's option A of 2026-11-28). `tests/test_guards.py` pins it to `tools/check_workflows.py`'s.
+SHIM = """name: sf-poller
+on:
+  schedule:
+    - cron: "13 * * * *"
+    - cron: "33 * * * *"
+    - cron: "53 * * * *"
+  workflow_dispatch:
+  workflow_run:
+    workflows:
+      - factory
+      - ci
+    types:
+      - completed
+permissions: {}
+jobs:
+  pass:
+    permissions:
+      actions: write
+      contents: read
+    concurrency:
+      group: sf-poller
+      cancel-in-progress: false
+    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next
+    secrets: inherit
+"""
 # Each action a job may use, at its pin: the inputs it may be given, and the files of the repo it takes settings from.
 ACTIONS = (
     ("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", ("fetch-depth", "persist-credentials"), ()),
@@ -326,10 +362,38 @@ def _home(uses: str, home) -> str:
     return called if at and _file(called) and _tag(tag) else ""
 
 
-def _gated(path: str, roots: dict, listed: list, default) -> bool:
-    """Whether the workflow at `path` is on `listed` and no branch but `default` may start it, as `_started` reads."""
+def _jobs(root: dict) -> list:
+    named = [kid for kid in root["kids"] if kid["key"] == "jobs"]
+    return named[0]["kids"] if named else []
+
+
+def _calls(roots: dict) -> list:
+    """`(path, uses)` for each job of each workflow read that calls another, `path` its own workflow's."""
+    return [(path, kid["value"]) for path, root in roots.items() if root is not None
+            for job in _jobs(root) for kid in job["kids"] if kid["key"] == "uses"]
+
+
+def _called(root: dict) -> bool:
+    """Whether the workflow's one trigger is `workflow_call`: `on: workflow_call`, or a mapping of it alone."""
+    on = [kid for kid in root["kids"] if kid["key"] == "on"]
+    return bool(on) and (on[0]["value"] == CALL and not on[0]["kids"] or [kid["key"] for kid in on[0]["kids"]] == [CALL])
+
+
+def _gated(path: str, roots: dict, listed: list, default, home, seen: tuple) -> bool:
+    """Whether no branch but `default` may start the workflow at `path` before a review, and it is on `listed`: its
+    triggers `_started` passes, or its one trigger is `workflow_call` and every job in the folder that names it calls
+    it, at least one, either by its path here from a workflow itself gated, or at the home repo's Release tag. Any
+    other call that names it, another repo's, a branch's, a commit's or a tag of another shape, refuses it. Callers
+    are followed `DEPTH` deep; one that comes back to `path` refuses."""
     root = roots.get(path)
-    return root is not None and _listed(path, listed) and not _started(root, default)
+    if root is None or not _listed(path, listed) or path in seen or len(seen) == len(DEPTH):
+        return False
+    if not _called(root):
+        return not _started(root, default)
+    name = path[len(FOLDER):]
+    naming = [(at, uses) for at, uses in _calls(roots) if type(uses) is str and uses.partition("@")[0].endswith("/" + FOLDER + name)]
+    return bool(naming) and all(_home(uses, home) == name or uses == LOCAL + name
+                                and _gated(at, roots, listed, default, home, seen + (path,)) for at, uses in naming)
 
 
 def _call(job: dict, roots: dict, home) -> bool:
@@ -390,7 +454,7 @@ def _read(path, text, listed, narrow: bool, default, roots=None, home=None):
     """`refusal`'s answer, of every job where `narrow` is false, or of each job that holds a secret where it is true;
     a command is read only where `default`, the default branch, alone may start the workflow. Where `narrow` is true,
     `roots` maps each workflow of the commit to its tree, and `home` names the home repo: a workflow `_gated` passes
-    holds its secret-holding jobs only to `_call`."""
+    holds its secret-holding jobs only to `_call`, and the poller's shim, word for word, passes whole."""
     name = path[len(FOLDER):] if type(path) is str and path.startswith(FOLDER) else ""
     if "/" in name or name in ("", ".", "..") or type(text) is not str or type(listed) is not list \
             or not all(type(entry) is str for entry in listed):
@@ -409,7 +473,7 @@ def _read(path, text, listed, narrow: bool, default, roots=None, home=None):
     held = [job for job in jobs["kids"] if not narrow or _holds(job, outer, given)]
     if not held:
         return None
-    if narrow and _gated(path, roots, listed, default):
+    if narrow and (_listed(path, listed) and lines == _lines(SHIM) or _gated(path, roots, listed, default, home, ())):
         return None if all(_call(job, roots, home) for job in held) else UNREADABLE
     top = _keys(root, TOP + ("env", "jobs"))
     if top is None or not _env(top.get("env")):
