@@ -11347,7 +11347,7 @@ if url.endswith("/installation/token"):
         made = '#!/bin/sh\nexec /usr/bin/mktemp -d "%s/out.XXXXXX"\n' % self.scratch
         # python3 stands in only for a redaction it is told to fail: of the exchanges, or of a capture.
         python = """#!/bin/sh
-if [ "$1 $2" = "-I -S" ] && [ "$3" = '%(root)s/tools/redact_trial.py' ]; then
+if [ "$1 $2 $3" = "-I -S $STANDIN_ROOT/tools/redact_trial.py" ]; then
     input=$(cat)
     case "$input" in
         '{'*) [ -e "%(bin)s/bad-exchanges" ] && exit 3 ;;
@@ -11356,13 +11356,13 @@ if [ "$1 $2" = "-I -S" ] && [ "$3" = '%(root)s/tools/redact_trial.py' ]; then
     printf '%%s\\n' "$input" | exec "%(real)s" "$@"
 fi
 exec "%(real)s" "$@"
-""" % {"bin": self.bin, "real": sys.executable, "root": ROOT.resolve()}
+""" % {"bin": self.bin, "real": sys.executable}
         for name, text in (("gh", self.GH), ("curl", self.CURL), ("openssl", AppThreads.OPENSSL), ("mktemp", made), ("python3", python)):
             (self.bin / name).write_text(text)
             (self.bin / name).chmod(0o755)
         (self.bin / "key.pem").write_text("not a key: the stand-in openssl never reads it\n")
         env = {"PATH": "%s:/usr/bin:/bin" % self.bin, "HOME": str(self.bin), "LANG": "C", "STANDIN_REPO": AppThreads.REPO,
-               "TMPDIR": str(self.scratch), **extra}
+               "TMPDIR": str(self.scratch), "STANDIN_ROOT": str(ROOT.resolve()), **extra}
         return subprocess.Popen(["bash", str(self.SCRIPT), "push", str(self.bin / "key.pem"), AppThreads.REPO, "7", "trial-notes/x.md"],
                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, start_new_session=True,
                                 preexec_fn=lambda: [signal.signal(s, signal.SIG_DFL) for s in self.DEFAULTS])
@@ -12976,7 +12976,8 @@ class Redaction(unittest.TestCase):
         (planted / "tools" / "__init__.py").write_text("import pathlib\npathlib.Path(%r).write_text('ran')\nraise SystemExit(8)\n"
                                                        % str(planted / "tools-ran"))
         capture = "HTTP/2.0 200 OK\nAuthorization: x\nContent-Type: application/json\n\n{\"ok\": 1}\n"
-        steered = dict(os.environ, PYTHONPATH=str(planted))
+        # Only PYTHONPATH of Python's settings, so that neither child's start is changed by the caller's (PYTHONSAFEPATH).
+        steered = dict({k: v for k, v in os.environ.items() if not k.startswith("PYTHON")}, PYTHONPATH=str(planted))
         isolated = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "tools" / "redact_trial.py")], cwd=str(planted), env=steered,
                                   capture_output=True, text=True, input=capture, timeout=60)
         self.assertEqual((isolated.returncode, isolated.stdout),
