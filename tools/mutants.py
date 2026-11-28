@@ -2790,6 +2790,10 @@ MUTANTS = ISSUE + OUTSIDE + [
     ("the list is never read", "kernel/derive.py",
      '    return [p for p in dict.fromkeys(config["protected_paths"]) if any(matches(p, path) for path in changed)]\n',
      "    return []\n", ("tests.test_decide.TheFactorysOwnRules",)),
+    # Decision 1351: a deterministic Lens's input, pushed, still waits for every model Lens's review.
+    ("a deterministic Lens's input converges unreviewed", "kernel/derive.py",
+     '    return [p for p in dict.fromkeys(config["protected_paths"]) if any(matches(p, path) for path in changed)]\n',
+     "    return []\n", ("tests.test_decide.TheFactorysOwnRules.test_a_lens_input_counts_like_a_protected_path",)),
     ("only the first path a pull request changes is read", "kernel/derive.py",
      'dict.fromkeys(config["protected_paths"]) if any(matches(p, path) for path in changed)]',
      'dict.fromkeys(config["protected_paths"]) if any(matches(p, path) for path in changed[:1])]',
