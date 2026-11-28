@@ -498,15 +498,31 @@ class Record(unittest.TestCase):
         self.assertEqual(asks(previous=(dict(quiet, advisory_unlisted=[]), dict(later, advisory_unlisted=aged))), [True])
         hour = [dict(e, told_at="2026-10-11T12:00:00Z") for e in later["advisory_unlisted"]]
         self.assertEqual(asks(previous=(dict(quiet, advisory_unlisted=[]), dict(later, advisory_unlisted=hour))), [False])
-        # A yes told at no moment, after the pass, or with no Run is carried no further, and that pass tells no yes.
+        # Each yes keeps the moment it was first told as it is carried: two passes on, an hour after it, it lapses.
+        self.assertEqual({e["told_at"] for e in quiet["advisory_unlisted"] + later["advisory_unlisted"]}, {first["now"]})
+        self.assertEqual(asks(previous=(dict(first, now="2026-10-11T11:59:59Z", advisory_unlisted=[]),)), [True])
+        self.assertEqual(asks(previous=(dict(first, now="2026-10-11T12:00:00Z", advisory_unlisted=[]),)), [False])
+        # A Run told yes twice counts from the later: a stale carry does not let the yes a record's entries told lapse.
+        stale = [dict(e, told_at="2026-10-11T11:59:59Z") for e in first["advisory_unlisted"]]
+        self.assertEqual(asks(previous=(dict(first, advisory_unlisted=stale),)), [False])
+        # A yes told at no moment, after the pass, or with no Run is carried no further, and that pass tells no yes and
+        # says until when none may be told, an hour on.
         for odd in ([dict(e, told_at="2026-02-31T12:00:00Z") for e in later["advisory_unlisted"]],
-                    [dict(e, told_at="2026-10-11T13:00:01Z") for e in later["advisory_unlisted"]]):
+                    [dict(e, told_at="2026-10-11T13:00:01Z") for e in later["advisory_unlisted"]],
+                    later["advisory_unlisted"][:1] + [dict(later["advisory_unlisted"][1], told_at="2026-10-11T13:00:01Z")],
+                    later["advisory_unlisted"] + [dict(later["advisory_unlisted"][0], told_at="2026-10-11T13:00:01Z")]):
             record = passed(reads(pulls=[pr(4)]), cfg=told, previous=[dict(later, advisory_unlisted=odd)])["record"]
-            self.assertEqual(([e.get("advisory_ask") for e in record["pull_requests"]], record["advisory_unlisted"]), ([False], []))
+            self.assertEqual([e.get("advisory_ask") for e in record["pull_requests"]], [False], odd)
+            self.assertEqual(record.get("advisory_doubt_until"), "2026-10-11T14:00:00Z", odd)
+            # A Run is carried at the time it was told that can be read, and one with none is not.
+            good = sorted({e["run"] for e in odd if e["told_at"] == first["now"]})
+            self.assertEqual([e["run"] for e in record["advisory_unlisted"]], good, odd)
+        self.assertEqual(len(good), 2)
         runless = dict(first, pull_requests=[dict(e, run=None) for e in first["pull_requests"]], advisory_unlisted=[])
         self.assertEqual(shared.errors(runless, "pass"), [])
         record = passed(reads(pulls=[pr(4)]), cfg=told, previous=[runless])["record"]
-        self.assertEqual(([e.get("advisory_ask") for e in record["pull_requests"]], record["advisory_unlisted"]), ([False], []))
+        self.assertEqual(([e.get("advisory_ask") for e in record["pull_requests"]], record["advisory_unlisted"],
+                          record.get("advisory_doubt_until")), ([False], [], "2026-10-11T14:00:00Z"))
         # A pass in doubt, its records before unread, says until when no review may be told yes, an hour on, and each
         # pass that reads it carries that on, so two such passes in a row lose no yes; past it, yes again.
         blind = passed(reads(pulls=[]), cfg=told, now="2026-10-11T12:59:40Z", previous=None)["record"]
@@ -518,6 +534,28 @@ class Record(unittest.TestCase):
         lapsed = passed(reads(pulls=[pr(4)]), cfg=told, now="2026-10-11T13:59:40Z", previous=[dict(carried, now="2026-10-11T13:30:00Z")])["record"]
         self.assertEqual(([e.get("advisory_ask") for e in lapsed["pull_requests"]], "advisory_doubt_until" in lapsed), ([True], False))
         self.assertNotIn("advisory_doubt_until", first)
+        # Of two doubts that stand, the later is carried; a new one is never shortened by an earlier that stands.
+        early, late = dict(blind, advisory_doubt_until="2026-10-11T13:30:00Z"), dict(blind2, advisory_doubt_until="2026-10-11T13:40:00Z")
+        for pair in ((early, late), (late, early)):
+            self.assertEqual(passed(reads(pulls=[]), cfg=told, previous=list(pair))["record"]["advisory_doubt_until"], "2026-10-11T13:40:00Z")
+        unread = passed(reads(pulls=[]), cfg=told, previous=[dict(later, advisory_unlisted=odd, advisory_doubt_until="2026-10-11T13:10:00Z")])["record"]
+        self.assertEqual(unread["advisory_doubt_until"], "2026-10-11T14:00:00Z")
+        # A doubt more than an hour past its own record is no doubt carried, but a new one of an hour.
+        far = passed(reads(pulls=[pr(4)]), cfg=told, previous=[dict(quiet, advisory_unlisted=[], advisory_doubt_until="9999-12-31T23:59:59Z")])["record"]
+        self.assertEqual(([e.get("advisory_ask") for e in far["pull_requests"]], far["advisory_doubt_until"]), ([False], "2026-10-11T14:00:00Z"))
+        edge = dict(quiet, advisory_unlisted=[], advisory_doubt_until="2026-10-11T13:59:40Z")      # its `now` an hour on
+        self.assertEqual(passed(reads(pulls=[]), cfg=told, previous=[edge])["record"]["advisory_doubt_until"], "2026-10-11T13:59:40Z")
+        # A doubt an hour past the last moment the form can write is that moment.
+        self.assertEqual(pass_._hour_on("9999-12-31T23:30:00Z"), "9999-12-31T23:59:59Z")
+        # More yeses than a record carries: those left off were told within the hour, so the record holds a doubt.
+        many = [{"run": "r_%06dA" % n, "told_at": "2026-10-11T12:59:00Z"} for n in range(pass_.UNLISTED_MOST)]
+        full = dict(quiet, advisory_unlisted=many)
+        self.assertEqual(shared.errors(full, "pass"), [])
+        wide = dict(told, harness=dict(harness, advisory_ceiling_usd_per_day=10000, advisory_worst_case_usd=1))
+        over = passed(reads(pulls=[pr(4)]), cfg=wide, previous=[full])["record"]
+        self.assertEqual(([e.get("advisory_ask") for e in over["pull_requests"]], len(over["advisory_unlisted"]),
+                          over["advisory_doubt_until"]), ([True], pass_.UNLISTED_MOST, "2026-10-11T14:00:00Z"))
+        self.assertNotIn("advisory_doubt_until", passed(reads(pulls=[]), cfg=wide, previous=[full])["record"])
         self.assertEqual(asks(previous=(dict(quiet, advisory_unlisted=[], advisory_doubt_until="2026-02-31T00:00:00Z"),)), [False])
         # A record written before the carry counts by its entries alone.
         older = {k: v for k, v in first.items() if k != "advisory_unlisted"}
@@ -529,11 +567,21 @@ class Record(unittest.TestCase):
         self.assertEqual([e.get("advisory_ask") for e in dawn["pull_requests"]], [False])
         # The record says each it told yes, and each unlisted it carries, by Run.
         self.assertEqual(sorted(e["run"] for e in first["advisory_unlisted"]), sorted(ids[:2]))
-        # A Run GitHub lists that no run-name names counts at the worst case too.
+        # A Run GitHub lists that no run-name names counts at the worst case too, while it runs and for an hour after
+        # GitHub made it; one finished and older counts nothing, so that an old one cannot shut the readers out for ever.
         tight = dict(told, harness=dict(harness, advisory_ceiling_usd_per_day=3))
-        unnamed_ = {"run": "44574655101", "created_at": "2026-10-11T10:00:00Z", "status": "completed"}
-        self.assertEqual([e.get("advisory_ask") for e in passed(reads(pulls=[pr(4)], unidentified=[unnamed_]), cfg=tight)["record"]["pull_requests"]], [False])
-        self.assertEqual([e.get("advisory_ask") for e in passed(reads(pulls=[pr(4)]), cfg=tight)["record"]["pull_requests"]], [True])
+
+        def unnamed_asks(*unnamed, cfg=tight) -> list:
+            return [e.get("advisory_ask") for e in passed(reads(pulls=[pr(4)], unidentified=list(unnamed)), cfg=cfg)["record"]["pull_requests"]]
+        fresh = {"run": "44574655101", "created_at": "2026-10-11T12:00:00Z", "status": "completed"}
+        self.assertEqual(unnamed_asks(fresh), [False])
+        self.assertEqual(unnamed_asks(), [True])
+        self.assertEqual(unnamed_asks(dict(fresh, created_at="2026-10-11T11:59:59Z")), [True])
+        # (One still running, of any age, defers every admission: the Kernel's, decision 0036.)
+        # Each unnamed Run counts: two and this one at 2 each pass a ceiling of 5, which one and this one do not.
+        two, roomy = [fresh, dict(fresh, run="44574655102")], copy.deepcopy(told)
+        roomy["kernel"]["limits"]["max_unnamed_runs"] = 2             # so that the Kernel admits beside two
+        self.assertEqual((unnamed_asks(*two, cfg=roomy), unnamed_asks(fresh, cfg=roomy)), ([False], [True]))
 
     def test_a_queue_act_gets_a_run_id_and_a_dispatch_once_its_workflow_is_named(self):  # issue 381
         # The queue App's acts, an enqueue, a dequeue and a resolution, are each a dispatched Run of the queue workflow,
