@@ -16140,9 +16140,12 @@ class SignalTraps(unittest.TestCase):
                                   (script.name, statement))
             self.assertEqual(len(re.findall(r'(?:^\s*|\|\| )live "', joined, re.M)), 4 if script.name == "trial_p52_pause.sh" else 3,
                              script.name)
-            refused = [line.strip() for line in lines if "note " in line and "$refused" in line]
-            self.assertEqual(refused, [] if script.name == "trial_p4_narrow.sh"
+            refused = [n for n, line in enumerate(lines) if "note " in line and "$refused" in line]
+            self.assertEqual([lines[n].strip() for n in refused], [] if script.name == "trial_p4_narrow.sh"
                              else ['[ -z "$minting" ] || note "%s: $slug: $refused"' % script.name[:-3]], script.name)
+            # Noted before the terminal is told, as live() does, so a terminal gone loses nothing.
+            for n in refused:
+                self.assertTrue(lines[n + 1].strip().startswith('echo "%s: $slug: $refused;"' % script.name[:-3]), script.name)
 
     def test_every_trial_takes_nothing_of_the_maintainers_environment(self):  # issue 1215
         # A name a script holds a credential in, exported, reaches every child; SSLKEYLOGFILE has curl write the TLS keys
