@@ -69,10 +69,11 @@ Its stated limits:
   branch's files beside its secret, from the schedule too: what a listed workflow says is a person's. A person or an App that may dispatch a workflow on a work branch runs that branch's files
   beside its secret; that is theirs, as the ruling says, never a Role's.
 - A job that calls another workflow is read only in a workflow passed whole, or as the shim's. What a call at the
-  home repo's tag runs is the Release's, so whoever may move a `factory/` tag changes it: the tag's protection is the
-  boundary. A repo outside the folder that calls a workflow here, at any ref, runs it with its own secrets, never
-  this repo's; for a Consumer that is a term of the grant. Callers are read in `files` alone: that the caller gives
-  both the base's and the branch head's is the caller's.
+  home repo's tag runs is the Release's, so whoever may move a `factory/` ref changes it, a tag or a branch of that
+  name: the home repo's protection of every `factory/` ref is the boundary. A repo outside the folder that calls a
+  workflow here, at any ref, runs it with its own secrets, never this repo's; for a Consumer that is a term of the
+  grant. Callers are read in `files` alone: that the caller gives both the base's and the branch head's is the
+  caller's. Anyone who may push a branch runs their own workflow beside the secrets: this holds a Role's push alone.
 - The Actions cache a job may write is not read: no action the table names restores one, and a command is given no
   cache's token by the table. A workflow passed whole may restore one, but a run the default branch starts restores
   the default branch's caches alone, never a work branch's.
@@ -409,9 +410,9 @@ def _call(job: dict, roots: dict, home, listed: list) -> bool:
     uses = [kid for kid in job["kids"] if kid["key"] == "uses"]
     if _capital(job["kids"]) or not uses:
         return not _capital(job["kids"]) and _hosted(job)
-    value = uses[0]["value"] if not uses[0]["kids"] else None
-    local = FOLDER + value[len(LOCAL):] if type(value) is str and value.startswith(LOCAL) else ""
-    return type(value) is str and (bool(_home(value, home)) or local in roots and _listed(local, listed))
+    value = uses[0]["value"] if not uses[0]["kids"] else ""
+    local = FOLDER + value[len(LOCAL):] if value.startswith(LOCAL) else ""
+    return bool(_home(value, home)) or local in roots and _listed(local, listed)
 
 
 def _root(text):
