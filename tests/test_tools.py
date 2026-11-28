@@ -2776,7 +2776,7 @@ class Purity(unittest.TestCase):
         # imports itself alone: the Kernel is not protected whole, so nothing the guards decide may rest on it.
         held = lambda files: check_purity.guards(planted(dict({"guards/__init__.py": ""}, **files)))
         self.assertEqual(check_purity.guards(ROOT), [])
-        self.assertIn(("guards purity", check_purity.guards), verify.CHECKS)
+        self.assertIn(("guards purity", "check_purity", "guards"), verify.CHECKS)
         self.assertEqual(check_purity.guards(planted({"kernel/x.py": ""})), ["there is no guards/ to check"])
         self.assertEqual(check_purity.run(planted({"guards/x.py": ""})), ["there is no kernel/ to check"])
         io = held({"guards/x.py": "import os\n\ndef f():\n    return open('x')\n"})
@@ -8013,7 +8013,7 @@ class GateSets(unittest.TestCase):
         # Issue 695, decision 0208: two manifests of the same cases that count them in other groups publish counts whose
         # difference is a group of fewer than ten, one case among them. Made-up cases: no held-out set is read here.
         base, floors, marks = self.manifest(), self.FLOORS, self.MARKS
-        self.assertIn(("gate sets", check_gate_sets.run), verify.CHECKS)
+        self.assertIn(("gate sets", "check_gate_sets", "run"), verify.CHECKS)
         self.assertEqual(self.found(base, base), [])
         with mock.patch.dict(os.environ, {"GITHUB_EVENT_NAME": "merge_group"}):
             self.assertTrue(caught(self.planted(), floors))     # the planted fault is the moved floor in either job
@@ -14279,7 +14279,7 @@ FAILS = {
 class Verify(unittest.TestCase):
     def test_every_check_is_run_by_verify(self):
         on_disk = {p.stem for p in (ROOT / "tools").glob("check_*.py")}
-        run = {check.__module__.split(".")[-1] for _, check in verify.CHECKS}
+        run = {verify.check(entry).__module__.split(".")[-1] for entry in verify.CHECKS}
         self.assertEqual(on_disk, run)
 
     def test_every_check_has_a_test_in_which_it_fails(self):
@@ -14288,8 +14288,8 @@ class Verify(unittest.TestCase):
             self.assertTrue(planted(), "%s finds nothing wrong with a planted fault" % name)
         # In CI this repo is a checkout, and compared with main; the copy `mutants.py` runs this in is an export.
         with outside_actions():
-            for name, check in verify.CHECKS:
-                self.assertEqual(check(), [], "%s finds fault with this repo" % name)
+            for entry in verify.CHECKS:
+                self.assertEqual(verify.check(entry)(), [], "%s finds fault with this repo" % entry[0])
 
     def test_another_working_tree_inside_this_one_is_not_read(self):
         # A session's git worktree sits in the main checkout, a whole copy of the repo with a .git
@@ -14304,7 +14304,7 @@ class Verify(unittest.TestCase):
             planted["%s/%s" % (where, git)] = "gitdir: /elsewhere\n"
             planted.update({"%s/%s" % (where, rel): text for rel, text in stray.items()})
         root = clone(planted)
-        walking = [(name, check) for name, check in verify.CHECKS
+        walking = [(name, check) for name, check in ((entry[0], verify.check(entry)) for entry in verify.CHECKS)
                    if "root" in check.__code__.co_varnames[:check.__code__.co_argcount]]
         self.assertGreaterEqual(len(walking), 5)
         for name, check in walking:
@@ -14425,10 +14425,31 @@ class Verify(unittest.TestCase):
                                  "glob.glob('x', recursive=False)\nast.walk(tree)\n"), [])
 
     def test_a_check_that_finds_a_problem_fails_verify(self):
+        answer = lambda name, problems: (0, "a line\n%s%s\n" % (verify.ANSWER, json.dumps({"check": name, "problems": problems})), "")
         with contextlib.redirect_stdout(io.StringIO()) as said:
-            self.assertTrue(verify.failed([("always", lambda: ["a problem"])]))
-            self.assertFalse(verify.failed([("never", lambda: [])]))
+            self.assertTrue(verify.failed([("always", "x", "run")], lambda _: {"always": answer("always", ["a problem"])}))
+            self.assertFalse(verify.failed([("never", "x", "run")], lambda _: {"never": answer("never", [])}))
         self.assertIn("a problem", said.getvalue())
+
+    def test_a_check_whose_process_gives_no_answer_fails_verify(self):  # issue 1377
+        # Each check answers from a process of its own: only its exit 0, with its own answer as the last line, a list of
+        # sentences, is an answer. A check that ended its process, forged another's answer or said nothing has failed.
+        whole = verify.ANSWER + json.dumps({"check": "one", "problems": []})
+        self.assertEqual(verify.problems_of("one", (0, "said\n" + whole + "\n", "")), [])
+        for answer in (None, (1, whole + "\n", ""), (0, "", ""), (0, whole + "\nmore\n", ""), (-9, whole, ""),
+                       (0, whole.replace('"one"', '"two"'), ""), (0, whole.replace("[]", '"none"'), ""),
+                       (0, whole.replace("[]", "[1]"), ""), (0, whole[:-1], ""), (0, whole.replace("}", ', "x": 1}'), ""),
+                       (0, whole.replace(verify.ANSWER, "verify: "), "")):
+            with self.subTest(answer=answer):
+                self.assertTrue(verify.problems_of("one", answer), answer)
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            self.assertTrue(verify.failed([("one", "x", "run")], lambda _: {}))
+        self.assertIn("%-22s FAILED" % "one", said.getvalue())
+        # The checks' process imports no check: each is imported in its own.
+        done = subprocess.run([sys.executable, "-I", "-S", "-c", "import sys; sys.path.append(%r); from tools import verify; "
+                               "print(sorted(m for m in sys.modules if m.startswith('tools.check_')))" % str(ROOT)],
+                              cwd=str(ROOT), capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.stdout.strip(), "[]", done.stderr)
 
     def test_the_legs_of_make_verify_run_every_test_once(self):
         # CI runs `make tests` in legs, after a step of `make checks` (docs/standards/workflows.md): each runs each
@@ -14577,6 +14598,8 @@ class Verify(unittest.TestCase):
                 if path.name != "__init__.py":
                     shutil.rmtree(path) if path.is_dir() and not path.is_symlink() else path.unlink()
             (root / "kernel" / "loud.py").write_text('print("a check fails on this")\n')
+            lifecycle = root / "tools" / "check_lifecycle.py"      # a check whose process ends at import
+            lifecycle.write_text(lifecycle.read_text() + "\nimport os\nos._exit(0)\n")
             (root / "tests" / "test_ends.py").write_text("import os\nos._exit(0)\n")
             for name in ("ast", "json"):        # unittest imports ast first on newer Pythons; json the checks alone
                 (root / (name + ".py")).write_text('import pathlib\npathlib.Path(__file__).with_name("SHADOWED").'
@@ -14619,6 +14642,13 @@ class Verify(unittest.TestCase):
         done, _ = self.poisoned()
         self.assertIn("%-22s FAILED" % "kernel purity", done.stdout)
         self.assertIn("%-22s their process ended 0" % "tests", done.stdout)
+        self.assertNotEqual(done.returncode, 0, done.stdout[-2000:])
+
+    def test_a_check_that_ends_its_process_fails_alone(self):  # issue 1377
+        done, _ = self.poisoned()
+        self.assertIn("%-22s FAILED\n    the check's process ended 0 without its answer" % "lifecycle", done.stdout)
+        self.assertIn("%-22s FAILED" % "kernel purity", done.stdout)      # the other checks still answer
+        self.assertIn("%-22s ok" % "authority", done.stdout)
         self.assertNotEqual(done.returncode, 0, done.stdout[-2000:])
 
     def test_a_file_at_the_top_named_as_a_standard_module_is_not_imported_by_the_checks(self):  # issue 1050
