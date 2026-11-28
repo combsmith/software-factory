@@ -2273,6 +2273,8 @@ class Secrets(unittest.TestCase):
             "no permissions anywhere": tested(own, "").replace("permissions: write-all\n", ""),
             "its workflow's write, and none of its own": tested(own, ""),
             "a write of its own": tested("      contents: read\n", "      contents: write\n"),
+            "a write of its own beside its workflow's read": tested("      contents: read\n", "      contents: write\n")
+            .replace("permissions: write-all\n", "permissions: read-all\n"),
             "write-all of its own": tested(own, "    permissions: write-all\n"),
             "an id token": tested("      contents: read\n", "      contents: read\n      id-token: write\n"),
             "permissions of no value": tested(own, "    permissions:\n"),
@@ -2301,8 +2303,11 @@ class Secrets(unittest.TestCase):
         # Read as it holds one, a job is held as `refusal` holds it: the scan beside the test, off the list, is refused.
         self.assertEqual(at(listed=[".github/"]), workflows.UNLISTED)
         self.assertEqual(at(listed=[]), workflows.UNLISTED)
-        self.assertIsNone(at(tested("        run: make test\n", "        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n")
-                             .replace("permissions: write-all\n", ""), listed=LISTED))
+        # A job that holds a secret, by the repo's default, and keeps to the table passes on the list, and off it is refused.
+        kept = tested("        run: make test\n", "        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n") \
+            .replace("permissions: write-all\n", "").replace(own, "")
+        self.assertIsNone(at(kept, listed=LISTED))
+        self.assertEqual(workflows.refusal_at({TEST_AT: kept}, ["sonar-project.properties"]), workflows.UNLISTED)
         # A workflow none of whose jobs holds a secret need not be on the list, nor hold to the table's keys.
         self.assertIsNone(workflows.refusal_at({TEST_AT: tested("permissions: write-all\n", "defaults:\n  run:\n    shell: bash\n")}, []))
         # A secret another job names is that job's: a job of the scan's workflow that names none and may write nothing
@@ -2333,6 +2338,7 @@ class Secrets(unittest.TestCase):
         # What the narrow form does not read is read nowhere, in a job that holds no secret too: a block scalar may name one.
         for why, text in (("a block scalar", tested("        run: make test\n", "        run: |\n          echo ${{ secrets.X }}\n")),
                           ("a tab", tested("        run: make test\n", "        run:\tmake test\n")),
+                          ("an escape that spells a secret", tested("        run: make test\n", '        run: "${{ \\x73ecrets.X }}"\n')),
                           ("an anchor", tested("    runs-on: ubuntu-24.04\n", "    runs-on: &r ubuntu-24.04\n")),
                           ("a key given twice", tested("      contents: read\n", "      contents: read\n      contents: write\n")),
                           ("permissions given twice", tested("    runs-on: ubuntu-24.04\n", "    runs-on: ubuntu-24.04\n    permissions: write-all\n")),
