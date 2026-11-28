@@ -50,7 +50,7 @@ SECOND = r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$"
 GOOD = (ROOT / "examples" / "workflows" / "verify.yml").read_text()
 # The poller's shim, as issue 196's ruling 4 gives it in full: the shape the rules shim and wake hold.
 POLLER = 'name: sf-poller\non:\n  schedule:\n    - cron: "13 * * * *"\n    - cron: "33 * * * *"\n    - cron: "53 * * * *"\n  workflow_dispatch:\n  workflow_run:\n    workflows:\n      - factory\n      - ci\n    types:\n      - completed\npermissions: {}\njobs:\n  pass:\n    permissions:\n      actions: write\n      contents: read\n    concurrency:\n      group: sf-poller\n      cancel-in-progress: false\n    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n    secrets: inherit\n'
-STEP = "      - run: make verify\n"
+STEP = "      - run: make tests\n"
 
 
 SCRATCH = tempfile.TemporaryDirectory()     # removed when the run ends
@@ -3419,7 +3419,7 @@ class Repo(unittest.TestCase):
         for name, text, said in bypasses:
             self.assertTrue(caught(check_repo.run(tree({rel: text})), said), name)
         workflow = (ROOT / ".github" / "workflows" / "verify.yml").read_text()
-        named = workflow.replace("      - run: make verify\n", "      - run: python3 tools/trial_p50_stub.py p l\n")
+        named = workflow.replace("      - run: make tests\n", "      - run: python3 tools/trial_p50_stub.py p l\n")
         self.assertNotEqual(named, workflow)
         self.assertTrue(caught(check_repo.run(clone({".github/workflows/verify.yml": named})), "runs only in the canary's workflow"))
 
@@ -4173,8 +4173,8 @@ class Workflows(unittest.TestCase):
         # no required check or Run reads as a failure. A step stopped at its own timeout fails, and so does its job
         # (trials/P-42.step-timeout.json). So each run: step sets its own timeout-minutes, and a job's run: steps are
         # given fewer minutes together than the job is, so that a step past its limit fails the job before GitHub stops it.
-        # Each run: step of the example, its own limit and its job's.
-        limits = {"make verify": (26, 28), "python3 -m tools.mutants": (27, 30),
+        # Each run: step of the example, its own limit and its job's, less the limits of the job's other run: steps.
+        limits = {"make checks": (4, 6), "make tests": (22, 24), "python3 -m tools.mutants": (27, 30),
                   "python3 -m tools.commits_are_the_maintainers": (7, 10), "python3 -m tools.needs_passed": (5, 10)}
         unlimited = GOOD
         for command, (minutes, _) in limits.items():
@@ -4197,15 +4197,15 @@ class Workflows(unittest.TestCase):
         problems = check_workflows.lint(unlimited, required=True)
         self.assertIn(("timeout", "a run: step of job checks has no timeout-minutes of its own"), problems)
         # A uses: step needs none, and a run: step's limit is read wherever among its keys it stands.
-        moved = GOOD.replace("      - run: make verify\n        timeout-minutes: 26\n",
-                             "      - timeout-minutes: 26\n        run: make verify\n")
+        moved = GOOD.replace("      - run: make tests\n        timeout-minutes: 22\n",
+                             "      - timeout-minutes: 22\n        run: make tests\n")
         self.assertEqual(rules(moved), [])
-        # A job's run: steps are counted together: two of 13 under a job of 28 are 26 minutes, and leave it its two.
-        two = GOOD.replace("      - run: make verify\n        timeout-minutes: 26\n",
-                           "      - run: make verify\n        timeout-minutes: 13\n      - run: make fast\n"
-                           "        timeout-minutes: 13\n")
+        # A job's run: steps are counted together: 4, 11 and 11 under a job of 28 are 26 minutes, and leave it its two.
+        two = GOOD.replace("      - run: make tests\n        timeout-minutes: 22\n",
+                           "      - run: make tests\n        timeout-minutes: 11\n      - run: make fast\n"
+                           "        timeout-minutes: 11\n")
         self.assertEqual(rules(two), [])
-        more = two.replace("timeout-minutes: 13\n      - run: make fast", "timeout-minutes: 14\n      - run: make fast")
+        more = two.replace("timeout-minutes: 11\n      - run: make fast", "timeout-minutes: 12\n      - run: make fast")
         self.assertEqual(rules(more), ["timeout"])
         self.assertIn(("timeout", "the run: steps of job checks are given 27 minutes together, more than its 28 less the "
                                   "2 its other steps keep"), check_workflows.lint(more, required=True))
@@ -4279,7 +4279,7 @@ class Workflows(unittest.TestCase):
         self.assertEqual(self.lens_problems(GOOD), [])
         self.assertEqual(self.lens_problems(GOOD.replace("    name: verify\n", "")), [])
         elsewhere = GOOD.replace("name: factory\n", "name: verify\n").replace("  verify:\n    name: verify\n", "  build:\n")
-        elsewhere = elsewhere.replace("      - run: make verify\n", "      - name: verify\n        run: make verify\n")
+        elsewhere = elsewhere.replace("      - run: make tests\n", "      - name: verify\n        run: make tests\n")
         self.assertNotEqual(elsewhere, GOOD)
         self.assertTrue(caught(self.lens_problems(elsewhere), "runs no job named 'verify'"))
         renamed = GOOD.replace("  verify:\n    name: verify\n", "  verify:\n    name: build\n")
@@ -4453,10 +4453,12 @@ class Workflows(unittest.TestCase):
         # On 2026-11-09 `make verify` as one job was cut at its step's 26 minutes in a merge group, so it runs in legs. A
         # leg told CHECKS_SHARD as a number would run another's share, leaving its own tests in no leg, and CHECKS_SHARDS
         # as a number could differ from the matrix's size; each is the matrix's own expression, as the mutant shards'.
+        # Each leg runs `make checks` in a step before `make tests`, so a failed check ends it before any test runs.
         job = GOOD[GOOD.index("  checks:\n"):GOOD.index("  mutants:\n")]
         index, total = "      CHECKS_SHARD: ${{ strategy.job-index }}\n", "      CHECKS_SHARDS: ${{ strategy.job-total }}\n"
-        run = "      - run: make verify\n"
-        self.assertEqual((job.count(index), job.count(total), job.count(run)), (1, 1, 1))
+        checks, run = "      - run: make checks\n        timeout-minutes: 4\n", "      - run: make tests\n"
+        tests = run + "        timeout-minutes: 22\n"
+        self.assertEqual((job.count(index), job.count(total), job.count(checks + tests)), (1, 1, 1))
         told, shape = "not told CHECKS_SHARD", "whose steps are not a checkout of the head"
         cases = [(index, "      CHECKS_SHARD: 0\n", told), (total, "      CHECKS_SHARDS: 3\n", told),
                  (total, "", told), (index, index + "      OTHER: 1\n", told),
@@ -4466,14 +4468,18 @@ class Workflows(unittest.TestCase):
                  ("      contents: read\n", "      contents: write\n", "granted other than"),
                  (run, run + "        working-directory: evil\n", shape), (run, run + "        env:\n          CHECKS_SHARD: 0\n", shape),
                  (run, run + "      - run: make fast\n", shape),
-                 (run, "      - run: make fast\n      - run: make verify\n", shape),
-                 ("          fetch-depth: 0\n      - run: make verify\n", "      - run: make verify\n", shape)]
+                 (run, "      - run: make fast\n      - run: make tests\n", shape),
+                 ("          fetch-depth: 0\n", "", shape),
+                 # The checks gone, run after the tests, run as another target, or let the tests run when they failed.
+                 (checks, "", shape), (checks + tests, tests + checks, shape),
+                 (checks, "      - run: make fast\n        timeout-minutes: 4\n", shape),
+                 (checks, checks + "        continue-on-error: true\n", shape)]
         for old, new, said in cases:
             text = GOOD.replace(job, job.replace(old, new))
             self.assertNotEqual(text, GOOD, said)
             self.assertTrue(caught(self.lens_problems(text), said), (old, new, said))
-        # No job runs `make verify` at all: the checks and the tests are gone, not reshaped.
-        gone = "has no job that runs `make verify`"
+        # No job runs `make tests` at all: the checks and the tests are gone, not reshaped.
+        gone = "has no job that runs `make tests`"
         self.assertTrue(caught(self.lens_problems(GOOD.replace(job, "").replace("      - checks\n", "")), gone))
         self.assertTrue(caught(self.lens_problems(GOOD.replace(job, job.replace(run, "      - run: make fast\n"))), gone))
         self.assertEqual(self.lens_problems(GOOD), [])
@@ -5372,7 +5378,7 @@ class Workflows(unittest.TestCase):
                      run.replace("group: ${{ inputs.item }}", "group: lane-${{ inputs.item }}"),
                      POLLER.replace("group: sf-poller", "group: ${{ github.ref }}"),
                      run.replace("permissions: {}\n", "permissions: {}\nconcurrency:\n  group: ${{ inputs.item }}\n"),
-                     GOOD.replace("      - run: make verify\n", "      - run: make verify\n        outputs:\n"
+                     GOOD.replace("      - run: make tests\n", "      - run: make tests\n        outputs:\n"
                                   "          d: ${{ steps.a.outputs.b }}\n", 1)):
             # Read as the required check's workflow, so that GOOD's own concurrency is no expression out of place.
             self.assertIn("expression", {rule for rule, _ in check_workflows.lint(text, required=True)}, text)
@@ -9805,13 +9811,15 @@ class Trials(unittest.TestCase):
                 ran["suite"] = suite
                 return unittest.TestResult()
 
+        # `make tests` prints them, as does the tests' process `make verify` starts; it runs no check.
         real = (verify.failed, verify.unittest.TextTestRunner)
-        verify.failed, verify.unittest.TextTestRunner = (lambda checks: False), Runner
+        verify.failed, verify.unittest.TextTestRunner = (lambda checks: self.fail("the checks ran")), Runner
         try:
             with contextlib.redirect_stdout(io.StringIO()) as said:
-                self.assertEqual(verify.main([]), 0)
+                self.assertEqual(verify.main(["--tests"]), 0)
         finally:
             verify.failed, verify.unittest.TextTestRunner = real
+        self.assertIn("suite", ran)
         for code in codes:
             self.assertIn("unverified: " + code, said.getvalue())
         for code in grounded:
@@ -9987,6 +9995,11 @@ exit 0
         calls = (folder / "calls").read_text().splitlines()
         self.assertEqual([c.split(" ", 1)[0] for c in calls], ["GET", "POST"], "a read was made with no token")
         self.assertIn("Bad credentials", (folder / "out" / "clean-2").read_text())
+        # P-4 tells every mint it read no token from as one that may have left a token live, in OUT too (issue 1245).
+        note = note_in(self, folder / "out", done.stderr)
+        self.assertEqual(note.count("\n"), 1, note)
+        self.assertIn("no token was read from the mint (status 401)", note)
+        self.assertNotIn("Bad credentials", note)
 
     def test_a_revocation_that_is_not_204_is_told_and_fails(self):
         folder = self.stand_in(revoke_status="500")
@@ -9995,6 +10008,7 @@ exit 0
         self.assertIn("returned 500, not 204", done.stderr)
         self.assertIn("revoke it by hand", done.stderr)
         self.assertNotIn(self.TOKEN, done.stdout + done.stderr)
+        self.assertEqual(note_in(self, folder / "out", done.stderr).count("returned 500, not 204. The token may be live"), 2)
 
     def test_a_reads_status_is_the_answer_whatever_it_is(self):
         # A read of the other repo answered 200 is not refused by the script: the fixture's verdict judges it.
@@ -10530,7 +10544,9 @@ else:
                 self.assertEqual(self.revoked(calls), self.minted(calls) if found else [])
                 if not found:
                     self.assertIn("the token may be live for up to an hour, and the Maintainer must revoke it by hand", told)
-                self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["ran_at"])
+                # Nothing of the answer is written: only the note of a token that may be live (issue 1245).
+                self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["ran_at"] if found else ["finish.log", "ran_at"])
+                self.assertEqual(note_in(self, self.out, told).count("must revoke it by hand"), 0 if found else 1)
 
     def test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused(self):
         # The other trials that mint with curl stop at the mint as this one does (issue 406). P-4 is not among them: it
@@ -10549,7 +10565,9 @@ else:
                     ({"status": 503, "body": "<html>unavailable</html>"}, False, "GitHub may have minted one"),
                     ({"status": 429, "body": '{"message": "API rate limit exceeded"}'}, False, "429"),
                     # No status curl wrote: the last line is the answer's, and is no status (issue 1245).
-                    ({"status": '{"message": "Server Error from GitHub"}', "body": ""}, False, "GitHub may have minted one")):
+                    ({"status": '{"message": "Server Error from GitHub"}', "body": ""}, False, "GitHub may have minted one"),
+                    # Nor is a last line that only begins with three digits (Carbon).
+                    ({"status": "500 Server Error", "body": ""}, False, "GitHub may have minted one")):
                 with self.subTest(script=name, plan=plan):
                     self.setUp()
                     argv = [a.replace("KEY", self.key_file) for a in args]
@@ -10567,7 +10585,7 @@ else:
                     self.assertFalse((self.out / "requests.json").exists())
                     # A token that may be live is noted in OUT as well, for a terminal that is gone, and nothing else is;
                     # the note holds no word of GitHub's answer (issue 1245).
-                    live = told in ("the Maintainer must revoke it by hand", "GitHub may have minted one") and name in NOTING
+                    live = told in ("the Maintainer must revoke it by hand", "GitHub may have minted one")
                     note = note_in(self, self.out, told_)
                     self.assertEqual(note.count("\n"), 1 if live else 0, note)
                     self.assertIn(told if live else "", note)
@@ -10613,7 +10631,9 @@ else:
         self.assertEqual(code, 1, told)
         self.assertEqual(self.revoked(calls), self.minted(calls) * 2)
         self.assertIn("the Maintainer must revoke it by hand", told)
-        self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["ran_at"])
+        # Each failed revocation is noted in OUT too, and nothing of a reach is kept (issue 1245).
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["finish.log", "ran_at"])
+        self.assertEqual(note_in(self, self.out, told).count("returned 500, not 204. The token may be live"), 2)
 
     # A stand-in python3 that holds the first read of an answer with a token in it, for a stop to arrive there.
     PYTHON = """#!%s
@@ -11335,7 +11355,7 @@ if url.endswith("/installation/token"):
         made = '#!/bin/sh\nexec /usr/bin/mktemp -d "%s/out.XXXXXX"\n' % self.scratch
         # python3 stands in only for a redaction it is told to fail: of the exchanges, or of a capture.
         python = """#!/bin/sh
-if [ "$1 $2" = "-m tools.redact_trial" ]; then
+if [ "$1 $2 $3" = "-I -S $STANDIN_ROOT/tools/redact_trial.py" ]; then
     input=$(cat)
     case "$input" in
         '{'*) [ -e "%(bin)s/bad-exchanges" ] && exit 3 ;;
@@ -11350,7 +11370,7 @@ exec "%(real)s" "$@"
             (self.bin / name).chmod(0o755)
         (self.bin / "key.pem").write_text("not a key: the stand-in openssl never reads it\n")
         env = {"PATH": "%s:/usr/bin:/bin" % self.bin, "HOME": str(self.bin), "LANG": "C", "STANDIN_REPO": AppThreads.REPO,
-               "TMPDIR": str(self.scratch), **extra}
+               "TMPDIR": str(self.scratch), "STANDIN_ROOT": str(ROOT.resolve()), **extra}
         return subprocess.Popen(["bash", str(self.SCRIPT), "push", str(self.bin / "key.pem"), AppThreads.REPO, "7", "trial-notes/x.md"],
                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, start_new_session=True,
                                 preexec_fn=lambda: [signal.signal(s, signal.SIG_DFL) for s in self.DEFAULTS])
@@ -12846,6 +12866,8 @@ esac
         self.assertIn("revoking the token returned 500", ran.stderr)
         self.assertIn("revoke it by hand", ran.stderr)
         self.assertFalse((out / "requests.json").exists())
+        self.assertEqual(note_in(self, out, ran.stderr),     # in OUT too, for a terminal that is gone (issue 1245)
+                         "trial_p52_pause: the token may be live for up to an hour; the Maintainer must revoke it by hand.\n")
 
     def test_each_refusal_stops_before_anything_is_asked(self):
         folder = self.stand_in()
@@ -12911,7 +12933,7 @@ class Redaction(unittest.TestCase):
             self.assertIn("opens no path", said.getvalue())
         self.assertFalse((folder / "out").exists())
         # As the scripts run it: in through a pipe, out through a pipe, and what it took out named on standard error.
-        ran = subprocess.run([sys.executable, "-m", "tools.redact_trial"], cwd=ROOT, capture_output=True, text=True,
+        ran = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "tools" / "redact_trial.py")], capture_output=True, text=True,
                              input="HTTP/2.0 200 OK\nAuthorization: x\nContent-Type: text/plain\n\nfine\n", timeout=60)
         self.assertEqual((ran.returncode, ran.stdout), (0, "HTTP/2.0 200 OK\nContent-Type: text/plain\n\nfine\n"))
         self.assertIn("the header Authorization", ran.stderr)
@@ -12922,18 +12944,24 @@ class Redaction(unittest.TestCase):
         self.assertNotIn("hunter2", out)
         self.assertIn('"ok": 1', out)
         # Bytes that are not UTF-8 stop it, with nothing written; and what it writes is UTF-8 whatever the locale.
-        bad = subprocess.run([sys.executable, "-m", "tools.redact_trial"], cwd=ROOT, capture_output=True,
+        bad = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "tools" / "redact_trial.py")], cwd=ROOT, capture_output=True,
                              input=b"\xff\xfe", timeout=60)
         self.assertNotEqual(bad.returncode, 0)
         self.assertEqual(bad.stdout, b"")
-        wide = subprocess.run([sys.executable, "-m", "tools.redact_trial"], cwd=ROOT, capture_output=True,
+        wide = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "tools" / "redact_trial.py")], cwd=ROOT, capture_output=True,
                               input="HTTP/2.0 200 OK\n\nfine \u2713\n".encode(), timeout=60,
-                              env=dict(os.environ, LC_ALL="C", LANG="C", PYTHONIOENCODING="ascii"))
+                              env=dict(os.environ, LC_ALL="C", LANG="C"))
         self.assertEqual((wide.returncode, wide.stdout), (0, "HTTP/2.0 200 OK\n\nfine \u2713\n".encode()))
+        # Under -I no PYTHONIOENCODING is read, and a C locale is taken as UTF-8, so a pipe that encodes as ASCII is
+        # handed to main() itself: the text goes to the pipe's bytes as UTF-8, never through its ASCII text.
+        told = io.TextIOWrapper(io.BytesIO(), encoding="ascii")
+        self.assertEqual(redact_trial.main([], stdin=io.BytesIO("HTTP/2.0 200 OK\n\nfine \u2713\n".encode()), stdout=told,
+                                           stderr=io.StringIO()), 0)
+        self.assertEqual(told.buffer.getvalue(), "HTTP/2.0 200 OK\n\nfine \u2713\n".encode())
         # The App's script sends the report to its pipe and the clean text to its file: in that order, or the report
         # would go to the file.
         script = (ROOT / "tools" / "trial_as_app.sh").read_text()
-        self.assertIn('python3 -m tools.redact_trial < "$1" 2>&1 > "${1%.raw}.clean") | sed', script)
+        self.assertIn('python3 -I -S "$root/tools/redact_trial.py" < "$1" 2>&1 > "${1%.raw}.clean") | sed', script)
         # Its redact(), run alone: a capture that redacts is deleted beside its clean file; one that fails is deleted
         # unread with its partial clean file, since both lie in OUT, which a session reads, and the failure is returned.
         function = re.search(r"^redact\(\) \{.*?^\}$", script, re.M | re.S).group(0)
@@ -12948,6 +12976,34 @@ class Redaction(unittest.TestCase):
         self.assertIn("failed; its capture is deleted unread", ran.stderr)
         self.assertEqual(sorted(p.name for p in folder.iterdir()), ["good.clean"])
         self.assertEqual((folder / "good.clean").read_text(), "HTTP/2.0 200 OK\n\nfine\n")
+
+    def test_it_runs_as_a_file_under_isolation_and_takes_no_module_the_shell_names(self):  # issue 1300
+        # A PYTHONPATH entry, and under -m the working directory, are searched before the standard library: a json.py
+        # planted in either would run inside the redaction while it reads the raw answers. The scripts run it as a file
+        # under -I, which reads neither, and -S, which reads no site-packages; it finds the repo's own modules by its place.
+        planted = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (planted / "json.py").write_text("import pathlib\npathlib.Path(%r).write_text('ran')\nraise SystemExit(7)\n"
+                                         % str(planted / "ran"))
+        # And a package named tools, read later than json, so that a path that took the working directory back after json
+        # was imported would be told too.
+        (planted / "tools").mkdir()
+        (planted / "tools" / "__init__.py").write_text("import pathlib\npathlib.Path(%r).write_text('ran')\nraise SystemExit(8)\n"
+                                                       % str(planted / "tools-ran"))
+        capture = "HTTP/2.0 200 OK\nAuthorization: x\nContent-Type: application/json\n\n{\"ok\": 1}\n"
+        # Only PYTHONPATH of Python's settings, so that neither child's start is changed by the caller's (PYTHONSAFEPATH).
+        steered = dict({k: v for k, v in os.environ.items() if not k.startswith("PYTHON")}, PYTHONPATH=str(planted))
+        isolated = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "tools" / "redact_trial.py")], cwd=str(planted), env=steered,
+                                  capture_output=True, text=True, input=capture, timeout=60)
+        self.assertEqual((isolated.returncode, isolated.stdout),
+                         (0, 'HTTP/2.0 200 OK\nContent-Type: application/json\n\n{\n  "ok": 1\n}\n'), isolated.stderr)
+        self.assertIn("the header Authorization", isolated.stderr)
+        self.assertFalse((planted / "ran").exists())
+        self.assertFalse((planted / "tools-ran").exists())
+        # The way it was run before, the planted module runs: the test can tell the difference.
+        loose = subprocess.run([sys.executable, "-m", "tools.redact_trial"], cwd=str(ROOT), env=steered, capture_output=True,
+                               text=True, input=capture, timeout=60)
+        self.assertEqual(loose.returncode, 7)
+        self.assertTrue((planted / "ran").exists())
 
     def test_a_drafted_fixture_comes_out_with_no_credential(self):
         data = json.loads(fixture())
@@ -13463,6 +13519,9 @@ class Writes(unittest.TestCase):
             "harness/impload.py": "import imp\n\n\ndef go():\n    return imp.load_source('e', 'adapters/effects.py')\n",
             "harness/zipload.py": "from zipimport import zipimporter\n\n\ndef go(p):\n    return zipimporter(p).load_module('effects')\n",
             "harness/loaderkey.py": "def go(ns, m):\n    a = ns['imp']\n    b = getattr(m, 'zipimport')\n    return a, b, ns.get('imp')\n",
+            # issue 1348: pydoc loads a module by a dotted name, as pkgutil does
+            "harness/pydocload.py": "import pydoc\n\n\ndef go(x):\n    return pydoc.locate('adapters.effects.approve')(x)\n",
+            "harness/pydockey.py": "def go(ns):\n    return ns.get('pydoc')\n",
             "harness/syskey.py": "import os\n\n\ndef go():\n    return vars(os)['sys']\n",
             "harness/anymodules.py": "def go(x):\n    return x.modules\n",
             "harness/innerok.py": "from harness import portinst\n\n\ndef go(m):\n    def inner():\n        m = portinst\n"
@@ -13605,6 +13664,8 @@ class Writes(unittest.TestCase):
                           ("harness/loaderkey.py:2", "loads a module by its name"),
                           ("harness/loaderkey.py:3", "loads a module by its name"),
                           ("harness/loaderkey.py:4", "loads a module by its name"),
+                          ("harness/pydocload.py:1", "loads a module by its name"),
+                          ("harness/pydockey.py:2", "loads a module by its name"),
                           ("harness/syskey.py:5", "loads a module by its name"),
                           ("harness/anymodules.py:2", "loads a module by its name"),
                           ("harness/ifgh.py:5", "names gh or git as a command"),
@@ -13899,6 +13960,61 @@ class Writes(unittest.TestCase):
         self.assertTrue(caught(problems, "harness/nsother.py:5 names no_such, which adapters does not define"), problems)
         # Nor can what an import of all of such a package binds (issue 640).
         self.assertTrue(caught(problems, "harness/nsstar.py:2 imports * from adapters"), problems)
+
+    def test_a_package_path_named_or_a_module_no_file_is_fails(self):  # issue 1323
+        # A package's __init__.py that adds a folder to its __path__ makes `import harness.github` load adapters/github.py,
+        # whose writes this check reads under its own name alone. So naming the path, or a module's __package__, any way
+        # the syntax shows it, fails; so does an import of a module below a package of the repo's that no file of the repo
+        # is, a name taken from such a package that it neither defines nor holds, and a file beside a folder of its name.
+        # Each case's line is its last.
+        write = "\n\ndef go(t):\n    return github.request('POST', '/repos/x/y/issues')\n"
+        named = {"name": "__path__.append('adapters')\n", "attribute": "import harness\n\nharness.__path__.append('a')\n",
+                 "spec": "__spec__.submodule_search_locations.append('a')\n", "imported": "from harness import __path__ as p\n",
+                 "keyword": "globals().update(__path__=['a'])\n", "key": "globals()['__path__'] = ['a']\n",
+                 "text": "import harness\n\np = getattr(harness, f'__path__')\n", "renamed": "from os import sep as __path__\n",
+                 "module renamed": "import os as __path__\n", "dotted": "import __path__.child\n",
+                 "dotted below": "import harness.__path__\n", "from below": "from harness.__path__ import x\n",
+                 "parameter": "def f(*, __package__=None): pass\n",
+                 "def": "def __path__(): return ['a']\n", "async def": "async def __path__(): return ['a']\n",
+                 "class": "class __path__: pass\n", "handler": "try:\n    pass\nexcept OSError as __path__:\n    pass",
+                 "package": "__package__ = 'adapters'\n"}
+        if sys.version_info >= (3, 10):     # the floor, 3.9, cannot parse a match, and reads such a file as no Python
+            named.update({"capture": "match []:\n    case __path__:\n        pass", "star": "match []:\n    case [*__path__]:\n        pass",
+                          "rest": "match {}:\n    case {**__path__}:\n        pass"})
+        files = {"harness/path%s.py" % why.replace(" ", ""): text for why, text in named.items()}
+        files.update({"harness/__init__.py": "__path__.append('adapters')\n",
+                      "harness/viapath.py": "import harness.github as github" + write,
+                      "harness/frompath.py": "from harness.github import request" + write.replace("github.request", "request"),
+                      "harness/relpath.py": "from .github import request" + write.replace("github.request", "request"),
+                      "harness/plain.py": "import json.decoder, harness.not_held\n",
+                      "harness/leaf.py": "import tools.hooks.missing\n",
+                      "harness/taken.py": "from harness import github\n",
+                      "harness/second.py": "from harness import steps, not_held\n",
+                      "harness/reltaken.py": "from . import github\n",
+                      "harness/foo.py": "def __getattr__(name):\n    return ['adapters']\n",
+                      "harness/foo/effects.py": "def approve(*a):\n    return None\n",
+                      "harness/task__init__.py": "value = 1\n", "harness/task__init__/leaf.py": "value = 1\n",
+                      "harness/held.py": "import harness.steps as github\nimport json.decoder\nfrom . import steps\nimport tools.hooks.shell\n"
+                                         "from harness import steps\nfrom tools.hooks import shell\nfrom tools import walk\nfrom tools.walk import not_there\n"})
+        # This check's own table names the path, and nothing else in it may: not its code, nor another table.
+        own = [(ROOT / "tools/check_writes.py").read_text() + "\n\nPACKAGE_PATHS = PACKAGE_PATHS + ('__path__',)\n"]
+        own.append(own[-1] + "PACKAGE_PATHS = ('__path__',)\n")
+        own.append(own[-1] + "\n\ndef roots(pkg):\n    return pkg.__path__\n")
+        files["tools/check_writes.py"] = own[-1]
+        problems = check_writes.run(clone(files))
+        self.assertEqual([p.partition(" ")[0] for p in problems if p.startswith("tools/check_writes.py")],
+                         ["tools/check_writes.py:%d" % text.count("\n") for text in own])
+        self.assertTrue(caught(problems, "harness/__init__.py:1 names where a package finds its modules"), problems)
+        for why in named:
+            line = named[why].count("\n")
+            self.assertTrue(caught(problems, "harness/path%s.py:%d names where" % (why.replace(" ", ""), line)), (why, problems))
+        for rel in ("viapath", "frompath", "relpath", "plain", "leaf", "taken", "reltaken", "second"):
+            self.assertTrue(caught(problems, "harness/%s.py:1 imports a module that no file of the repo is" % rel), (rel, problems))
+        for rel in ("foo", "task__init__"):
+            self.assertTrue(caught(problems, "harness/%s.py and the folder harness/%s/ are one name" % (rel, rel)), problems)
+        # A module the repo holds, one outside it, a module or a name taken from a package, and a name a module lacks,
+        # which Python never looks for as a module, are read as before.
+        self.assertFalse([p for p in problems if p.startswith("harness/held.py")], problems)
 
     def test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one(self):
         # Issue 1101: the mutants of a file outside kernel/ live in tools/mutants_of/, and a mutant of a script or a
@@ -14349,9 +14465,9 @@ class Verify(unittest.TestCase):
         self.assertIn("a problem", said.getvalue())
 
     def test_the_legs_of_make_verify_run_every_test_once(self):
-        # CI runs `make verify` in legs (docs/standards/workflows.md): each runs every check and each count-th test from
-        # its place, so that across the legs every test of the whole suite runs, the seeded simulation's included, and
-        # none twice. A leg it cannot read stops the run before any check or test.
+        # CI runs `make tests` in legs, after a step of `make checks` (docs/standards/workflows.md): each runs each
+        # count-th test from its place, so that across the legs every test of the whole suite runs, the seeded
+        # simulation's included, and none twice. A leg it cannot read stops the run before any check or test.
         whole = [test.id() for test in verify._tests(verify.suite(False))]
         self.assertTrue({"tests.test_simulator", "tests.test_issue_simulator"} <= {i.rsplit(".", 2)[0] for i in whole})
         for count in (1, 2, 3, 5):
@@ -14379,21 +14495,29 @@ class Verify(unittest.TestCase):
                 ran.append(sorted(test.id() for test in verify._tests(suite)))
                 return unittest.TestResult()
 
+        real += (verify.tested,)
         verify.failed, verify.unittest.TextTestRunner = (lambda checks: ran.append("checks") or False), Runner
+        verify.tested = lambda fast, share: ran.append("tested") or 0
         try:
             with contextlib.redirect_stdout(io.StringIO()) as said:
                 self.assertEqual(verify.main([], {"CHECKS_SHARD": "1", "CHECKS_SHARDS": "3"}), 0)
-                self.assertEqual(ran, ["checks", sorted(whole[1::3])])
+                self.assertEqual(ran, ["checks", "tested"])
+                del ran[:]
+                # `make tests`, or the tests' process `tested` starts with the environment it inherits: its leg alone,
+                # which it names.
+                self.assertEqual(verify.main(["--tests"], {"CHECKS_SHARD": "1", "CHECKS_SHARDS": "3"}), 0)
+                self.assertEqual(ran, [sorted(whole[1::3])])
                 self.assertIn("leg 1 of 3", said.getvalue())
                 del ran[:]
                 self.assertEqual(verify.main([], {"CHECKS_SHARD": "3", "CHECKS_SHARDS": "3"}), 1)
+                self.assertEqual(verify.main(["--tests"], {"CHECKS_SHARD": "3", "CHECKS_SHARDS": "3"}), 1)
                 self.assertEqual(ran, [], "a leg outside the count runs nothing")
         finally:
-            verify.failed, verify.unittest.TextTestRunner = real
-        # From the front door, as CI's matrix tells it: the leg is read from the environment.
+            verify.failed, verify.unittest.TextTestRunner, verify.tested = real
+        # From the front door, as the Makefile runs it and CI's matrix tells it: the leg is read from the environment.
         env = dict(os.environ, CHECKS_SHARD="3", CHECKS_SHARDS="3")
-        done = subprocess.run([sys.executable, "-m", "tools.verify"], cwd=str(ROOT), env=env, capture_output=True,
-                              text=True, timeout=60)
+        done = subprocess.run([sys.executable, "-I", "-S", "tools/verify.py"], cwd=str(ROOT), env=env,
+                              capture_output=True, text=True, timeout=60)
         self.assertEqual((done.returncode, done.stdout.strip()), (1, "CHECKS_SHARD is 3 and CHECKS_SHARDS is 3; the leg "
                                                                      "is counted from 0, below the count"))
 
@@ -14413,8 +14537,9 @@ class Verify(unittest.TestCase):
                 ran["modules"] = modules_in(suite)
                 return unittest.TestResult()
 
-        real = (verify.failed, verify.unittest.TextTestRunner)
+        real = (verify.failed, verify.unittest.TextTestRunner, verify.tested)
         verify.failed, verify.unittest.TextTestRunner = (lambda checks: False), Runner
+        verify.tested = lambda fast, share: ran.update(fast=fast) or 0
         try:
             # main prints the unverified rules, and on --checks the desk's note, here none
             with contextlib.redirect_stdout(io.StringIO()), mock.patch.object(verify, "desk_note", return_value=""):
@@ -14423,16 +14548,25 @@ class Verify(unittest.TestCase):
                 verify.failed = lambda checks: True
                 self.assertEqual((verify.main(["--checks"]), ran), (1, {}))
                 verify.failed = lambda checks: False
-                self.assertEqual(verify.main([]), 0)
+                self.assertEqual((verify.main([]), ran), (0, {"fast": False}))
+                self.assertEqual((verify.main(["--fast"]), ran), (0, {"fast": True}))
+                # The tests' own process runs every test module, or when fast all but the slow ones, and no check.
+                verify.failed = lambda checks: self.fail("the tests' process ran the checks")
+                self.assertEqual(verify.main(["--tests"]), 0)
                 self.assertEqual(ran["modules"], everything)
-                verify.main(["--fast"])
+                verify.main(["--tests", "--fast"])
                 self.assertEqual(ran["modules"], everything - slow)
+                failing = unittest.TestResult()     # and a failed test fails it
+                failing.failures.append((self, "a failure"))
+                Runner.run = lambda *_: failing
+                self.assertEqual(verify.main(["--tests"]), 1)
         finally:
-            verify.failed, verify.unittest.TextTestRunner = real
+            verify.failed, verify.unittest.TextTestRunner, verify.tested = real
         makefile = (ROOT / "Makefile").read_text()
-        self.assertIn("\nverify:\n\t$(PY) -m tools.verify\n", makefile)
-        self.assertIn("\nfast:\n\t$(PY) -m tools.verify --fast\n", makefile)
-        self.assertIn("\nchecks:\n\t$(PY) -m tools.verify --checks\n", makefile)
+        self.assertIn("\nverify:\n\t$(PY) -I -S tools/verify.py\n", makefile)
+        self.assertIn("\ntests:\n\t$(PY) -I -S tools/verify.py --tests\n", makefile)       # CI's step after the checks
+        self.assertIn("\nfast:\n\t$(PY) -I -S tools/verify.py --fast\n", makefile)
+        self.assertIn("\nchecks:\n\t$(PY) -I -S tools/verify.py --checks\n", makefile)
 
     def test_make_reads_the_makefile_as_committed_and_remakes_it_from_nothing(self):  # issue 1048, decision 0240
         # make tries to remake the makefile it read before it looks up a target, by an implicit rule from a file beside
@@ -14443,18 +14577,88 @@ class Verify(unittest.TestCase):
             shutil.copy(ROOT / "Makefile", where / "Makefile")
             os.utime(where / "Makefile", (1, 1))
             (where / "Makefile.sh").write_text("verify:\n\t@echo not the committed verify\n")
+            (where / "tests").mkdir()       # CI's goals run though a file of their name stands (Astra's, Carbon's reads)
+            (where / "checks").write_text("")
             # make's built-in rules on, whatever flags the run was given (Astra's read), and verify the goal of a bare
             # make too.
             env = {k: v for k, v in os.environ.items() if k not in ("MAKEFLAGS", "MFLAGS", "MAKEFILES", "GNUMAKEFLAGS")}
             for goal in (["verify"], []):
                 ran = subprocess.run(["make", "-s"] + goal + ["PY=echo"], cwd=where, capture_output=True, text=True,
                                      timeout=60, env=env)
-                self.assertEqual((ran.returncode, ran.stdout), (0, "-m tools.verify\n"), (goal, ran.stderr))
+                self.assertEqual((ran.returncode, ran.stdout), (0, "-I -S tools/verify.py\n"), (goal, ran.stderr))
                 self.assertEqual((where / "Makefile").read_text(), (ROOT / "Makefile").read_text())
                 # And verify's failure is make's (Astra's read).
                 failed = subprocess.run(["make", "-s"] + goal + ["PY=false"], cwd=where, capture_output=True, text=True,
                                         timeout=60, env=env)
                 self.assertNotEqual(failed.returncode, 0, goal)
+            for goal in ("tests", "checks"):
+                ran = subprocess.run(["make", "-s", goal, "PY=false"], cwd=where, capture_output=True, timeout=60, env=env)
+                self.assertNotEqual(ran.returncode, 0, goal)
+
+    poisoned_run = None
+
+    @classmethod
+    def poisoned(cls) -> tuple:
+        """(what `make verify` did, where) in a copy of the repo that a Role's push could make: a check fails on a
+        print in kernel/, the one test module ends its process at import, and an ast.py or json.py at the top marks
+        it was imported. Run once, as the Makefile runs it, and kept for the tests that read it (issue 1050)."""
+        if cls.poisoned_run is None:
+            where = pathlib.Path(tempfile.mkdtemp())
+            cls.addClassCleanup(shutil.rmtree, where, True)
+            root = where / "repo"
+            walk.copy(ROOT, root)
+            for path in (root / "tests").iterdir():     # the one test module is the one written below
+                if path.name != "__init__.py":
+                    shutil.rmtree(path) if path.is_dir() and not path.is_symlink() else path.unlink()
+            (root / "kernel" / "loud.py").write_text('print("a check fails on this")\n')
+            (root / "tests" / "test_ends.py").write_text("import os\nos._exit(0)\n")
+            for name in ("ast", "json"):        # unittest imports ast first on newer Pythons; json the checks alone
+                (root / (name + ".py")).write_text('import pathlib\npathlib.Path(__file__).with_name("SHADOWED").'
+                                                   'write_text("")\nimport os\nos._exit(0)\n')
+            env = {k: v for k, v in os.environ.items()
+                   if k not in ("MAKEFLAGS", "MFLAGS", "MAKEFILES", "GNUMAKEFLAGS", "CHECKS_SHARD", "CHECKS_SHARDS")}
+            cls.poisoned_run = (subprocess.run(["make", "-s", "verify", "PY=" + sys.executable], cwd=root, env=env,
+                                               capture_output=True, text=True, timeout=600), root)
+        return cls.poisoned_run
+
+    def test_a_test_module_that_ends_its_process_cannot_pass_a_failed_check(self):  # issue 1050
+        # verify answers for the checks and for the tests' own process: either failing fails it.
+        real = (verify.failed, verify.tested, verify.suite)
+        verify.suite = lambda *_: self.fail("a test was run in the checks' process")
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                for checks_failed, tests, answer in ((True, 0, 1), (False, 1, 1), (True, 1, 1), (False, 0, 0)):
+                    verify.failed, verify.tested = (lambda checks: checks_failed), (lambda fast, share: tests)
+                    self.assertEqual(verify.main([], {}), answer, (checks_failed, tests))
+                    self.assertEqual(verify.main(["--checks"], {}), int(checks_failed))
+        finally:
+            verify.failed, verify.tested, verify.suite = real
+        # The tests' process is started isolated, told the leg verify read or none, and its failure is verify's.
+        started, run = [], subprocess.run
+
+        def child(argv, **kw):      # the tests' process is faked; any other command, git's, runs
+            if "--tests" not in argv:
+                return run(argv, **kw)
+            started.append((argv, kw["env"].get("CHECKS_SHARD"), kw["env"].get("CHECKS_SHARDS")))
+            return subprocess.CompletedProcess(argv, 1)
+        with mock.patch.object(verify, "failed", return_value=False), contextlib.redirect_stdout(io.StringIO()), \
+                mock.patch.object(verify.subprocess, "run", side_effect=child), \
+                mock.patch.dict(os.environ, CHECKS_SHARD="0", CHECKS_SHARDS="2"):
+            self.assertEqual(verify.main([], {}), 1)
+            self.assertEqual(verify.main(["--fast"], {}), 1)
+            self.assertEqual(verify.main([], {"CHECKS_SHARD": "1", "CHECKS_SHARDS": "3"}), 1)
+        command = [sys.executable, "-I", "-S", str(verify.ROOT / "tools" / "verify.py"), "--tests"]
+        self.assertEqual(started, [(command, None, None), (command + ["--fast"], None, None), (command, "1", "3")])
+        # As the Makefile runs it: the test module ends only the tests' process, and the failed check still fails it.
+        done, _ = self.poisoned()
+        self.assertIn("%-22s FAILED" % "kernel purity", done.stdout)
+        self.assertIn("%-22s their process ended 0" % "tests", done.stdout)
+        self.assertNotEqual(done.returncode, 0, done.stdout[-2000:])
+
+    def test_a_file_at_the_top_named_as_a_standard_module_is_not_imported_by_the_checks(self):  # issue 1050
+        done, root = self.poisoned()
+        self.assertIn("%-22s FAILED" % "kernel purity", done.stdout)      # the checks ran, ast among their imports
+        self.assertFalse((root / "SHADOWED").exists(), done.stdout[-2000:])
 
     def test_every_test_file_is_discovered(self):
         found = set()
@@ -16126,7 +16330,7 @@ class SignalTraps(unittest.TestCase):
                 'as --keep-raw asked; delete it once read\\n\' %s "$scratch" >&2' % name), name)
             self.assertIn("\ntrap finish EXIT\n", text, name)
             self.assertNotIn('rm -f "$scratch/raw', text, name)
-            redacted = [n for n, line in enumerate(lines) if re.search(r'redact_trial < "\$scratch/raw-', line)]
+            redacted = [n for n, line in enumerate(lines) if re.search(r'redact_trial\.py" < "\$scratch/raw-', line)]
             self.assertTrue(redacted, name)
             for n in redacted:
                 raw = re.search(r'< "(\$scratch/raw-[^"]*)"', lines[n]).group(1)
@@ -16153,17 +16357,17 @@ class SignalTraps(unittest.TestCase):
             finish = lines.index("finish() {")
             told = lines.index('elif [ -n "${minting:-}" ]; then', finish)
             said = [line for line in lines[told + 1:lines.index("}", finish)] if not line.startswith("#")][:2]
-            said_by = "live" if script.name in NOTING else "echo"
-            self.assertTrue(said[0].startswith('%s "%s: stopped while a token was being minted;' % (said_by, script.name[:-3])), script.name)
-            self.assertTrue(said[1].endswith('suspends the App\'s installation."' + ("" if script.name in NOTING else " >&2")), script.name)
+            self.assertTrue(said[0].startswith('live "%s: stopped while a token was being minted;' % script.name[:-3]), script.name)
+            self.assertTrue(said[1].endswith('suspends the App\'s installation."'), script.name)
 
     def test_every_token_script_tells_a_token_that_may_be_live_in_out_too(self):  # issue 1245
         # The terminal may be gone when a token is told that may be live: each sh script that mints writes the same words
         # to OUT's finish.log as well, once OUT is its own, by one helper of the same words everywhere. No echo of its own
         # says a token may be live, so none is told to the terminal alone; and a refusal with no token is noted only
         # while the mark stands, so a 4xx, which cleared it, is not.
-        scripts = [ROOT / "tools" / name for name in sorted(NOTING)]
-        self.assertEqual(len(scripts), 7)
+        scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
+                   if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
+        self.assertEqual(len(scripts), 11)
         for script in scripts:
             text = script.read_text()
             self.assertEqual(text.count(NOTED), 1, script.name)
@@ -16175,9 +16379,14 @@ class SignalTraps(unittest.TestCase):
             for statement in re.findall(r"(?:^\s*|\|\| )echo [^\n]*", joined, re.M):
                 self.assertIsNone(re.search(r"may be live|may have minted|by hand|expires within an hour", statement),
                                   (script.name, statement))
-            self.assertEqual(len(re.findall(r'(?:^\s*|\|\| )live "', joined, re.M)), 3, script.name)
-            refused = [line.strip() for line in lines if "note " in line and "$refused" in line]
-            self.assertEqual(refused, ['[ -z "$minting" ] || note "%s: $slug: $refused"' % script.name[:-3]], script.name)
+            self.assertEqual(len(re.findall(r'(?:^\s*|\|\| )live "', joined, re.M)), 4 if script.name == "trial_p52_pause.sh" else 3,
+                             script.name)
+            refused = [n for n, line in enumerate(lines) if "note " in line and "$refused" in line]
+            self.assertEqual([lines[n].strip() for n in refused], [] if script.name == "trial_p4_narrow.sh"
+                             else ['[ -z "$minting" ] || note "%s: $slug: $refused"' % script.name[:-3]], script.name)
+            # Noted before the terminal is told, as live() does, so a terminal gone loses nothing.
+            for n in refused:
+                self.assertTrue(lines[n + 1].strip().startswith('echo "%s: $slug: $refused;"' % script.name[:-3]), script.name)
 
     def test_every_trial_takes_nothing_of_the_maintainers_environment(self):  # issue 1215
         # A name a script holds a credential in, exported, reaches every child; SSLKEYLOGFILE has curl write the TLS keys
@@ -16221,6 +16430,22 @@ class SignalTraps(unittest.TestCase):
         self.assertLess(app.index("unset GH_DEBUG DEBUG CURL_HOME GODEBUG"), gh[0])
         self.assertLess(app.index(GH_UNSTEERED), gh[0])
 
+    def test_every_redaction_reads_no_module_the_shell_names(self):  # issue 1300
+        # A PYTHONPATH entry, and the working directory under -m, come before the standard library on the path: a json.py
+        # planted in either would run inside the redaction as it reads the raw answers, and a package in site-packages
+        # named tools would stand in for the repo's. Every script that redacts runs the redaction as a file under -I and
+        # -S, by the root it found, on every call. A test that the file is there is no call.
+        scripts = []
+        for script in sorted((ROOT / "tools").glob("*.sh")):
+            lines = [line.replace('-f "$root/tools/redact_trial.py"', "") for line in script.read_text().splitlines()]
+            calls = [line for line in lines if "redact_trial" in line and not line.lstrip().startswith("#")]
+            if calls:
+                scripts.append(script.name)
+            for line in calls:
+                self.assertEqual(re.findall(r"python3[^|;()<>]*redact_trial[^\s)]*", line), ['python3 -I -S "$root/tools/redact_trial.py"'],
+                                 (script.name, line))
+        self.assertEqual(len(scripts), 18)
+
     def test_every_trial_finds_its_root_as_the_file_system_does(self):  # issue 1215
         # A plain cd looks a relative path up along CDPATH, and says where it went, and takes .. past a link logically.
         # Each script's root is found with CDPATH empty, physically.
@@ -16250,9 +16475,6 @@ NOTED = """noted=""
 note() { [ -z "$noted" ] || printf '%s\\n' "$*" >> "$out/finish.log" || true; }
 live() { note "$*"; echo "$*" >&2; }
 """
-# The scripts that note so: the reader trial's family. P-39, P-4, P-8 and P-52 follow in part 3 of issue 1245.
-NOTING = ("trial_reader_reads.sh", "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh",
-          "trial_p80_branch_reads.sh", "trial_p58_edits.sh", "trial_p81_review_order.sh")
 
 
 def note_in(test: unittest.TestCase, out: pathlib.Path, told: str) -> str:
@@ -16270,7 +16492,7 @@ def note_in(test: unittest.TestCase, out: pathlib.Path, told: str) -> str:
     for line in note.splitlines():
         test.assertTrue(any(s in (line, line + "; GitHub answered, redacted:", line + "; nothing read. GitHub answered, redacted:",
                                   line + "; nothing read") for s in said), (line, told))
-    clean = subprocess.run([sys.executable, "-m", "tools.redact_trial"], input=note, capture_output=True, text=True,
+    clean = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "tools" / "redact_trial.py")], input=note, capture_output=True, text=True,
                            cwd=str(ROOT), timeout=60)
     test.assertEqual((clean.returncode, clean.stdout), (0, note), clean.stderr)
     test.assertIn("redacted: 0 removed", clean.stderr)
@@ -16532,7 +16754,7 @@ esac
             self.assertEqual([p.name for p in out.iterdir() if p.name.startswith("raw-")], [])
             for name in clean:
                 raw = (kept[0] / name.replace("clean-", "raw-")).read_bytes()
-                again = subprocess.run([sys.executable, "-m", "tools.redact_trial"], cwd=str(ROOT), input=raw, capture_output=True)
+                again = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "tools" / "redact_trial.py")], cwd=str(ROOT), input=raw, capture_output=True)
                 self.assertEqual(again.stdout, (out / name).read_bytes(), name)
                 self.assertNotIn(self.TOKEN.encode(), raw, name)
 
@@ -18828,7 +19050,7 @@ class Desk(unittest.TestCase):
 
     def test_make_checks_note_fails_nothing(self):
         # The note is printed after the checks have answered, and nothing it does, an error or an exit, changes the
-        # answer. CI's legs never run it.
+        # answer. CI never runs it: a leg or CI set, its code is never imported (issue 1050).
         def ran(argv: list, checks_failed: bool, note) -> tuple:
             printed = io.StringIO()
             with mock.patch.object(verify, "failed", return_value=checks_failed), \
@@ -18842,6 +19064,14 @@ class Desk(unittest.TestCase):
                                (KeyboardInterrupt, "KeyboardInterrupt")):
                 self.assertEqual(ran(["--checks"], checks_failed, note),
                                  (int(checks_failed), "%-22s no note: it raised %s\n" % ("diff size", name)))
+        for environ in ({"CHECKS_SHARD": "0", "CHECKS_SHARDS": "2"}, {"CHECKS_SHARD": "1"}, {"CI": "true"}):
+            for checks_failed in (False, True):
+                printed = io.StringIO()
+                with mock.patch.object(verify, "failed", return_value=checks_failed), \
+                        mock.patch.object(verify, "desk_note") as note, contextlib.redirect_stdout(printed):
+                    self.assertEqual(verify.main(["--checks"], environ), int(checks_failed), environ)
+                note.assert_not_called()
+                self.assertEqual(printed.getvalue(), "", environ)
         for checks_failed in (False, True):
             read, write = os.pipe()
             os.close(read)      # a reader that closed before the note
@@ -18889,10 +19119,13 @@ class Desk(unittest.TestCase):
             package.desk = desk
         note = mock.Mock(return_value="the note")
         with mock.patch.object(verify, "failed", return_value=False), mock.patch.object(desk, "size", note), \
-                mock.patch.object(verify, "suite", return_value=unittest.TestSuite()), \
+                mock.patch.object(verify, "tested", return_value=0), \
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(verify.main([], {}), 0)
             self.assertEqual(verify.main([], {"CHECKS_SHARD": "0", "CHECKS_SHARDS": "2"}), 0)
+            with mock.patch.object(verify, "suite"), mock.patch.object(verify.unittest, "TextTestRunner"):
+                for environ in ({}, {"CHECKS_SHARD": "0", "CHECKS_SHARDS": "2"}):      # make tests
+                    self.assertEqual(verify.main(["--tests"], environ), 0)
         note.assert_not_called()
 
     def merging(self) -> pathlib.Path:

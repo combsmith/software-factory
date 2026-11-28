@@ -973,13 +973,13 @@ class TheSet(unittest.TestCase):
         problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW}))
         self.assertEqual(problems, [])
         for line in ("          HELDOUT_OWNER: ${{ secrets.HELDOUT_OWNER }}\n", "          X: ${{ secrets.heldout_app_key }}\n"):
-            other = GOOD.replace("      - run: make verify\n", "      - run: make verify\n        env:\n" + line, 1)
+            other = GOOD.replace("      - run: make tests\n", "      - run: make tests\n        env:\n" + line, 1)
             problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW,
                                                   ".github/workflows/other.yml": other}))
             self.assertTrue(caught(problems, "other.yml: line"), (line, problems))
         self.assertTrue(check_workflows.EVAL_ONLY.search("    environment: Factory-Eval"))
         # The model's credential, an organisation secret any branch could read, is named by the model's steps alone.
-        other = GOOD.replace("      - run: make verify\n", "      - run: make verify\n        env:\n"
+        other = GOOD.replace("      - run: make tests\n", "      - run: make tests\n        env:\n"
                              "          T: ${{ secrets.claude_code_oauth_token }}\n", 1)
         problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW,
                                               ".github/workflows/other.yml": other}))
@@ -988,7 +988,7 @@ class TheSet(unittest.TestCase):
             "      - run: python3 -m harness.eval.fetch\n", "      - run: python3 -m harness.eval.fetch\n        id: x\n")}))
         self.assertTrue(caught(problems, "eval.yml: its fetch step"), problems)
         # The Maintainer's token, in another workflow under its one name, in any case, is the eval job's alone.
-        other = GOOD.replace("      - run: make verify\n", "      - run: make verify\n        env:\n"
+        other = GOOD.replace("      - run: make tests\n", "      - run: make tests\n        env:\n"
                              "          T: ${{ secrets.Heldout_Token }}\n", 1)
         problems = check_workflows.run(clone({".github/workflows/eval.yml": EVAL_WORKFLOW,
                                               ".github/workflows/other.yml": other}))

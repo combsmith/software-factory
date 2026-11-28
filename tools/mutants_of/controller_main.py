@@ -570,4 +570,14 @@ MUTANTS = [
      'runs=runs, role=facts_.opener_role(config["kernel"]),', 'runs=None, role=facts_.opener_role(config["kernel"]),', ("tests.test_controller.Entry.test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is",)),
     ("the issues are read with no opening Role", 'controller/__main__.py',
      'runs=runs, role=facts_.opener_role(config["kernel"]),', 'runs=runs, role=None,', ("tests.test_controller.Entry.test_the_open_issues_are_listed_from_served_from_and_each_read_as_a_pull_request_is",)),
+    # Decision 0224: the run records read each review Run's advisory cost, and the pass tells each review whether the day admits it.
+    ('the pass asks for no advisory cost', 'controller/__main__.py',
+     ', day=now[:len("2026-01-01")],\n',
+     ',\n', ('tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it',)),
+    ('the pass asks for every advisory cost again', 'controller/__main__.py',
+     'advised=records.advised(earlier), day=',
+     'day=', ('tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it',)),
+    ("the pass keeps only the later record's advisory costs", 'controller/__main__.py',
+     'advised=records.advised(earlier), day=',
+     'advised=records.advised(earlier[-1:]), day=', ('tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it',)),
 ]

@@ -1,6 +1,6 @@
 """The mutants of `tools/context_eval.sh`, `tools/trial_p12_status.sh`, `tools/trial_p13_cli.sh`, `tools/trial_p13_ended.sh`, `tools/trial_p26_sandbox.sh`, `tools/trial_p39_reach.sh`, `tools/trial_p4_narrow.sh`, `tools/trial_p50_linux_sandbox.sh`, `tools/trial_p51_sandbox_writes.sh`, `tools/trial_p54_issue_lookup.sh`, `tools/trial_p56_comments.sh`, `tools/trial_p58_edits.sh`, `tools/trial_p59_read_confinement.sh`, `tools/trial_p61_timeline.sh`, `tools/trial_p8_cost.sh`, `tools/trial_p80_branch_reads.sh`, `tools/trial_p81_review_order.sh`, `tools/trial_reader_reads.sh`: tools/mutants.py runs them."""
 
-from tools.mutants_of.common import KEEP_1215, P50_TESTS, P59_TESTS, UNPROXIED
+from tools.mutants_of.common import FIRST_NEW, FIRST_OLD, KEEP_1215, P50_TESTS, P59_TESTS, UNPROXIED, ISOLATED, ISOLATED_TEST, UNISOLATED, WITH_SITE
 
 P13 = "tools/trial_p13_cli.sh"
 P13_TESTS = "tests.test_tools.TrialScript."
@@ -37,9 +37,6 @@ TRIALS_ROOT = "tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_t
 TRIALS_SHELL = "tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment"
 TRIALS_KEEP = "tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_in_a_private_directory_it_deletes"
 STATUS_DIGITS = "tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head"
-# A head's first line clears the status, so the first of several heads is kept only with that clearing gone too.
-FIRST_OLD = 'head && /^HTTP\\// { found = "" } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit }'
-FIRST_NEW = '{ sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/ && found == "") found = $2; else exit }'
 ROOTS_1215 = SCRIPTS_1215 + ("trial_p13_cli.sh", "trial_p13_ended.sh", "trial_p26_sandbox.sh", "trial_p61_timeline.sh")
 # Not P-59's: trials/P-59.json holds the canary to have run that file as it is in tools/, byte for byte.
 EVERY_1215 = ROOTS_1215 + ("trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh")
@@ -65,21 +62,30 @@ def mark_1245(script):
 NOTE_1245 = 'note() { [ -z "$noted" ] || printf \'%s\\n\' "$*" >> "$out/finish.log" || true; }'
 NOTED = "tests.test_tools.SignalTraps.test_every_token_script_tells_a_token_that_may_be_live_in_out_too"
 DIGITS_1245 = 'case "$minted_status" in [0-9][0-9][0-9]) ;; *) minted_status="" ;; esac\n'
-REVOKED_1245 = {s: ("tests.test_tools.%s.test_a_refused_mint_or_revocation_stops_the_run_and_says_so" % c,) for s, c in FAMILY_1215.items()}
+NARROWED = "tests.test_tools.NarrowedToken."
+REVOKED_1245 = dict({s: ("tests.test_tools.%s.test_a_refused_mint_or_revocation_stops_the_run_and_says_so" % c,) for s, c in FAMILY_1215.items()},
+                    **{"trial_p39_reach.sh": ("tests.test_tools.ReachScript.test_a_revocation_that_is_not_204_is_told_and_tried_once_more",),
+                       "trial_p4_narrow.sh": (NARROWED + "test_a_revocation_that_is_not_204_is_told_and_fails",)})
 
 
 def note_1245(script):
     """The tests that run `script` to a token that may be live and read OUT's note of it."""
+    if script == "trial_p4_narrow.sh":
+        return (NARROWED + "test_a_refused_mint_stops_with_nothing_read_and_the_answer_redacted",)
     return (MINT_REFUSED,) + run_1215(script, "test_a_mint_with_no_token_and_no_refusal_tells_the_maintainer_one_may_be_live")
 
 
 def unrevoked_1245(script):
     """The start of `script`'s words for a token it could not revoke."""
+    if script in ("trial_p4_narrow.sh", "trial_p8_cost.sh"):
+        return 'live "%s: the token\'s revocation returned' % script[:-3]
     return 'live "%s: $1: its revocation returned' % script[:-3]
 
 
 def cut_live_1245(script):
     """The start of `script`'s words for a 201 cut short before its token."""
+    if script in ("trial_p39_reach.sh", "trial_p8_cost.sh"):
+        return 'live "%s: $slug: GitHub minted a token for installation' % script[:-3]
     return 'live "%s: $slug: GitHub minted a token, narrowed to' % script[:-3]
 
 
@@ -112,7 +118,7 @@ MUTANTS = [
      '    if [ "$minted_status" = 201 ] && { [ -z "$token" ] || [ "$minted_exit" != 0 ]; }; then\n', '    if false; then\n',
      ("tests.test_tools.ReaderTrialScript.test_a_mint_answered_201_and_cut_short_is_revoked_and_told",)),
     ("a read is kept without its redaction", "tools/trial_reader_reads.sh",
-     '    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"',
+     '    (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"',
      '    cp "$scratch/raw-$n" "$out/clean-$n"; : > "$out/redacted-$n"',
      ("tests.test_tools.ReaderTrialScript.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("the reader's output folder is read without its links", "tools/trial_reader_reads.sh",
@@ -815,7 +821,7 @@ MUTANTS = [
     ("P-54's token reaches every repo", "tools/trial_p54_issue_lookup.sh", '"{\\"repositories\\":[\\"$name\\"],', '"{', ("tests.test_tools.IssueLookupTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-54 mints for another App's installation", "tools/trial_p54_issue_lookup.sh", '["apps"]["controller"]', '["apps"]["reader"]', ("tests.test_tools.IssueLookupTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-54 keeps a read without its redaction", "tools/trial_p54_issue_lookup.sh",
-     '    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
+     '    (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
      '    cp "$scratch/raw-$n" "$out/clean-$n"; : > "$out/redacted-$n"\n', ("tests.test_tools.IssueLookupTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-54 may ask the Factory's own repo", "tools/trial_p54_issue_lookup.sh", ' or sys.argv[1] == "combsmith/software-factory":', ":", ("tests.test_tools.IssueLookupTrial.test_each_refusal_comes_before_anything_is_minted",)),
     ("P-54 takes an issue of any shape", "tools/trial_p54_issue_lookup.sh", '    ""|0*|*[!0-9]*) echo', '    "") echo', ("tests.test_tools.IssueLookupTrial.test_each_refusal_comes_before_anything_is_minted",)),
@@ -858,7 +864,7 @@ MUTANTS = [
     ("P-12's token reaches every repo", "tools/trial_p12_status.sh", '"{\\"repositories\\":[\\"$name\\"],', '"{', ("tests.test_tools.StatusTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-12 mints for another App's installation", "tools/trial_p12_status.sh", '["apps"]["controller"]', '["apps"]["reader"]', ("tests.test_tools.StatusTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-12 keeps a read without its redaction", "tools/trial_p12_status.sh",
-     '    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
+     '    (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
      '    cp "$scratch/raw-$n" "$out/clean-$n"; : > "$out/redacted-$n"\n', ("tests.test_tools.StatusTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-12 may ask the Factory's own repo", "tools/trial_p12_status.sh", ' or sys.argv[1] == "combsmith/software-factory":', ":", ("tests.test_tools.StatusTrial.test_each_refusal_comes_before_anything_is_minted",)),
     ("P-12 takes a commit of any shape", "tools/trial_p12_status.sh", '    *[!0-9a-f]*|"") echo', '    "") echo', ("tests.test_tools.StatusTrial.test_each_refusal_comes_before_anything_is_minted",)),
@@ -911,7 +917,7 @@ MUTANTS = [
     ("P-56's token reaches every repo", "tools/trial_p56_comments.sh", '"{\\"repositories\\":[\\"$name\\"],', '"{', ("tests.test_tools.CommentsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     # Issue 551: trial P-61's script reads each step through the Maintainer's login and keeps it only redacted.
     ("P-61 keeps the raw answer", "tools/trial_p61_timeline.sh",
-     '(cd "$root" && python3 -m tools.redact_trial < "$dir/raw" > "$out/clean-$step")', '(cp "$dir/raw" "$out/clean-$step")', ("tests.test_tools.TimelineTrial.test_each_step_is_read_kept_redacted_outside_the_repo_and_named",)),
+     '(cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$dir/raw" > "$out/clean-$step")', '(cp "$dir/raw" "$out/clean-$step")', ("tests.test_tools.TimelineTrial.test_each_step_is_read_kept_redacted_outside_the_repo_and_named",)),
     ('P-61 asks no close or reopening of the pull request', "tools/trial_p61_timeline.sh",
      'CLOSED_EVENT,REOPENED_EVENT,MERGED_EVENT', 'MERGED_EVENT', ('tests.test_tools.TimelineTrial.test_each_step_is_read_kept_redacted_outside_the_repo_and_named',)),
     ("P-61 reads the pull request's timeline in part", "tools/trial_p61_timeline.sh",
@@ -930,7 +936,7 @@ MUTANTS = [
     ("P-61 takes GraphQL's errors as a read", "tools/trial_p61_timeline.sh", 'and not answer.get("errors") and whole', 'and whole', ('tests.test_tools.TimelineTrial.test_a_refused_read_is_said_and_offered_again_before_anything_changes',)),
     ('P-61 takes a failed gh as a read', "tools/trial_p61_timeline.sh", '    if [ "$status" -eq 0 ] && python3 -I -c', '    if python3 -I -c', ('tests.test_tools.TimelineTrial.test_a_refused_read_is_said_and_offered_again_before_anything_changes',)),
     ('P-61 offers no second read', "tools/trial_p61_timeline.sh", '    until read_step "$@"; do\n', '    if ! read_step "$@"; then exit 1; fi; while false; do\n', ('tests.test_tools.TimelineTrial.test_a_refused_read_is_said_and_offered_again_before_anything_changes',)),
-    ("P-61 shows gh's complaint unredacted", "tools/trial_p61_timeline.sh", '    (cd "$root" && python3 -m tools.redact_trial < "$dir/err") >&2 2>/dev/null || true\n', '    cat "$dir/err" >&2\n', ('tests.test_tools.TimelineTrial.test_a_refused_read_is_said_and_offered_again_before_anything_changes',)),
+    ("P-61 shows gh's complaint unredacted", "tools/trial_p61_timeline.sh", '    (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$dir/err") >&2 2>/dev/null || true\n', '    cat "$dir/err" >&2\n', ('tests.test_tools.TimelineTrial.test_a_refused_read_is_said_and_offered_again_before_anything_changes',)),
     ('P-61 keeps its scratch inside the repo', "tools/trial_p61_timeline.sh", 'case "$real/" in "$root"/*) echo "trial_p61_timeline: the scratch directory', 'case "$real/" in "$root"/nowhere/*) echo "trial_p61_timeline: the scratch directory', ('tests.test_tools.TimelineTrial.test_a_scratch_directory_inside_the_repo_is_refused',)),
     ('P-61 writes under a directory others can write', "tools/trial_p61_timeline.sh", '-o \\( -perm -0020 -o -perm -0002 \\) ! -perm -1000 \\)', '\\)', ('tests.test_tools.TimelineTrial.test_what_it_is_given_is_held_before_anything_is_read',)),
     ('P-61 takes a number with a leading zero', "tools/trial_p61_timeline.sh", '        ""|0*|*[!0-9]*) echo "trial_p61_timeline: $number', '        ""|*[!0-9]*) echo "trial_p61_timeline: $number', ('tests.test_tools.TimelineTrial.test_what_it_is_given_is_held_before_anything_is_read',)),
@@ -958,7 +964,7 @@ MUTANTS = [
     ("P-58 sends a variable its query does not declare", "tools/trial_p58_edits.sh", '"variables": {"owner": owner, "name": name, "number": int(sys.argv[2])}', '"variables": {"owner": owner, "name": name, "number": int(sys.argv[2]), "text": sys.argv[2]}', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-58 sends no query", "tools/trial_p58_edits.sh", '-d @"$out/query.json" "$API/graphql"', '"$API/graphql"', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-58 keeps a read without its redaction", "tools/trial_p58_edits.sh",
-     '    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
+     '    (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
      '    cp "$scratch/raw-$n" "$out/clean-$n"; : > "$out/redacted-$n"\n', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-58 asks no edit's editor", "tools/trial_p58_edits.sh", 'deletedAt editor{__typename login ... on User', 'deletedAt editor{... on User', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-58 asks the repo by its name as its owner", "tools/trial_p58_edits.sh", 'repository(owner:$owner,name:$name)', 'repository(owner:$name,name:$owner)', ("tests.test_tools.EditsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
@@ -1005,7 +1011,7 @@ MUTANTS = [
     ("P-58 keeps the first head's status", "tools/trial_p58_edits.sh", 'head && $0 != ""', 'NR == 1 && $0 != ""', ('tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head',)),
     ("P-56 mints for another App's installation", "tools/trial_p56_comments.sh", '["apps"]["controller"]', '["apps"]["reader"]', ("tests.test_tools.CommentsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-56 keeps a read without its redaction", "tools/trial_p56_comments.sh",
-     '    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
+     '    (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
      '    cp "$scratch/raw-$n" "$out/clean-$n"; : > "$out/redacted-$n"\n', ("tests.test_tools.CommentsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     ("P-56 may ask the Factory's own repo", "tools/trial_p56_comments.sh", ' or sys.argv[1] == "combsmith/software-factory":', ":", ("tests.test_tools.CommentsReadTrial.test_each_refusal_comes_before_anything_is_minted",)),
     ("P-56 takes a number of any shape", "tools/trial_p56_comments.sh", '    ""|0*|*[!0-9]*) echo', '    "") echo', ("tests.test_tools.CommentsReadTrial.test_each_refusal_comes_before_anything_is_minted",)),
@@ -1159,7 +1165,7 @@ MUTANTS = [
      '"{\\"repositories\\":[\\"$name\\"],',
      '"{', ('tests.test_tools.BranchReadsTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
     ('P-80 keeps a read without its redaction', 'tools/trial_p80_branch_reads.sh',
-     '    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
+     '    (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
      '    cp "$scratch/raw-$n" "$out/clean-$n"; : > "$out/redacted-$n"\n', ('tests.test_tools.BranchReadsTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept',)),
     ('P-80 leaves its token live on a signal', 'tools/trial_p80_branch_reads.sh',
      "trap \"trap '' HUP INT TERM QUIT PIPE; exit 1\" HUP INT TERM QUIT PIPE\n",
@@ -1228,7 +1234,7 @@ MUTANTS = [
      '\\"permissions\\":{$2}}',
      '\\"permissions\\":{}}', (P81_EACH,)),
     ('P-81 keeps a call without its redaction', P81,
-     '    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
+     '    (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"\n',
      '    cp "$scratch/raw-$n" "$out/clean-$n"; : > "$out/redacted-$n"\n', (P81_EACH,)),
     ('P-81 leaves its token live on a signal', P81,
      'trap "trap \'\' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM QUIT PIPE\n',
@@ -1396,8 +1402,7 @@ MUTANTS = [
        ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
       for script in SCRIPTS_1215],
     *[("%s says nothing of a stop mid-mint" % script, "tools/" + script,
-       '%s "%s: stopped while a token was being minted;' % ("live" if script in FAMILY_1215 else "echo", script[:-3]),
-       ': "%s: stopped while a token was being minted;' % script[:-3],
+       'live "%s: stopped while a token was being minted;' % script[:-3], ': "%s: stopped while a token was being minted;' % script[:-3],
        ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
       for script in SCRIPTS_1215],
     # Issue 1215 (the Builder, from P-81's security read): a status is three digits, whole, or none, so nothing else of
@@ -1427,20 +1432,33 @@ MUTANTS = [
                             ("that runs on past three digits", "[0-9][0-9][0-9]/) found"))],
     # Issue 1245: each token that may be live is noted in OUT's finish.log too, for a terminal that is gone; a 4xx is not.
     *[("%s keeps no note of a token that may be live" % script, "tools/" + script, NOTE_1245, "note() { :; }",
-       note_1245(script)) for script in FAMILY_1215],
+       note_1245(script)) for script in SCRIPTS_1215],
     *[("%s tells a stop mid-mint on the terminal alone" % script, "tools/" + script, 'live "%s: stopped while' % script[:-3],
        'echo >&2 "%s: stopped while' % script[:-3], (NOTED,) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
-      for script in FAMILY_1215],
+      for script in SCRIPTS_1215],
     *[("%s tells a token it could not revoke on the terminal alone" % script, "tools/" + script, unrevoked_1245(script),
        unrevoked_1245(script).replace("live ", "echo >&2 ", 1), (NOTED,) + REVOKED_1245.get(script, ()))
-      for script in FAMILY_1215],
+      for script in SCRIPTS_1215],
     *[("%s tells a 201 cut short on the terminal alone" % script, "tools/" + script, cut_live_1245(script),
-       cut_live_1245(script).replace("live ", "echo >&2 ", 1), (MINT_REFUSED,)) for script in FAMILY_1215],
+       cut_live_1245(script).replace("live ", "echo >&2 ", 1), (MINT_REFUSED,)) for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
     *[("%s notes no answer with no token" % script, "tools/" + script, '[ -z "$minting" ] || note "%s: $slug: $refused"\n' % script[:-3], "",
        (MINT_REFUSED,) + run_1215(script, "test_a_mint_with_no_token_and_no_refusal_tells_the_maintainer_one_may_be_live"))
-      for script in FAMILY_1215],
+      for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
     *[("%s notes a refusal that minted nothing" % script, "tools/" + script, '[ -z "$minting" ] || note "%s: $slug: $refused"' % script[:-3],
-       'note "%s: $slug: $refused"' % script[:-3], (MINT_REFUSED,)) for script in FAMILY_1215],
+       'note "%s: $slug: $refused"' % script[:-3], (MINT_REFUSED,)) for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
+    ("P-4 tells a mint it read no token from on the terminal alone", "tools/trial_p4_narrow.sh", 'live "trial_p4_narrow: no token was read',
+     'echo >&2 "trial_p4_narrow: no token was read', (NARROWED + "test_a_refused_mint_stops_with_nothing_read_and_the_answer_redacted",)),
     *[("%s keeps a mint status that is not three digits" % script, "tools/" + script, DIGITS_1245, "", (MINT_REFUSED,))
-      for script in FAMILY_1215],
+      for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
+    *[("%s takes a mint status that only begins with three digits" % script, "tools/" + script, DIGITS_1245,
+       DIGITS_1245.replace("[0-9]) ;;", "[0-9]*) ;;"), (MINT_REFUSED,)) for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
+    # And the note comes before the terminal's line, so a terminal gone loses nothing.
+    *[("%s tells the terminal before it notes" % script, "tools/" + script, 'live() { note "$*"; echo "$*" >&2; }',
+       'live() { echo "$*" >&2; note "$*"; }', (NOTED,)) for script in SCRIPTS_1215],
+    # Issue 1300: every redaction runs as a file under -I and -S.
+    *[(name % script, "tools/" + script, ISOLATED + after, call + after, ISOLATED_TEST)
+      for script, after in [(s, ' < "$scratch/raw-$n"') for s in SCRIPTS_1215]
+      + [("trial_p13_cli.sh", ' < "$1"'), ("trial_p26_sandbox.sh", ' < "$1"'), ("trial_p61_timeline.sh", ' < "$dir/raw"')]
+      for name, call in (("%s runs a redaction the shell's modules can steer", UNISOLATED),
+                         ("%s runs a redaction that reads site-packages", WITH_SITE))],
 ]

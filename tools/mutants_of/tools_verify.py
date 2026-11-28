@@ -4,6 +4,8 @@ from tools.mutants_of.common import MAIN_ROWS
 
 # Issue 1109: the test of the size note make checks prints.
 DESK_NOTE = ("tests.test_tools.Desk.test_make_checks_note_fails_nothing",)
+ENDS = ("tests.test_tools.Verify.test_a_test_module_that_ends_its_process_cannot_pass_a_failed_check",)
+ISOLATED = ("tests.test_tools.Verify.test_a_file_at_the_top_named_as_a_standard_module_is_not_imported_by_the_checks",)
 LEG_TESTS = ("tests.test_tools.Verify.test_the_legs_of_make_verify_run_every_test_once",)
 
 TARGETS = ("tools/verify.py",)
@@ -38,6 +40,11 @@ MUTANTS = [
      '    except BaseException as err:', '    except Exception as err:', DESK_NOTE),
     ('make checks says nothing of the size', 'tools/verify.py',
      '        try:\n            print("%-22s %s" % ("diff size", desk_note()), flush=True)\n        except BaseException:       # NOSONAR: a closed pipe too; the note never decides make checks\' answer\n            quiet(sys.stdout)\n', '', DESK_NOTE),
+    ("CI runs the note when make checks runs", 'tools/verify.py',
+     '        if any(name in (environ or {}) for name in ("CHECKS_SHARD", "CHECKS_SHARDS", "CI")):',
+     '        if False:', DESK_NOTE),
+    ("a leg named by its count alone runs the note", 'tools/verify.py',
+     '(environ or {}) for name in ("CHECKS_SHARD", "CHECKS_SHARDS", "CI")):', '(environ or {}) for name in ("CHECKS_SHARDS", "CI")):', DESK_NOTE),
     ("CI's legs run the note", 'tools/verify.py',
      '"%-22s %s" % ("boundary mutants", check_decisions.unnamed())]', '"%-22s %s" % ("boundary mutants", check_decisions.unnamed()), desk_note()]', DESK_NOTE),
     ('verify says nothing of the mutants', 'tools/verify.py',
@@ -67,4 +74,33 @@ MUTANTS = [
      '    if "--checks" in argv:\n', '    if False:\n', ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
     ("make checks passes whatever the checks found", "tools/verify.py",
      '        answer = 1 if checks_failed else 0 ', '        answer = 0 ', DESK_NOTE),
+    # Issue 1050: the checks run isolated, the repo's top after the standard library, and the tests in a process of
+    # their own, so a test module that ends its process cannot turn a failed check into a pass.
+    ("the repo's top comes ahead of the standard library", "tools/verify.py",
+     "    sys.path.append(str(ROOT))", "    sys.path.insert(0, str(ROOT))", ISOLATED),
+    ("the tests run in the checks' process", "tools/verify.py",
+     '    tests = tested("--fast" in argv, share)\n', '    tests = main(["--tests"] + argv, environ)\n', ENDS),
+    ("a failed check passes verify when the tests pass", "tools/verify.py",
+     "    return 1 if checks_failed or tests != 0 else 0\n", "    return 1 if tests != 0 else 0\n", ENDS),
+    ("a failed tests' process passes verify", "tools/verify.py",
+     "    return 1 if checks_failed or tests != 0 else 0\n", "    return 1 if checks_failed else 0\n", ENDS),
+    ("the tests' process runs the checks", "tools/verify.py",
+     '    if "--tests" in argv:', '    if False:', ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
+    ("the tests' process is told no leg", "tools/verify.py",
+     "        env.update(CHECKS_SHARD=str(share[0]), CHECKS_SHARDS=str(share[1]))\n", "        pass\n", ENDS),
+    ("the tests' process keeps the leg it inherits", "tools/verify.py",
+     '    env = {k: v for k, v in os.environ.items() if k not in ("CHECKS_SHARD", "CHECKS_SHARDS")}\n',
+     "    env = dict(os.environ)\n", ENDS),
+    ("the tests' process is not isolated", "tools/verify.py",
+     '[sys.executable, "-I", "-S", str(ROOT', '[sys.executable, str(ROOT', ENDS),
+    ("a failed tests' process is not read", "tools/verify.py",
+     "cwd=str(ROOT), env=env, check=False).returncode", "cwd=str(ROOT), env=env, check=False) and 0", ENDS),
+    ("a failed test passes make tests", "tools/verify.py",
+     "        return 0 if result.wasSuccessful() else 1\n", "        return 0\n",
+     ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
+    ("make tests names no leg", "tools/verify.py",
+     '        if share is not None:\n            print("%-22s leg', '        if False:\n            print("%-22s leg', LEG_TESTS),
+    ("make tests prints no rule the fake GitHub has unverified", "tools/verify.py",
+     "        unverified(check_trials.unverified())\n", "        pass\n",
+     ("tests.test_tools.Trials.test_verify_prints_every_rule_no_fixture_grounds",)),
 ]

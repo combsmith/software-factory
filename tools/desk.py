@@ -9,9 +9,10 @@ it, then numbered and escaped as JSON. GitHub heads its hunks a little different
 not equal to it; a binary file's index line counts some 33 characters high, and a file this clone's own attributes
 mark as binary counts as one. A stale local `origin/main` errs high: the base is older than main's, and what main
 merged since counts as the branch's. Edits not committed are not counted; it says so of staged ones, and how many
-untracked files there are, and says so of text that is no UTF-8, which the Factory holds. `make checks` prints the note after the checks, on the
-desk's run alone (`tools/verify.py --checks`): CI's legs never run it, and nothing it does changes what make checks
-answers. The hooks show make checks only when a check fails, so they show the note only beside a failure.
+untracked files there are, and says so of text that is no UTF-8, which the Factory holds. `make checks` prints the note
+after the checks, on the desk's run alone (`tools/verify.py --checks` with no CHECKS_SHARD, CHECKS_SHARDS or CI set):
+CI never imports it, and nothing it does changes what make checks answers. The hooks show make checks only when a
+check fails, so they show the note only beside a failure.
 
 `python3 -m tools.desk merged` lists lines a merge of `origin/main` may have lost of either side, or made up, for a
 person to read each. While a merge is in progress (MERGE_HEAD is there) the merge is the index, and a path in it still

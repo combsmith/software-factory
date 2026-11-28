@@ -116,6 +116,11 @@ unset SSLKEYLOGFILE token jwt signature minted minting
 # openssl, which signs with the App's key, load a configuration or a module the shell names (issue 1288).
 unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR CURL_SSL_BACKEND OPENSSL_CONF OPENSSL_CONF_INCLUDE OPENSSL_ENGINES OPENSSL_MODULES
 token=""
+# A token that may be live is noted in OUT's finish.log, for a terminal gone by then, and told on the terminal: the
+# script's own words alone, no fixture's, noted first and only once this run has made OUT (issue 1245).
+noted=""
+note() { [ -z "$noted" ] || printf '%s\n' "$*" >> "$out/finish.log" || true; }
+live() { note "$*"; echo "$*" >&2; }
 
 revoke() {
     printf 'Authorization: Bearer %s\n' "$token" | curl -q --max-time 30 -sS -o /dev/null -w '%{http_code}' -X DELETE -H @- \
@@ -123,8 +128,8 @@ revoke() {
 }
 
 unrevoked() {
-    echo "trial_p4_narrow: revoking the token returned $1, not 204. The token may be live for up to an hour;" \
-        "the Maintainer must revoke it by hand." >&2
+    live "trial_p4_narrow: the token's revocation returned $1, not 204. The token may be live for up to an hour;" \
+        "the Maintainer must revoke it by hand."
 }
 
 # It is read as bytes, so an answer cut inside a character still gives up its token (issue 502).
@@ -152,8 +157,8 @@ finish() {
         token=""
     elif [ -n "${minting:-}" ]; then
         # Stopped while the mint was asked: its answer never came back here, and GitHub may have minted one (issue 1215).
-        echo "trial_p4_narrow: stopped while a token was being minted; GitHub may have minted one, live for up to" \
-            "an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation." >&2
+        live "trial_p4_narrow: stopped while a token was being minted; GitHub may have minted one, live for up to" \
+            "an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation."
     fi
     [ -n "$keep" ] || rm -rf "$scratch"
     [ -z "$keep" ] || printf '%s: the raw answers are kept in %s, as --keep-raw asked; delete it once read\n' trial_p4_narrow "$scratch" >&2
@@ -177,6 +182,7 @@ if ! mkdir -m 700 "$out"; then
     echo "trial_p4_narrow: $out could not be made new by this run (made since, or refused); name a new directory" >&2
     exit 2
 fi
+noted=1
 date -u +%Y-%m-%dT%H:%M:%SZ > "$out/ran_at"
 n=0
 asked=""
@@ -200,7 +206,7 @@ with_token() {   # METHOD PATH [BODY_FILE]
         echo "trial_p4_narrow: read $n ($1 /$2) failed in curl; nothing of it reaches OUT." >&2
         exit 1
     fi
-    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
+    (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
     drop "$scratch/raw-$n"
     # The last head's status: a proxy's block, or an interim answer, comes first and is no answer to this read.
     status=$(awk 'BEGIN { head = 1 } head && /^HTTP\// { found = "" } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$out/clean-$n")
@@ -219,7 +225,7 @@ jwt="$header.$claims.$signature"
 n=1
 printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -i -H @- -H "$ACCEPT" -H "$VERSION" \
     "$API/repos/$repo/installation" | tr -d '\r' > "$scratch/raw-1"
-(cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-1" > "$out/clean-1") 2> "$out/redacted-1"
+(cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$scratch/raw-1" > "$out/clean-1") 2> "$out/redacted-1"
 drop "$scratch/raw-1"
 installation=$(sed -n '/^{/,$p' "$out/clean-1" | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["id"])')
 asked="{\"n\": 1, \"call\": \"GET /repos/$repo/installation\", \"body\": null, \"status\": \"$(awk 'BEGIN { head = 1 } head && /^HTTP\// { found = "" } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$out/clean-1")\"},"
@@ -247,13 +253,13 @@ with open(sys.argv[1], "w") as kept:
     kept.write("HTTP/2 %s\n\n%s\n" % (sys.argv[2], json.dumps(data) if data is not None else "(an answer that is not JSON, not kept)"))
 sys.stdout.write(token)' "$scratch/raw-2" "${minted_status:-000}" 2>/dev/null || true)
 minted="" minting=""
-(cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-2" > "$out/clean-2") 2> "$out/redacted-2"
+(cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$scratch/raw-2" > "$out/clean-2") 2> "$out/redacted-2"
 drop "$scratch/raw-2"
 asked="$asked{\"n\": 2, \"call\": \"POST /app/installations/$installation/access_tokens\", \"body\": {\"repositories\": [\"${repo#*/}\"], \"permissions\": {\"contents\": \"read\"}}, \"status\": \"${minted_status:-none}\"},"
 if [ "$minted_status" != 201 ] || [ -z "$token" ]; then
     token=""
-    echo "trial_p4_narrow: no token was read from the mint (status ${minted_status:-none}); if one was minted it was not" \
-        "revoked, and expires within an hour. GitHub's answer, redacted, is $out/clean-2." >&2
+    live "trial_p4_narrow: no token was read from the mint (status ${minted_status:-none}); if one was minted it was not" \
+        "revoked, and expires within an hour. GitHub's answer, redacted, is $out/clean-2."
     exit 1
 fi
 echo "minted, narrowed, status 201"

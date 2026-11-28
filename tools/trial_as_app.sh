@@ -113,7 +113,7 @@ json.dump({"as": {"kind": "app", "name": who}, "via": via, "call": call,
 # and the failure is said and returned.
 redact() {   # RAW
     local failed=0
-    (cd "$root" && python3 -m tools.redact_trial < "$1" 2>&1 > "${1%.raw}.clean") | sed "s|^|$(basename "${1%.raw}"): |" ||
+    (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$1" 2>&1 > "${1%.raw}.clean") | sed "s|^|$(basename "${1%.raw}"): |" ||
         failed=1
     rm -f "$1"
     if [[ "$failed" -ne 0 ]]; then
@@ -249,7 +249,7 @@ for asked in sorted(p for p in out.iterdir() if p.name.endswith(".request.json")
                                    "headers": headers, "body": body}})
 json.dump({"exchanges": exchanges}, open(str(out / "exchanges.unchecked.json"), "w"), indent=2)' "$out"
     redact_json="$out/exchanges.unchecked.json"
-    (cd "$root" && python3 -m tools.redact_trial < "$redact_json" > "$out/exchanges.json") 2> /dev/null ||
+    (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$redact_json" > "$out/exchanges.json") 2> /dev/null ||
         { say "trial_as_app: the redaction of the exchanges failed"; status=1; }
     rm -f "$redact_json"
     cat "$out/finish.log" >&4
