@@ -7413,6 +7413,26 @@ REPLACING = RECORD.replace("# 0001. One thing", "# 0002. Two things").replace(
 EDITED = "title, Decision or Why changed"
 
 
+# A runner whose areas(ROOT) is as check_decisions.PINNED writes it, and one file of mutants it loads (issue 1377).
+AREA_FILES = {
+    "tools/mutants.py": "from __future__ import annotations\n\nimport importlib\nimport os\nimport pathlib\nimport re\nimport sys\n\nfrom tools import walk\n"
+                        "from tools.mutants_of import common\n\n%s\n%s\n\n\n%s\n\n\n%s\n\n\nAREAS = areas(ROOT)\n%s\n\n%s\n" % (
+                            check_decisions.PINNED["ROOT"], check_decisions.PINNED["AREA_NAME"],
+                            check_decisions.PINNED["area_names"], check_decisions.PINNED["areas"],
+                            RECORD_MUTANTS.replace("MUTANTS = [\n", "MUTANTS = [m for a in AREAS for m in a.MUTANTS] + [\n"),
+                            check_decisions.PINNED["main"]),
+    "tools/mutants_of/__init__.py": '"""The mutants of each file but the Kernel."""\n',
+    "tools/mutants_of/common.py": "Y = 1\n",
+    "tools/mutants_of/tools_check_w.py": (
+        '"""Mutants of tools/check_w.py."""\nimport pathlib\n\nfrom tools.mutants_of.common import Y\n\n'
+        'ROOT = pathlib.Path(__file__).resolve().parents[2]\nW = "tools/check_w.py"\n\n\n'
+        'def tests(name):\n    """Its test."""\n    return ("tests.test_x.T." + name,) if name else ()\n\n\n'
+        'def moved(rel, block):\n    text = (ROOT / rel).read_text()\n    at = text.find(block)\n    if at < 0:\n'
+        '        return block, block\n    return text[at:], block\n\n\n'
+        'MUTANTS = [*[("%s is undone" % thing, W, *moved(W, "a"), tests(test)) for thing, test in (("x", "test_y"),)]]\n'),
+}
+
+
 def history(files: dict = None) -> pathlib.Path:
     """A repo whose main, on origin, holds decision 0001 and `files`; the working tree is main, unchanged."""
     root = tree(dict({FIRST: RECORD, "tools/mutants.py": RECORD_MUTANTS, "tests/test_x.py": RECORD_TESTS}, **(files or {})))
@@ -7684,29 +7704,70 @@ class Decisions(unittest.TestCase):
             commit=True)), [])
 
     def test_the_mutants_are_read_as_text_and_never_run(self):  # issue 1377
-        # A file of tools/mutants_of/ is read through ast, its helpers and comprehensions worked out: what would end the
-        # process at import, above its MUTANTS, never runs, and the row finds the mutant it names.
-        area = ('import os\nos._exit(0)\nfrom tools.mutants_of.common import Y\nW = "tools/check_w.py"\n\n\n'
-                'def tests(name):\n    """Its test."""\n    return ("tests.test_x.T." + name,) if name else ()\n\n\n'
-                'MUTANTS = [*[("%s is undone" % thing, W, "a", "b", tests(test)) for thing, test in (("x", "test_y"),)]]\n')
-        files = {"tools/mutants_of/common.py": 'Y = 1\n', "tools/mutants_of/tools_check_w.py": area,
-                 "tools/mutants.py": "raise SystemExit(0)\nfrom tools.mutants_of import common\n\n\ndef areas(root):\n"
-                                     "    return ()\n\n\n" + RECORD_MUTANTS.replace(
-                     "MUTANTS = [\n", "AREAS = areas(ROOT)\nMUTANTS = [m for a in AREAS for m in a.MUTANTS] + [\n")}
+        # The runner's areas(ROOT) as PINNED writes it loads a file of tools/mutants_of/: read through ast, its helpers,
+        # comprehensions and a starred call worked out, the row finds the mutant it names.
+        files = dict(AREA_FILES)
         named = RECORD.replace("one thing is undone", "x is undone").replace("tools/check_x.py", "tools/check_w.py")
         self.assertEqual(check_decisions.run(edited(history(files), {FIRST: named}, commit=True)), [])
         self.assertIn(("x is undone", "tools/check_w.py", ("tests.test_x.T.test_y",)),
                       check_decisions.read_mutants(history(files)))
-        # What the reader cannot work out, or what another statement could change, holds no row.
-        for broken in (RECORD_MUTANTS.replace('"b", ("tests.test_x.T.test_y",)),', '("tests.test_x.T.test_y",)),', 1),
-                       RECORD_MUTANTS + "MUTANTS.append(1)\n", RECORD_MUTANTS + "DONE = MUTANTS.append(1)\n",
-                       RECORD_MUTANTS.replace('("tests.test_x.T.test_y",)),', 'tests(),', 1)):
-            with self.subTest(broken=broken[-40:]):
-                self.assertTrue(refused({"tools/mutants.py": broken}, "tools/mutants.py cannot be read"))
+        # What Python would build otherwise, or what the reader cannot work out as Python would, holds no row.
+        runner, area = files["tools/mutants.py"], files["tools/mutants_of/tools_check_w.py"]
+        cases = {
+            "five parts": runner.replace('"b", ("tests.test_x.T.test_y",)),', '("tests.test_x.T.test_y",)),', 1),
+            "five parts ": runner.replace('"b", ("tests.test_x.T.test_y",)),', '"b", "c", ("tests.test_x.T.test_y",)),', 1),
+            "is not read": runner + "MUTANTS.append(1)\n",
+            ".clear is called": runner + "ITEMS = MUTANTS\nDONE = ITEMS.clear()\n",
+            "binds what is not a name": runner + "MUTANTS[0] = MUTANTS[1]\n",
+            "clear is not run by the reader": runner + "def clear():\n    MUTANTS.clear()\n\n\nDONE = clear()\n",
+            "exec is not bound": runner + 'DONE = exec("MUTANTS.clear()")\n',
+            "f is not run by the reader": runner + 'P = pathlib.Path("a")\n\n\ndef f():\n    if P:\n'
+                                                   '        return MUTANTS.clear()\n    return 1\n\n\nDONE = f()\n',
+            "a starred part": runner + 'def two(p):\n    if p:\n        return 1, 2\n    return 1, 2, 3\n\n\n'
+                                       'X = [("y", "tools/check_x.py", *two(pathlib.Path("a")), ())]\n',
+            "more calls than the reader runs": runner + "def f(n):\n    return f(n)\n\n\nX = f(1)\n",
+            "longer than the reader builds": runner + 'def f(s, n):\n    return f(s + s, n - 1) if n else s\n\n\n'
+                                                      'X = f("a", 40)\n',
+            "wider than the reader builds": runner + 'X = "%2000000000s" % "a"\n',
+            "a test at the top is not worked out": runner + 'X = 1 if re.compile("a") else 2\n',
+            "GeneratorExp is not read": runner + "X = (m for m in ())\n",
+            "read before it is bound": runner + "G = 1\n\n\ndef f():\n    x = G\n    G = 2\n    return x\n\n\nY = f()\n",
+            "not read as PINNED writes it": runner.replace('r"[a-z_][a-z0-9_]*"', 'r"[a-z]*"'),
+        }
+        areas = {"imports from": area.replace("import Y", "import *"), "line 24 is not read": area + "raise SystemExit(7)\n",
+                 "calls or builds a value": area + 'def f(x: len("a")):\n    return x\n'}
+        broken = [{"tools/mutants.py": text} for text in cases.values()] + \
+            [{"tools/mutants_of/tools_check_w.py": text} for text in areas.values()] + \
+            [{"tools/mutants_of/tools_check_w/__init__.py": "MUTANTS = []\n"}]
+        for words, overlay in zip(list(cases) + list(areas) + ["not the file the reader reads"], broken):
+            with self.subTest(words=words):
+                problems = check_decisions.run(edited(history(files), overlay))
+                self.assertTrue(caught(problems, "tools/mutants.py cannot be read"), problems)
+                self.assertTrue(caught(problems, words.strip()), problems)
+
+    def test_a_change_to_a_file_of_mutants_alone_is_read_again(self):  # issue 1377
+        root = history(AREA_FILES)
+        self.assertIn("x is undone", check_decisions._mutants(root))
+        edited(root, {"tools/mutants_of/tools_check_w.py": AREA_FILES["tools/mutants_of/tools_check_w.py"].replace(
+            '(("x", "test_y"),)', '(("z", "test_y"),)')})
+        self.assertIn("z is undone", check_decisions._mutants(root))
 
     def test_the_mutants_read_as_text_are_those_the_runner_runs(self):  # issue 1377
-        from tools import mutants
-        self.assertEqual(check_decisions.read_mutants(ROOT), [(m[0], m[1], tuple(m[4])) for m in mutants.MUTANTS])
+        # Each in a process of its own, so that neither loads what the other reads: the reader imports no file of
+        # mutants, and its list is the runner's.
+        said = []
+        for code in ("import json, sys\nfrom tools import check_decisions\nread = check_decisions.read_mutants("
+                     "check_decisions.ROOT)\nprint(json.dumps([read, sorted(m for m in sys.modules if m.startswith("
+                     "'tools.mutants'))]))",
+                     "import json\nfrom tools import mutants\nprint(json.dumps([[m[0], m[1], m[4]] for m in mutants.MUTANTS]))"):
+            done = subprocess.run([sys.executable, "-B", "-c", code], cwd=ROOT, capture_output=True, text=True, timeout=600)
+            self.assertEqual(done.returncode, 0, done.stderr[-2000:])
+            self.assertTrue(done.stdout.strip(), done.stderr[-2000:])
+            said.append(json.loads(done.stdout))
+        (read, loaded), ran = said
+        self.assertEqual(loaded, [])
+        self.assertGreater(len(ran), 1000)
+        self.assertEqual(read, ran)
 
     def test_a_row_main_holds_fails_when_any_mutant_it_names_is_gone(self):  # issue 1242
         # A row of three mutants, held on main in a live record and in one replaced by another, names each: any one taken

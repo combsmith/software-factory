@@ -4,24 +4,26 @@ Status: accepted. 2026-11-28, the Factory Builder and the Solution Architect; is
 
 ## Decision
 
-`check_decisions` reads `tools/mutants.py` and every file of `tools/mutants_of/` through ast, and imports none of them. A small reader works out the names, comprehensions and plain helpers those files use. A mutant whose description, file or tests it cannot work out fails the check.
+`check_decisions` reads `tools/mutants.py` and the files of `tools/mutants_of/` through ast, and imports none of them. It works out each value as Python would, in a narrow grammar where no value can change once bound. Whatever falls outside that grammar fails the check, and so does any mutant whose description, file or tests it cannot work out.
 
-`tools/check_decisions.py` holds the exact form.
+The runner's `areas(ROOT)`, which imports the files of mutants, is read only as `PINNED` in `tools/check_decisions.py` writes it. That file holds the exact grammar.
 
 Limits:
-- The reader can differ from Python where code changes a list in a way it does not see. A test holds its reading equal to the runner's list, and a test can forge its own result.
+- A change to `areas(ROOT)` fails the check until `PINNED` follows it.
 - `tools/mutants.py`, the runner, is still pushable and imports `tools/mutants_of/`. A patch to either can blind the merge group's mutant leg (issue 1388).
 - The checks still import modules of `kernel/`, `harness/` and `adapters/`, and check files a push can change. Issue 1377's later parts close those.
 
 ## Why
 
-The checks imported `tools/mutants.py` to read the mutants, and it loads every file of `tools/mutants_of/`. In a clone with a check failing, `os._exit(0)` atop one of those files made `make checks` exit 0. Protecting the mutant files was rejected: nearly every change adds a mutant.
+The checks imported `tools/mutants.py`, which loads every file of `tools/mutants_of/`. In a clone with a check failing, `os._exit(0)` atop one of those files made `make checks` exit 0. A first reader that guessed what a statement could change failed open on aliases and calls, so the reader now refuses what it cannot follow. Protecting the mutant files was rejected: nearly every change adds a mutant.
 
 ## Boundaries
 
 | Boundary | Check |
 |---|---|
-| A file of mutants that ends its process at import is read, never run | `tests/test_tools.py::Decisions.test_the_mutants_are_read_as_text_and_never_run`, `tools/check_decisions.py`, mutant: "the mutants are imported, not read as text" |
-| A list that another statement names cannot be read | `tests/test_tools.py::Decisions.test_the_mutants_are_read_as_text_and_never_run`, `tools/check_decisions.py`, mutant: "a statement that names MUTANTS leaves it read" |
-| A mutant of other than five parts cannot be read | `tests/test_tools.py::Decisions.test_the_mutants_are_read_as_text_and_never_run`, `tools/check_decisions.py`, mutant: "a mutant of four parts is read" |
-| The mutants read as text are those the runner runs | `tests/test_tools.py::Decisions.test_the_mutants_read_as_text_are_those_the_runner_runs`, `tools/check_decisions.py`, mutant: "a function's body is read as if it ran at the top" |
+| The checks import no file of mutants, and read the list the runner runs | `tests/test_tools.py::Decisions.test_the_mutants_read_as_text_are_those_the_runner_runs`, `tools/check_decisions.py`, mutant: "the runner is imported where the tree is this one" |
+| A statement outside the grammar cannot be read | `tests/test_tools.py::Decisions.test_the_mutants_are_read_as_text_and_never_run`, `tools/check_decisions.py`, mutant: "a statement the reader does not know is passed over" |
+| A call that could change a value cannot be read, on any path of a function | `tests/test_tools.py::Decisions.test_the_mutants_are_read_as_text_and_never_run`, `tools/check_decisions.py`, mutant: "a function that may change a value on a path it does not take is run" |
+| A mutant of other than five parts cannot be read | `tests/test_tools.py::Decisions.test_the_mutants_are_read_as_text_and_never_run`, `tools/check_decisions.py`, mutant: "a mutant of six parts is read" |
+| An `areas(ROOT)` other than the pinned one cannot be read | `tests/test_tools.py::Decisions.test_the_mutants_are_read_as_text_and_never_run`, `tools/check_decisions.py`, mutant: "areas(ROOT) is read whatever it pins" |
+| A change to one file of mutants alone is read again | `tests/test_tools.py::Decisions.test_a_change_to_a_file_of_mutants_alone_is_read_again`, `tools/check_decisions.py`, mutant: "a change to a file of mutants but tools/mutants.py is not read again" |
