@@ -43,4 +43,6 @@ MUTANTS = [
     ("the pass is not handed the Harness's configuration", 'controller/configuration.py',
      ', "harness": _readable(root, "config", "harness.json"),',
      ',', ('tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it',)),
+    ('a configuration nested past the reader ends the pass', 'controller/configuration.py',
+     '    except (OSError, ValueError, RecursionError):\n', '    except (OSError, ValueError):\n', ('tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it',)),
 ]
