@@ -16196,7 +16196,7 @@ class SignalTraps(unittest.TestCase):
 # The helpers each token trial tells a token that may be live with, on the terminal and in OUT's finish.log (issue 1245).
 NOTED = """noted=""
 note() { [ -z "$noted" ] || printf '%s\\n' "$*" >> "$out/finish.log" || true; }
-live() { echo "$*" >&2; note "$*"; }
+live() { note "$*"; echo "$*" >&2; }
 """
 # The scripts that note so: the reader trial's family. P-39, P-4, P-8 and P-52 follow in part 3 of issue 1245.
 NOTING = ("trial_reader_reads.sh", "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh",
