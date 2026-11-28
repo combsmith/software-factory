@@ -14475,14 +14475,15 @@ class Verify(unittest.TestCase):
         for answer in (None, (1, whole + "\n", ""), (0, "", ""), (0, whole + "\nmore\n", ""), (-9, whole, ""),
                        (0, whole.replace('"one"', '"two"'), ""), (0, whole.replace("[]", '"none"'), ""),
                        (0, whole.replace("[]", "[1]"), ""), (0, whole[:-1], ""), (0, whole.replace("}", ', "x": 1}'), ""),
-                       (0, whole.replace(verify.ANSWER, "verify: "), "")):
+                       (0, whole.replace(verify.ANSWER, "verify: "), ""), (0, verify.ANSWER + "[]", ""),
+                       (0, verify.ANSWER + "null", "")):
             with self.subTest(answer=answer):
                 self.assertTrue(verify.problems_of("one", answer), answer)
         with contextlib.redirect_stdout(io.StringIO()) as said:
             self.assertTrue(verify.failed([("one", "x", "run")], lambda _: {}, lambda checks: checks))
         self.assertIn("%-22s FAILED" % "one", said.getvalue())
         # The checks' process imports no check: each is imported in its own.
-        done = subprocess.run([sys.executable, "-I", "-S", "-c", "import sys; sys.path.append(%r); from tools import verify; "
+        done = subprocess.run([sys.executable, "-B", "-I", "-S", "-c", "import sys; sys.path.append(%r); from tools import verify; "
                                "print(sorted(m for m in sys.modules if m.startswith('tools.check_')))" % str(ROOT)],
                               cwd=str(ROOT), capture_output=True, text=True, timeout=60)
         self.assertEqual(done.stdout.strip(), "[]", done.stderr)
@@ -14510,6 +14511,7 @@ class Verify(unittest.TestCase):
                          "import importlib\n", "X = __import__\n", "from . import desk\n", "import pkgutil\n",
                          "from builtins import __import__ as load\n", "exec('import tools.desk')\n",
                          "import builtins\nbuiltins.__import__('tools.desk')\n", "from tools import pkg\n",
+                         "import tools.desk\n", "from importlib import import_module\n",
                          "from tools import walk\n"):
                 with self.subTest(line=line):
                     (root / "tools/check_repo.py").write_text(source + line)
@@ -14573,6 +14575,8 @@ class Verify(unittest.TestCase):
             def communicate(self, timeout=None):
                 self.calls += 1
                 waits.append(timeout)
+                if self.calls == 1 and timeout is None:     # waited on with no bound: it never answers
+                    return b"", b""
                 if self.calls == 1 or not killed:
                     raise subprocess.TimeoutExpired("verify", timeout)
                 self.returncode = 0     # it ends 0 with a whole answer, but only once stopped: it failed all the same
@@ -14587,7 +14591,9 @@ class Verify(unittest.TestCase):
         cache = pathlib.Path(argv[4][len("pycache_prefix="):])
         self.assertTrue(argv[4].startswith("pycache_prefix=") and ROOT not in cache.parents and not cache.exists(), argv)
         self.assertIn("no answer within %d seconds" % verify.CHECK_SECONDS, said["one"][2])
+        # Stopped before its pipes are drained, so what it said then is read; and it failed all the same.
         self.assertTrue(killed and waits[1] == verify.DRAIN_SECONDS and verify.problems_of("one", said["one"]), waits)
+        self.assertIn(whole, said["one"][1])
         # A folder for the bytecode that TMPDIR puts inside the tree is never used: every check fails (Astra's read).
         with mock.patch.object(verify.tempfile, "mkdtemp", lambda prefix: str(ROOT / "no-such-folder")), \
                 mock.patch.object(verify.subprocess, "Popen", lambda *a, **k: self.fail("a check was started")):
