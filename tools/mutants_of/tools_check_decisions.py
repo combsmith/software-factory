@@ -3,7 +3,26 @@
 from tools.mutants_of.common import MAIN_ROWS, NAMED_MUTANTS
 
 TARGETS = ("tools/check_decisions.py",)
+AS_TEXT = ("tests.test_tools.Decisions.test_the_mutants_are_read_as_text_and_never_run",)
+RUNS = ("tests.test_tools.Decisions.test_the_mutants_read_as_text_are_those_the_runner_runs",)
 MUTANTS = [
+    # Issue 1377: the mutants are read from their files as text, never imported, and what could change them is unread.
+    ("the mutants are imported, not read as text", "tools/check_decisions.py",
+     "            read = [(name, (rel, tests)) for name, rel, tests in read_mutants(root)]\n",
+     '            read = [(m[0], (m[1], tuple(m[4]))) for m in __import__("tools.mutants", fromlist=["x"]).MUTANTS]\n',
+     AS_TEXT),
+    ("no file of tools/mutants_of/ is read", "tools/check_decisions.py",
+     '    areas = tuple(_module(path, common, None) for path in files[1:] if path.stem != "common")\n',
+     "    areas = ()\n", AS_TEXT + RUNS),
+    ("a statement that names MUTANTS leaves it read", "tools/check_decisions.py",
+     "        else:\n            _touched(node, bound, every=True)\n    return bound\n", "    return bound\n", AS_TEXT),
+    ("a call given MUTANTS leaves it read", "tools/check_decisions.py",
+     "            _touched(node.value, bound)\n", "", AS_TEXT),
+    ("a mutant of four parts is read", "tools/check_decisions.py",
+     "    if SPREAD not in mutant and len(mutant) != 5:\n", "    if False:\n", AS_TEXT),
+    ("a function's body is read as if it ran at the top", "tools/check_decisions.py",
+     "            bound[node.name] = UNKNOWN\n        else:\n", "            _touched(node, bound, every=True)\n        else:\n",
+     RUNS),
     # Issue 590: a check names a test, never a file of tests, and a row names the mutant its own tests kill.
     ('a record that cannot be read has its rows', 'tools/check_decisions.py',
      '    if isinstance(parse(text), str):\n        return []\n    rows = _rows(', '    rows = _rows(', NAMED_MUTANTS),

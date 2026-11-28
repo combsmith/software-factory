@@ -7699,7 +7699,7 @@ class Decisions(unittest.TestCase):
                       check_decisions.read_mutants(history(files)))
         # What the reader cannot work out, or what another statement could change, holds no row.
         for broken in (RECORD_MUTANTS.replace('"b", ("tests.test_x.T.test_y",)),', '("tests.test_x.T.test_y",)),', 1),
-                       RECORD_MUTANTS + "MUTANTS.append(1)\n", RECORD_MUTANTS + "MUTANTS = list(MUTANTS)\n",
+                       RECORD_MUTANTS + "MUTANTS.append(1)\n", RECORD_MUTANTS + "DONE = MUTANTS.append(1)\n",
                        RECORD_MUTANTS.replace('("tests.test_x.T.test_y",)),', 'tests(),', 1)):
             with self.subTest(broken=broken[-40:]):
                 self.assertTrue(refused({"tools/mutants.py": broken}, "tools/mutants.py cannot be read"))
