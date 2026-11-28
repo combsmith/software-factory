@@ -254,6 +254,9 @@ with_token() {   # PERMISSION
     minted_exit=$(printf '%s\n' "$minted" | tail -n 1)
     minted=$(printf '%s\n' "$minted" | sed '$d')
     minted_status=$(printf '%s\n' "$minted" | tail -n 1)
+    # Three whole digits, or none: a last line that is not curl's status is the answer's, and never reaches a word
+    # of the script's (issue 1245).
+    case "$minted_status" in [0-9][0-9][0-9]) ;; *) minted_status="" ;; esac
     token=$(printf '%s\n' "$minted" | sed '$d' | python3 -I -c '
 import json, sys
 answer = json.load(sys.stdin)

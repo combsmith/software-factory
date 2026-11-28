@@ -10534,7 +10534,9 @@ else:
                     # No refusal and no token: a transfer that failed with no answer, or a gateway's 5xx (issue 1245).
                     ({"status": "000", "body": ""}, False, "GitHub may have minted one"),
                     ({"status": 503, "body": "<html>unavailable</html>"}, False, "GitHub may have minted one"),
-                    ({"status": 429, "body": '{"message": "API rate limit exceeded"}'}, False, "429")):
+                    ({"status": 429, "body": '{"message": "API rate limit exceeded"}'}, False, "429"),
+                    # No status curl wrote: the last line is the answer's, and is no status (issue 1245).
+                    ({"status": '{"message": "Server Error from GitHub"}', "body": ""}, False, "GitHub may have minted one")):
                 with self.subTest(script=name, plan=plan):
                     self.setUp()
                     argv = [a.replace("KEY", self.key_file) for a in args]
@@ -10557,6 +10559,7 @@ else:
                     self.assertEqual(note.count("\n"), 1 if live else 0, note)
                     self.assertIn(told if live else "", note)
                     self.assertNotIn("unavailable", note)
+                    self.assertNotIn("Server Error", note)
                     self.assertEqual((self.out / "finish.log").exists(), live)
 
     def test_a_mint_answer_cut_inside_a_character_still_gives_up_its_token(self):

@@ -64,6 +64,7 @@ def mark_1245(script):
 # a token each could not revoke.
 NOTE_1245 = 'note() { [ -z "$noted" ] || printf \'%s\\n\' "$*" >> "$out/finish.log" || true; }'
 NOTED = "tests.test_tools.SignalTraps.test_every_token_script_tells_a_token_that_may_be_live_in_out_too"
+DIGITS_1245 = 'case "$minted_status" in [0-9][0-9][0-9]) ;; *) minted_status="" ;; esac\n'
 REVOKED_1245 = {s: ("tests.test_tools.%s.test_a_refused_mint_or_revocation_stops_the_run_and_says_so" % c,) for s, c in FAMILY_1215.items()}
 
 
@@ -1440,4 +1441,6 @@ MUTANTS = [
       for script in FAMILY_1215],
     *[("%s notes a refusal that minted nothing" % script, "tools/" + script, '[ -z "$minting" ] || note "%s: $slug: $refused"' % script[:-3],
        'note "%s: $slug: $refused"' % script[:-3], (MINT_REFUSED,)) for script in FAMILY_1215],
+    *[("%s keeps a mint status that is not three digits" % script, "tools/" + script, DIGITS_1245, "", (MINT_REFUSED,))
+      for script in FAMILY_1215],
 ]
