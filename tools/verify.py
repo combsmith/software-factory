@@ -129,7 +129,7 @@ def phase_one(checks: list, root: pathlib.Path = ROOT) -> list:
     The list decides, not a check's name: a check whose closure leaves it, or cannot be read, runs later. Raises
     ValueError when the list cannot be read, since then no check can be told to run no Role code."""
     held = _held(root)
-    return [entry for entry in checks if _leaves("tools/%s.py" % entry[1], held, root) is None]
+    return [entry for entry in checks if _leaves("tools." + entry[1], held, root) is None]
 
 
 def unclosed(checks: list, root: pathlib.Path = ROOT) -> list:
@@ -139,8 +139,8 @@ def unclosed(checks: list, root: pathlib.Path = ROOT) -> list:
     silence (issue 1377). Raises ValueError when the list cannot be read."""
     held, why = _held(root), []
     for _, module, _ in checks:
-        start = "tools/%s.py" % module
-        leaves = _leaves(start, held, root, "tools/") if held(start) else None
+        files = _found("tools." + module, root)
+        leaves = _leaves("tools." + module, held, root, "tools/") if len(files) == 2 and held(files[-1]) else None
         if leaves and leaves not in why:
             why.append(leaves)
     return why
@@ -158,10 +158,13 @@ def _held(root: pathlib.Path):
 
 
 def _leaves(start: str, held, root: pathlib.Path, within: str = ""):
-    """None when every file of the repo that `start` imports, at any depth, is held, `start` among them; else why not,
+    """None when every file of the repo that importing the module `start` runs, at any depth, is held; else why not,
     naming the file. Given `within`, only the files under it are followed, and an import of any other is not read. An
-    import made by a name worked out as it runs, or relative to its package, cannot be followed, so it leaves."""
-    seen, todo = set(), [(start, "")]
+    import made by a name worked out as it runs, relative to its package, or of `*`, cannot be followed: it leaves."""
+    found = _found(start, root)
+    if len(found) != start.count(".") + 1:
+        return "%s cannot be found" % start
+    seen, todo = set(), [(rel, "") for rel in found]
     while todo:
         rel, by = todo.pop()
         if rel in seen or not rel.startswith(within):
@@ -175,10 +178,11 @@ def _leaves(start: str, held, root: pathlib.Path, within: str = ""):
         except (OSError, ValueError, SyntaxError):
             return "%s cannot be read" % rel
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.level or isinstance(node, ast.Attribute) and node.attr in DYNAMIC \
+            if isinstance(node, ast.ImportFrom) and (node.level or "*" in [a.name for a in node.names]) \
+                    or isinstance(node, ast.Attribute) and node.attr in DYNAMIC \
                     or isinstance(node, ast.Name) and (node.id in DYNAMIC or node.id in RUNS_TEXT):
-                return "%s imports by a name worked out as it runs, or relative to its package, or runs text as " \
-                       "code, so its imports cannot be followed" % rel
+                return "%s imports by a name worked out as it runs, relative to its package or of *, or runs text " \
+                       "as code, so its imports cannot be followed" % rel
             names = [a.name for a in node.names] if isinstance(node, ast.Import) else \
                 [node.module] + [node.module + "." + a.name for a in node.names] if isinstance(node, ast.ImportFrom) \
                 else []
@@ -186,13 +190,20 @@ def _leaves(start: str, held, root: pathlib.Path, within: str = ""):
                 parts = name.split(".")
                 if any(part in DYNAMIC or part in RUNS_TEXT for part in parts):     # an alias of one too
                     return "%s imports %s, so its imports cannot be followed" % (rel, name)
-                if _standard(parts[0]):
-                    continue
-                for at in range(1, len(parts) + 1):     # a package comes before a module of its name, as Python finds
-                    base = root.joinpath(*parts[:at])       # them: a file beside it that is never imported is not read
-                    found = base / "__init__.py" if (base / "__init__.py").is_file() else base.with_suffix(".py")
-                    todo += [(found.relative_to(root).as_posix(), rel)] if found.is_file() else []
+                if not _standard(parts[0]):
+                    todo += [(found, rel) for found in _found(name, root)]
     return None
+
+
+def _found(name: str, root: pathlib.Path) -> list:
+    """The files of the repo that importing `name` runs, each package's `__init__.py` before what it holds. A package
+    comes before a module of its name, as Python finds them: a file beside it, which is never imported, is not one."""
+    parts, files = name.split("."), []
+    for at in range(1, len(parts) + 1):
+        base = root.joinpath(*parts[:at])
+        found = base / "__init__.py" if (base / "__init__.py").is_file() else base.with_suffix(".py")
+        files += [found.relative_to(root).as_posix()] if found.is_file() else []
+    return files
 
 
 def _standard(name: str) -> bool:

@@ -14564,9 +14564,12 @@ class Verify(unittest.TestCase):
                     ("", "from tools import desk\n", "tools/walk.py imports tools/desk.py, which is not on the "
                                                      "protected list"),
                     ("import importlib\n", "", "tools/check_repo.py imports importlib, so its imports cannot be followed"),
-                    ("from . import desk\n", "", "tools/check_repo.py imports by a name worked out as it runs, or "
-                                                 "relative to its package, or runs text as code, so its imports cannot "
-                                                 "be followed"),
+                    ("from . import desk\n", "", "tools/check_repo.py imports by a name worked out as it runs, "
+                                                 "relative to its package or of *, or runs text as code, so its imports "
+                                                 "cannot be followed"),
+                    ("from tools import *\n", "", "tools/check_repo.py imports by a name worked out as it runs, "
+                                                  "relative to its package or of *, or runs text as code, so its "
+                                                  "imports cannot be followed"),
                     # Over tools/ alone: an import of the Kernel is not followed here, and the check runs later.
                     ("from kernel import terms\n", "", None)):
                 with self.subTest(line=line, walk=walk):
@@ -14608,6 +14611,21 @@ class Verify(unittest.TestCase):
             (root / "tools/walk").mkdir()       # a folder with no __init__.py is no package: tools/walk.py is read
             self.assertEqual(verify.phase_one([entry], root), [entry])
             self.assertEqual(verify.unclosed([entry], root), [])
+            # What Python does import is read, as it finds it: the package's __init__.py, which runs before the check,
+            # and a package of the check's name, which is imported in place of its file (Carbon's read of part 2).
+            init = (root / "tools/__init__.py").read_text()
+            (root / "tools/__init__.py").write_text(init + "from tools import desk\n")
+            (root / "tools/desk.py").write_text("")
+            self.assertEqual(verify.phase_one([entry], root), [])
+            (root / "tools/__init__.py").write_text(init)
+            (root / "tools/desk").mkdir()
+            (root / "tools/desk/__init__.py").write_text("")
+            source = (root / "tools/check_repo.py").read_text()
+            (root / "tools/check_repo.py").write_text(source + "from tools import desk\n")
+            self.assertEqual(verify.unclosed([entry], root),
+                             ["tools/check_repo.py imports tools/desk/__init__.py, which is not on the protected list"])
+            (root / "tools/check_repo.py").write_text(source)
+            self.assertEqual(verify.phase_one([("purity", "check_purity", "run")], root), [])   # no such file here
 
     def test_a_check_that_runs_no_role_code_and_fails_stops_verify_and_its_own_step(self):  # issue 1377
         # `make checks-first`, CI's step, answers 1 when one of them fails and 0 when all pass; `make verify` starts
