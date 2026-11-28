@@ -128,48 +128,71 @@ def phase_one(checks: list, root: pathlib.Path = ROOT) -> list:
     is on the protected list of config/hooks.json. They answer, and pass, before any other check starts (issue 1377).
     The list decides, not a check's name: a check whose closure leaves it, or cannot be read, runs later. Raises
     ValueError when the list cannot be read, since then no check can be told to run no Role code."""
+    held = _held(root)
+    return [entry for entry in checks if _leaves("tools/%s.py" % entry[1], held, root) is None]
+
+
+def unclosed(checks: list, root: pathlib.Path = ROOT) -> list:
+    """Why a protected check could run a file a push can change: for each entry of `checks` whose own file is on the
+    protected list, the file of tools/ its import closure reaches that is not, or the import of tools/ it cannot
+    follow. Verify fails on any before the first phase starts, so a protected check never moves to the later phase in
+    silence (issue 1377). Raises ValueError when the list cannot be read."""
+    held, why = _held(root), []
+    for _, module, _ in checks:
+        start = "tools/%s.py" % module
+        leaves = _leaves(start, held, root, "tools/") if held(start) else None
+        if leaves and leaves not in why:
+            why.append(leaves)
+    return why
+
+
+def _held(root: pathlib.Path):
+    """Whether a path of the repo is on the protected list of config/hooks.json, as a function of the path. Raises
+    ValueError when the list cannot be read."""
     from tools.hooks import protected      # protected itself; it imports none of the checks
     try:
         listed = protected.entries(protected.load(root / "config" / "hooks.json")["protected"])
     except Exception as err:       # noqa: BLE001 -- a list that cannot be read fails, never sorts every check later
         raise ValueError("the protected list of config/hooks.json cannot be read (%s)" % type(err).__name__)
-    held = lambda rel: any(whole.match(rel.casefold()) for _, _, _, whole in listed)  # noqa: E731
-    return [entry for entry in checks if _closed("tools/%s.py" % entry[1], held, root)]
+    return lambda rel: any(whole.match(rel.casefold()) for _, _, _, whole in listed)
 
 
-def _closed(start: str, held, root: pathlib.Path) -> bool:
-    """Whether every file of the repo that `start` imports, at any depth, is held, `start` among them. An import made
-    by a name worked out as it runs, or relative to its package, cannot be followed, so it is not closed."""
-    seen, todo = set(), [start]
+def _leaves(start: str, held, root: pathlib.Path, within: str = ""):
+    """None when every file of the repo that `start` imports, at any depth, is held, `start` among them; else why not,
+    naming the file. Given `within`, only the files under it are followed, and an import of any other is not read. An
+    import made by a name worked out as it runs, or relative to its package, cannot be followed, so it leaves."""
+    seen, todo = set(), [(start, "")]
     while todo:
-        rel = todo.pop()
-        if rel in seen:
+        rel, by = todo.pop()
+        if rel in seen or not rel.startswith(within):
             continue
         seen.add(rel)
+        if not held(rel):
+            return "%s imports %s, which is not on the protected list" % (by, rel) if by else \
+                "%s is not on the protected list" % rel
         try:
-            tree = ast.parse((root / rel).read_text(encoding="utf-8")) if held(rel) else None
+            tree = ast.parse((root / rel).read_text(encoding="utf-8"))
         except (OSError, ValueError, SyntaxError):
-            tree = None
-        if tree is None:
-            return False
+            return "%s cannot be read" % rel
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.level or isinstance(node, ast.Attribute) and node.attr in DYNAMIC \
                     or isinstance(node, ast.Name) and (node.id in DYNAMIC or node.id in RUNS_TEXT):
-                return False
+                return "%s imports by a name worked out as it runs, or relative to its package, or runs text as " \
+                       "code, so its imports cannot be followed" % rel
             names = [a.name for a in node.names] if isinstance(node, ast.Import) else \
                 [node.module] + [node.module + "." + a.name for a in node.names] if isinstance(node, ast.ImportFrom) \
                 else []
             for name in names:
                 parts = name.split(".")
                 if any(part in DYNAMIC or part in RUNS_TEXT for part in parts):     # an alias of one too
-                    return False
+                    return "%s imports %s, so its imports cannot be followed" % (rel, name)
                 if _standard(parts[0]):
                     continue
-                for at in range(1, len(parts) + 1):
-                    base = root.joinpath(*parts[:at])
-                    todo += [c.relative_to(root).as_posix() for c in (base.with_suffix(".py"), base / "__init__.py")
-                             if c.is_file()]
-    return True
+                for at in range(1, len(parts) + 1):     # a package comes before a module of its name, as Python finds
+                    base = root.joinpath(*parts[:at])       # them: a file beside it that is never imported is not read
+                    found = base / "__init__.py" if (base / "__init__.py").is_file() else base.with_suffix(".py")
+                    todo += [(found.relative_to(root).as_posix(), rel)] if found.is_file() else []
+    return None
 
 
 def _standard(name: str) -> bool:
@@ -210,7 +233,17 @@ def failed(checks: list, ran=answers, first=phase_one) -> int:
 
 def led(checks: list, ran=answers, first=phase_one):
     """Run the entries of `checks` that run no Role code, alone, and print what each found: those entries if all
-    passed, else None. That none of them can be told, or that none runs no Role code, fails too."""
+    passed, else None. That none of them can be told, or that none runs no Role code, fails too; and before any runs,
+    that a protected check's import closure over tools/ leaves the protected list (`unclosed`), its first answer."""
+    try:
+        leaving = unclosed(checks)
+    except ValueError as err:
+        leaving = [str(err)]
+    print("%-22s %s" % ("closure", "FAILED" if leaving else "ok"), flush=True)
+    for why in leaving:
+        print("    " + why)
+    if leaving:
+        return None
     try:
         early = first(checks)
     except ValueError as err:

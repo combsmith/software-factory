@@ -14545,6 +14545,70 @@ class Verify(unittest.TestCase):
                 self.assertEqual(verify.failed([("a", "x", "run")], lambda checks: self.fail("a check ran"), first),
                                  verify.EARLY)
 
+    def test_a_protected_check_whose_closure_leaves_the_list_fails_verify_naming_the_file(self):  # issue 1377
+        # Today every protected check's import closure over tools/ is on the protected list.
+        self.assertEqual(verify.unclosed(verify.CHECKS), [])
+        entry, other = ("repo", "check_repo", "run"), ("desk", "desk", "run")
+        with tempfile.TemporaryDirectory() as where:
+            root = pathlib.Path(where)
+            for rel in ("config/hooks.json", "tools/__init__.py", "tools/check_repo.py", "tools/desk.py", "tools/walk.py"):
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(ROOT / rel, root / rel)
+            (root / "kernel").mkdir()
+            (root / "kernel/terms.py").write_text("")
+            self.assertEqual(verify.unclosed([entry, other], root), [])     # a check off the list is not asked
+            source, helper = (root / "tools/check_repo.py").read_text(), (root / "tools/walk.py").read_text()
+            for line, walk, why in (
+                    ("from tools import desk\n", "", "tools/check_repo.py imports tools/desk.py, which is not on the "
+                                                    "protected list"),
+                    ("", "from tools import desk\n", "tools/walk.py imports tools/desk.py, which is not on the "
+                                                     "protected list"),
+                    ("import importlib\n", "", "tools/check_repo.py imports importlib, so its imports cannot be followed"),
+                    ("from . import desk\n", "", "tools/check_repo.py imports by a name worked out as it runs, or "
+                                                 "relative to its package, or runs text as code, so its imports cannot "
+                                                 "be followed"),
+                    # Over tools/ alone: an import of the Kernel is not followed here, and the check runs later.
+                    ("from kernel import terms\n", "", None)):
+                with self.subTest(line=line, walk=walk):
+                    (root / "tools/check_repo.py").write_text(source + line)
+                    (root / "tools/walk.py").write_text(helper + walk)
+                    self.assertEqual(verify.unclosed([entry, other], root), [why] if why else [])
+                    self.assertEqual(verify.phase_one([entry], root), [])
+            (root / "config/hooks.json").write_text("{")
+            with self.assertRaisesRegex(ValueError, "cannot be read"):
+                verify.unclosed([entry], root)
+        # It is verify's first answer, before any check starts; when it fails, none does, and make checks-first fails.
+        for leaving in (["tools/check_repo.py imports tools/desk.py, which is not on the protected list"],
+                        ValueError("the protected list of config/hooks.json cannot be read (ValueError)")):
+            def unclosed(checks, leaving=leaving):
+                if isinstance(leaving, Exception):
+                    raise leaving
+                return leaving
+            with mock.patch.object(verify, "unclosed", unclosed), \
+                    mock.patch.object(verify, "answers", lambda checks: self.fail("a check ran")), \
+                    contextlib.redirect_stdout(io.StringIO()) as said:
+                self.assertEqual(verify.main(["--checks-first"]), 1)
+                self.assertEqual(verify.failed(verify.CHECKS), verify.EARLY)
+            lines = said.getvalue().splitlines()
+            self.assertEqual(lines[:2], ["%-22s %s" % ("closure", "FAILED"), "    " + str(leaving).strip("[]'")])
+        with contextlib.redirect_stdout(io.StringIO()) as said:
+            verify.led(verify.CHECKS, lambda checks: {})
+        self.assertEqual(said.getvalue().splitlines()[0], "%-22s %s" % ("closure", "ok"))
+
+    def test_a_file_python_never_imports_moves_no_check_out_of_the_first_phase(self):  # issue 1377
+        # A tools.py at the top stands beside the package tools/, which Python imports in its place: the checks that
+        # import the package stay first (Claude's security read of part 3 of 5).
+        entry = ("repo", "check_repo", "run")
+        with tempfile.TemporaryDirectory() as where:
+            root = pathlib.Path(where)
+            for rel in ("config/hooks.json", "tools/__init__.py", "tools/check_repo.py", "tools/walk.py"):
+                (root / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(ROOT / rel, root / rel)
+            (root / "tools.py").write_text("import os\nos._exit(0)\n")
+            (root / "tools/walk").mkdir()       # a folder with no __init__.py is no package: tools/walk.py is read
+            self.assertEqual(verify.phase_one([entry], root), [entry])
+            self.assertEqual(verify.unclosed([entry], root), [])
+
     def test_a_check_that_runs_no_role_code_and_fails_stops_verify_and_its_own_step(self):  # issue 1377
         # `make checks-first`, CI's step, answers 1 when one of them fails and 0 when all pass; `make verify` starts
         # no test after one fails (Astra's and Claude's reads).
