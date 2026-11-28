@@ -14695,7 +14695,9 @@ class Verify(unittest.TestCase):
             lifecycle = root / "tools" / "check_lifecycle.py"      # a check whose process ends at import
             lifecycle.write_text(lifecycle.read_text() + "\nimport os\nos._exit(0)\n")
             (root / "tests" / "test_ends.py").write_text("import os\nos._exit(0)\n")
-            for name in ("ast", "json", "tools/json"):     # unittest imports ast first on newer Pythons; json the checks
+            # unittest imports ast first on newer Pythons; verify json, before the repo's top is on its path; the checks
+            # alone hashlib, after it; a check's own process, run without -I, would put tools/ first.
+            for name in ("ast", "json", "hashlib", "tools/json"):
                 (root / (name + ".py")).write_text('import pathlib\npathlib.Path(__file__).with_name("SHADOWED").'
                                                    'write_text("")\nimport os\nos._exit(0)\n')
             env = {k: v for k, v in os.environ.items()
