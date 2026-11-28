@@ -14522,6 +14522,10 @@ class Verify(unittest.TestCase):
                 self.assertEqual(ran["modules"], everything)
                 verify.main(["--tests", "--fast"])
                 self.assertEqual(ran["modules"], everything - slow)
+                failing = unittest.TestResult()     # and a failed test fails it
+                failing.failures.append((self, "a failure"))
+                Runner.run = lambda *_: failing
+                self.assertEqual(verify.main(["--tests"]), 1)
         finally:
             verify.failed, verify.unittest.TextTestRunner, verify.tested = real
         makefile = (ROOT / "Makefile").read_text()
@@ -14539,6 +14543,7 @@ class Verify(unittest.TestCase):
             shutil.copy(ROOT / "Makefile", where / "Makefile")
             os.utime(where / "Makefile", (1, 1))
             (where / "Makefile.sh").write_text("verify:\n\t@echo not the committed verify\n")
+            (where / "tests").mkdir()       # make tests runs though a directory of that name stands (Astra's read)
             # make's built-in rules on, whatever flags the run was given (Astra's read), and verify the goal of a bare
             # make too.
             env = {k: v for k, v in os.environ.items() if k not in ("MAKEFLAGS", "MFLAGS", "MAKEFILES", "GNUMAKEFLAGS")}
@@ -14551,6 +14556,8 @@ class Verify(unittest.TestCase):
                 failed = subprocess.run(["make", "-s"] + goal + ["PY=false"], cwd=where, capture_output=True, text=True,
                                         timeout=60, env=env)
                 self.assertNotEqual(failed.returncode, 0, goal)
+            ran = subprocess.run(["make", "-s", "tests", "PY=false"], cwd=where, capture_output=True, timeout=60, env=env)
+            self.assertNotEqual(ran.returncode, 0)
 
     poisoned_run = None
 
@@ -14587,6 +14594,7 @@ class Verify(unittest.TestCase):
                 for checks_failed, tests, answer in ((True, 0, 1), (False, 1, 1), (True, 1, 1), (False, 0, 0)):
                     verify.failed, verify.tested = (lambda checks: checks_failed), (lambda fast, share: tests)
                     self.assertEqual(verify.main([], {}), answer, (checks_failed, tests))
+                    self.assertEqual(verify.main(["--checks"], {}), int(checks_failed))
         finally:
             verify.failed, verify.tested, verify.suite = real
         # The tests' process is started isolated, told the leg verify read or none, and its failure is verify's.
@@ -14595,7 +14603,7 @@ class Verify(unittest.TestCase):
         def child(argv, **kw):      # the tests' process is faked; any other command, git's, runs
             if "--tests" not in argv:
                 return run(argv, **kw)
-            started.append((argv[1:3] + argv[4:], kw["env"].get("CHECKS_SHARD"), kw["env"].get("CHECKS_SHARDS")))
+            started.append((argv, kw["env"].get("CHECKS_SHARD"), kw["env"].get("CHECKS_SHARDS")))
             return subprocess.CompletedProcess(argv, 1)
         with mock.patch.object(verify, "failed", return_value=False), contextlib.redirect_stdout(io.StringIO()), \
                 mock.patch.object(verify.subprocess, "run", side_effect=child), \
@@ -14603,8 +14611,8 @@ class Verify(unittest.TestCase):
             self.assertEqual(verify.main([], {}), 1)
             self.assertEqual(verify.main(["--fast"], {}), 1)
             self.assertEqual(verify.main([], {"CHECKS_SHARD": "1", "CHECKS_SHARDS": "3"}), 1)
-        self.assertEqual(started, [(["-I", "-S", "--tests"], None, None), (["-I", "-S", "--tests", "--fast"], None, None),
-                                   (["-I", "-S", "--tests"], "1", "3")])
+        command = [sys.executable, "-I", "-S", str(verify.ROOT / "tools" / "verify.py"), "--tests"]
+        self.assertEqual(started, [(command, None, None), (command + ["--fast"], None, None), (command, "1", "3")])
         # As the Makefile runs it: the test module ends only the tests' process, and the failed check still fails it.
         done, _ = self.poisoned()
         self.assertIn("%-22s FAILED" % "kernel purity", done.stdout)
