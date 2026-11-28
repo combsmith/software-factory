@@ -105,7 +105,7 @@ MUTANTS = [
     # Trial P-78: each reader's turn ends where only the shares of the readers after it that are to be asked are left.
     ("a later reader's share is not left of the step", 'harness/advise.py',
      'return until - sum(share_of(reader) for reader in later)',
-     'return until', ADVISE_TURN + ADVISE_RUNNING),
+     'return until', ADVISE_RUNNING),
     ('a reader not to be asked keeps its share of the step', 'harness/advise.py',
      'for later in names[n + 1:] if later in asking]',
      'for later in names[n + 1:]]', ADVISE_TURN),
