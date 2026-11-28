@@ -13459,6 +13459,8 @@ class Writes(unittest.TestCase):
             "harness/importattr.py": "import os\n\n\ndef go():\n    return os.__import__('adapters.effects')\n",
             "harness/pkgload.py": "import pkgutil\n\n\ndef go():\n    return pkgutil.resolve_name('adapters.effects:approve')\n",
             "harness/runpyload.py": "import runpy\n",
+            # issue 1348: pydoc loads a module by a dotted name, as pkgutil does
+            "harness/pydocload.py": "import pydoc\n\n\ndef go(x):\n    return pydoc.locate('adapters.effects.approve')(x)\n",
             "harness/syskey.py": "import os\n\n\ndef go():\n    return vars(os)['sys']\n",
             "harness/anymodules.py": "def go(x):\n    return x.modules\n",
             "harness/innerok.py": "from harness import portinst\n\n\ndef go(m):\n    def inner():\n        m = portinst\n"
@@ -13596,6 +13598,7 @@ class Writes(unittest.TestCase):
                           ("harness/importattr.py:5", "loads a module by its name"),
                           ("harness/pkgload.py:1", "loads a module by its name"),
                           ("harness/runpyload.py:1", "loads a module by its name"),
+                          ("harness/pydocload.py:1", "loads a module by its name"),
                           ("harness/syskey.py:5", "loads a module by its name"),
                           ("harness/anymodules.py:2", "loads a module by its name"),
                           ("harness/ifgh.py:5", "names gh or git as a command"),
