@@ -11,7 +11,7 @@ Each leg of CI runs `make checks` in a step of its own, then `make tests`. A fai
 `tools/verify.py`, the `Makefile`, `.github/workflows/verify.yml` and `_legs` in `tools/check_workflows.py` hold the exact form.
 
 Limits:
-- The checks still import modules a Role can change: `tools/mutants_of/`, and the kernel and harness modules `check_examples` imports. Tested: with a check failing, a `tools/mutants_of/` file that runs `os._exit(0)` at import makes `make checks` exit 0. A follow-on issue closes this before the push dispatch lands.
+- The checks still import modules a Role can change: `tools/mutants_of/`, and the kernel and harness modules `check_examples` imports. Tested: with a check failing, a `tools/mutants_of/` file that runs `os._exit(0)` at import makes `make checks` exit 0. Issue 1377 closes this before the push dispatch lands.
 - A test can forge its own result, as a Role can write a passing test. Review and the mutant run read the tests.
 - The isolation holds on CI's Python, 3.12. At a desk on 3.9, `copy` tries `org.python.core`, so a top-level package named org runs in the checks' process. A module the standard library tries and falls back from is the same gap.
 - `python3 -m tools.verify` run by hand is not isolated.
