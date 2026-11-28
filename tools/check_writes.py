@@ -51,8 +51,9 @@ TRANSPORT = {(GITHUB, "Live.send"), (GITHUB, "Replay.send")}
 # sends none.
 VERB_HOLDERS = ("guards/push.py", "tools/hooks/identity.py", "tools/hooks/protected.py")
 # Python that loads a module by a name it is given: tools/mutants.py loads a test under tests/, and checks it is one,
-# and each file of MUTANT_DATA by its name, as `areas` finds them.
-NAME_LOADERS = ("tools/mutants.py",)
+# and each file of MUTANT_DATA by its name, as `areas` finds them; tools/verify.py loads one check of its CHECKS, a
+# list it holds, in that check's own process (issue 1377).
+NAME_LOADERS = ("tools/mutants.py", "tools/verify.py")
 # Python outside tests/ that imports a test: tools/make_corpus.py records the Kernel's decisions from tests/test_decide.py.
 TEST_IMPORTERS = ("tools/make_corpus.py",)
 # Python that sets a name of another module's, with each name it sets: tools/make_corpus.py records the Kernel's decisions

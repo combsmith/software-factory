@@ -18,48 +18,217 @@ test module that ends its process at import ends only the tests' process, and th
 """
 from __future__ import annotations
 
+import ast
+import importlib
+import importlib.machinery
+import json
 import os
 import pathlib
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
+import time
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))      # after the standard library: a file at the top never stands in for one of its modules
 
-from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_gate_sets,
-                   check_lifecycle,
-                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes)
-
+# Each check, by its name, its module of tools/ and its function. Each runs in a process of its own (`answers`), and
+# this one imports none of them: a check whose code ends its process, or forges its answer, can blind only itself
+# (issue 1377).
 CHECKS = [
-    ("schemas and examples", check_examples.run),
-    ("lifecycle", check_lifecycle.run),
-    ("authority", check_authority.run),
-    ("apps", check_apps.run),
-    ("rulesets", check_rulesets.run),
-    ("kernel purity", check_purity.run),
-    ("guards purity", check_purity.guards),
-    ("trials", check_trials.run),
-    ("release", check_release.run),
-    ("repo", check_repo.run),
-    ("workflows", check_workflows.run),
-    ("writes", check_writes.run),
-    ("context", check_context.run),
-    ("decision records", check_decisions.run),
-    ("gate sets", check_gate_sets.run),
+    ("schemas and examples", "check_examples", "run"),
+    ("lifecycle", "check_lifecycle", "run"),
+    ("authority", "check_authority", "run"),
+    ("apps", "check_apps", "run"),
+    ("rulesets", "check_rulesets", "run"),
+    ("kernel purity", "check_purity", "run"),
+    ("guards purity", "check_purity", "guards"),
+    ("trials", "check_trials", "run"),
+    ("release", "check_release", "run"),
+    ("repo", "check_repo", "run"),
+    ("workflows", "check_workflows", "run"),
+    ("writes", "check_writes", "run"),
+    ("context", "check_context", "run"),
+    ("decision records", "check_decisions", "run"),
+    ("gate sets", "check_gate_sets", "run"),
 ]
+# What imports a module by a name worked out as it runs: a check that holds one is never read as closed.
+DYNAMIC = frozenset(("__import__", "import_module", "importlib", "imp", "pkgutil", "runpy", "zipimport"))
+# What runs text as code: called by its own name, or imported under another, it is never read as closed.
+RUNS_TEXT = frozenset(("exec", "eval", "compile"))
+# Where a check's process finds the standard library, ahead of the tree it appends: a module found here is never a
+# file of the tree, whatever file of that name the tree holds (Claude's security read).
+STANDARD = [os.path.dirname(os.__file__), os.path.join(os.path.dirname(os.__file__), "lib-dynload")]
+DRAIN_SECONDS = 5       # for a stopped check's pipes to close, which a process it started may hold open
+EARLY = 2               # what `failed` says when a check that runs no Role code failed: nothing else was started
+CHECK_SECONDS = 180     # for every check of a phase to answer, within the step's four minutes
+# How a check's process gives its answer: its last line of output, this, then {"check": its name, "problems": [...]}.
+ANSWER = "verify: the check answers "
 # The test modules `make fast` leaves out, each of which runs the seeded simulation. `make verify` runs them all.
 SLOW = ("test_simulator", "test_issue_simulator", "test_reasons")
 
 
-def failed(checks: list) -> bool:
-    """Run each check, print what it found, and say whether any found a problem."""
-    any_failed = False
-    for name, check in checks:
-        problems = check()
-        print("%-22s %s" % (name, "ok" if not problems else "FAILED"))
+def check(entry: tuple):
+    """The function an entry of CHECKS names, imported: in the check's own process, or in a test."""
+    _, module, function = entry
+    return getattr(importlib.import_module("tools." + module), function)
+
+
+def answered(name: str) -> int:
+    """Run the check `name` in this process, and print its answer as the last line: `verify --check NAME`."""
+    entry = next(e for e in CHECKS if e[0] == name)
+    problems = check(entry)()
+    sys.stdout.flush()      # a line the check left open is closed first, so the answer stands on a line of its own
+    print("\n" + ANSWER + json.dumps({"check": name, "problems": problems}), flush=True)
+    return 0
+
+
+def answers(checks: list) -> dict:
+    """{name: (exit, output, errors)} of each check, run together, each in a process of its own, isolated as this one
+    is and told nothing but its name. Its bytecode is written to and read from a folder outside the tree, never a
+    __pycache__ a push could hold, and one that has not answered by CHECK_SECONDS is stopped."""
+    cache = tempfile.mkdtemp(prefix="verify-bytecode-")
+    if pathlib.Path(cache).resolve() == ROOT or ROOT in pathlib.Path(cache).resolve().parents:   # TMPDIR in the tree
+        shutil.rmtree(cache, ignore_errors=True)
+        return {name: (None, "", "its bytecode folder would be %s, inside the tree" % cache) for name, _, _ in checks}
+    started = {}
+    try:
+        for name, _, _ in checks:
+            started[name] = subprocess.Popen([sys.executable, "-I", "-S", "-X", "pycache_prefix=" + cache,
+                                              str(ROOT / "tools" / "verify.py"), "--check", name],
+                                             cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                             stderr=subprocess.PIPE)
+        out, until = {}, time.monotonic() + CHECK_SECONDS
+        for name, process in started.items():
+            try:
+                said, errors = process.communicate(timeout=max(1.0, until - time.monotonic()))
+                code = process.returncode
+            except subprocess.TimeoutExpired:
+                process.kill()
+                try:
+                    said, errors = process.communicate(timeout=DRAIN_SECONDS)
+                except subprocess.TimeoutExpired:
+                    said, errors = b"", b""
+                code, errors = "on a timeout", errors + b"\nit gave no answer within %d seconds" % CHECK_SECONDS
+            out[name] = (code, said.decode("utf-8", "replace"), errors.decode("utf-8", "replace"))
+        return out
+    finally:
+        for process in started.values():
+            if process.returncode is None:      # one started before another could not be: never left running
+                process.kill()
+        shutil.rmtree(cache, ignore_errors=True)
+
+
+def phase_one(checks: list, root: pathlib.Path = ROOT) -> list:
+    """The entries of `checks` that run no Role code: each whose whole import closure, read through ast and never run,
+    is on the protected list of config/hooks.json. They answer, and pass, before any other check starts (issue 1377).
+    The list decides, not a check's name: a check whose closure leaves it, or cannot be read, runs later. Raises
+    ValueError when the list cannot be read, since then no check can be told to run no Role code."""
+    from tools.hooks import protected      # protected itself; it imports none of the checks
+    try:
+        listed = protected.entries(protected.load(root / "config" / "hooks.json")["protected"])
+    except Exception as err:       # noqa: BLE001 -- a list that cannot be read fails, never sorts every check later
+        raise ValueError("the protected list of config/hooks.json cannot be read (%s)" % type(err).__name__)
+    held = lambda rel: any(whole.match(rel.casefold()) for _, _, _, whole in listed)  # noqa: E731
+    return [entry for entry in checks if _closed("tools/%s.py" % entry[1], held, root)]
+
+
+def _closed(start: str, held, root: pathlib.Path) -> bool:
+    """Whether every file of the repo that `start` imports, at any depth, is held, `start` among them. An import made
+    by a name worked out as it runs, or relative to its package, cannot be followed, so it is not closed."""
+    seen, todo = set(), [start]
+    while todo:
+        rel = todo.pop()
+        if rel in seen:
+            continue
+        seen.add(rel)
+        try:
+            tree = ast.parse((root / rel).read_text(encoding="utf-8")) if held(rel) else None
+        except (OSError, ValueError, SyntaxError):
+            tree = None
+        if tree is None:
+            return False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.level or isinstance(node, ast.Attribute) and node.attr in DYNAMIC \
+                    or isinstance(node, ast.Name) and (node.id in DYNAMIC or node.id in RUNS_TEXT):
+                return False
+            names = [a.name for a in node.names] if isinstance(node, ast.Import) else \
+                [node.module] + [node.module + "." + a.name for a in node.names] if isinstance(node, ast.ImportFrom) \
+                else []
+            for name in names:
+                parts = name.split(".")
+                if any(part in DYNAMIC or part in RUNS_TEXT for part in parts):     # an alias of one too
+                    return False
+                if _standard(parts[0]):
+                    continue
+                for at in range(1, len(parts) + 1):
+                    base = root.joinpath(*parts[:at])
+                    todo += [c.relative_to(root).as_posix() for c in (base.with_suffix(".py"), base / "__init__.py")
+                             if c.is_file()]
+    return True
+
+
+def _standard(name: str) -> bool:
+    """Whether a check's process finds the top-level module `name` in the standard library, ahead of the tree."""
+    return name in sys.builtin_module_names or importlib.machinery.PathFinder.find_spec(name, STANDARD) is not None
+
+
+def problems_of(name: str, answer) -> list:
+    """The problems a check's process answered: those its last line gives, when it ended 0 and that line is its answer
+    to this check, a list of sentences. Anything else, no answer among it, is its problem."""
+    if answer is None:
+        return ["the check gave no answer"]
+    code, said, errors = answer
+    lines = said.splitlines()
+    last = lines[-1] if lines else ""
+    try:
+        given = json.loads(last[len(ANSWER):]) if last.startswith(ANSWER) else None
+    except (ValueError, RecursionError):
+        given = None
+    whole = isinstance(given, dict) and set(given) == {"check", "problems"} and given["check"] == name \
+        and isinstance(given["problems"], list) and all(isinstance(p, str) for p in given["problems"])
+    if code != 0 or not whole:
+        tail = [line for line in (lines + errors.splitlines()) if line.strip()][-5:]
+        return ["the check's process ended %s without its answer" % code] + tail
+    return given["problems"]
+
+
+def failed(checks: list, ran=answers, first=phase_one) -> int:
+    """Run each check, print what it found, and say whether any found a problem: 0 if none did, else 1, or EARLY if
+    one that runs no Role code did, which run first, or none of them can be told. A check that gives no answer has
+    found one. After EARLY nothing that runs Role code has started, and `main` starts nothing more."""
+    early = led(checks, ran, first)
+    if early is None:
+        print("%-22s %s" % ("role code", "not run, since a check that runs none failed"))
+        return EARLY
+    return 1 if told([entry for entry in checks if entry not in early], ran) else 0
+
+
+def led(checks: list, ran=answers, first=phase_one):
+    """Run the entries of `checks` that run no Role code, alone, and print what each found: those entries if all
+    passed, else None. That none of them can be told, or that none runs no Role code, fails too."""
+    try:
+        early = first(checks)
+    except ValueError as err:
+        print("%-22s %s\n    %s" % ("phases", "FAILED", err))
+        return None
+    if not early:
+        print("%-22s %s\n    %s" % ("phases", "FAILED", "no check runs first: none has its whole import closure on "
+                                                         "the protected list"))
+        return None
+    return None if told(early, ran) else early
+
+
+def told(checks: list, ran=answers) -> bool:
+    """Run `checks` at once, print what each found, and say whether any found a problem."""
+    said, any_failed = ran(checks) if checks else {}, False
+    for name, _, _ in checks:
+        problems = problems_of(name, said.get(name))
+        print("%-22s %s" % (name, "ok" if not problems else "FAILED"), flush=True)
         for p in problems:
             print("    " + p)
         any_failed = any_failed or bool(problems)
@@ -116,6 +285,7 @@ def leg(environ) -> tuple:
 def notes() -> list:
     """What `verify` says of the records before the tests: what they were compared with, and how many Boundary rows
     name no mutant yet (issue 590)."""
+    from tools import check_decisions       # the tests' process alone imports a check here
     return ["%-22s %s" % ("decision base", check_decisions.described()),
             "%-22s %s" % ("boundary mutants", check_decisions.unnamed())]
 
@@ -161,20 +331,27 @@ def tested(fast: bool, share: tuple = None) -> int:
 
 
 def main(argv: list, environ=None) -> int:
+    if argv[:1] == ["--check"] and len(argv) == 2:      # one check's own process, which `answers` starts
+        return answered(argv[1])
     try:
-        share = None if "--checks" in argv or "--fast" in argv else leg(environ or {})
+        share = None if {"--checks", "--checks-first", "--fast"} & set(argv) else leg(environ or {})
     except ValueError as err:
         print(err)
         return 1
     if "--tests" in argv:       # `make tests`, or the tests' process that `tested` starts: it runs no check
         for line in notes():
             print(line)
+        from tools import check_trials
         unverified(check_trials.unverified())
         if share is not None:
             print("%-22s leg %d of %d counted from 0" % ("tests", share[0], share[1]))
         result = unittest.TextTestRunner(verbosity=1).run(suite("--fast" in argv, share))
         return 0 if result.wasSuccessful() else 1
-    checks_failed = failed(CHECKS)
+    if "--checks-first" in argv:    # the checks that run no Role code, alone: CI's own step, by part 3 of issue 1377
+        return 1 if led(CHECKS, answers, phase_one) is None else 0
+    checks_failed = failed(CHECKS, answers, phase_one)
+    if checks_failed == EARLY:      # nothing that runs Role code starts: no other check, no note, no test
+        return 1
     if "--checks" in argv:
         answer = 1 if checks_failed else 0      # the checks' answer, told before the note runs
         if any(name in (environ or {}) for name in ("CHECKS_SHARD", "CHECKS_SHARDS", "CI")):
