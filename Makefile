@@ -10,6 +10,11 @@ fast:
 checks:
 	$(PY) -I -S tools/verify.py --checks
 
+# CI's step before `make checks`: the checks that run no Role code, alone, so that none runs before they pass (issue 1377).
+.PHONY: checks-first
+checks-first:
+	$(PY) -I -S tools/verify.py --checks-first
+
 tests:
 	$(PY) -I -S tools/verify.py --tests
 

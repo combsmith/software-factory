@@ -6,9 +6,10 @@ minute, and is what a session's hooks run after an edit and before a stop (`tool
 After the checks it prints one note that fails nothing, `tools/desk.py`'s size (`desk_note`), at a desk alone.
 `make tests` runs the tests alone, and prints first what verify says of the records and of the fake GitHub.
 
-CI runs `make checks` in a step of its own, then `make tests` in another, in legs, each told CHECKS_SHARD and
-CHECKS_SHARDS by its matrix, so that across the legs every test runs once and no leg nears the step's limit. A failed
-check ends the job before any test runs. Neither set: every test, as at a desk.
+CI runs `make checks-first`, the checks that run no Role code, in a step of its own, then `make checks`, then `make
+tests`, in legs, each told CHECKS_SHARD and CHECKS_SHARDS by its matrix, so that across the legs every test runs once
+and no leg nears the step's limit. A failed check ends the job before any test runs. Neither set: every test, as at a
+desk.
 
 The Makefile runs this file in Python's isolated mode, without site, so the repo's top is put on the path here, after
 the standard library: a file at the top named as one of its modules is never imported in its place. `make verify` runs
