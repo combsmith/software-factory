@@ -23,8 +23,9 @@ The answer is yes only where the configuration holds a reader, a ceiling and a w
 would hold, `now` is a time in the one form, the run records were read whole, and the day's sum and this Run's own
 worst case together do not pass the ceiling. Neither figure has a default: with either missing, no reader is asked.
 Whatever it is handed, it answers, and what it cannot read it answers no to. A caller that admits more than one review
-in a pass hands each the ones before it, as records still running, so that each counts the others' worst case; and so
-too each Run the records read but cannot name yet (issue 932).
+in a pass hands each the ones before it, as records still running, so that each counts the others' worst case; it
+likewise hands each review an earlier pass told yes whose Run no record lists yet, and each Run listed with no run-name
+(issue 932).
 """
 from __future__ import annotations
 
