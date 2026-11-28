@@ -76,8 +76,8 @@ MUTANTS = [
      '    if env.get(SCRUB) == "1" and not (no_tool(args) or (read is True and read_alone(args))):',
      '    if env.get(SCRUB) == "1" and not (no_tool(args) or read_alone(args)):', ('tests.test_harness.Engine.test_each_flag_that_holds_the_reads_to_the_head_is_required',)),
     ('the review is not told its head is data', 'harness/engine.py',
-     '    told = PROMPT + ((BASE if writes(task) else HEAD) if read is True else "") + instructions',
-     '    told = PROMPT + instructions', ('tests.test_harness.Engine.test_a_review_reads_its_head_with_the_read_tools_alone_held_to_it',)),
+     '    told = PROMPT + ((BASE if writes(task) else HEAD) if read is True else "") + _draft(task) + instructions',
+     '    told = PROMPT + _draft(task) + instructions', ('tests.test_harness.Engine.test_a_review_reads_its_head_with_the_read_tools_alone_held_to_it',)),
     ('the review is given no tool', 'harness/engine.py',
      '(READ if read is True else ["--tools", ""])',
      '["--tools", ""]', ('tests.test_harness.Engine.test_a_review_reads_its_head_with_the_read_tools_alone_held_to_it',)),
@@ -252,8 +252,8 @@ MUTANTS = [
      ('tests.test_harness.Engine.test_the_cli_is_given_no_tool',)),
     # The Role's instructions and rubric told to the CLI before the Task (issue 194, PR 3).
     ('the CLI is told the Task alone', 'harness/engine.py',
-     '    told = PROMPT + ((BASE if writes(task) else HEAD) if read is True else "") + instructions',
-     '    told = PROMPT + ((BASE if writes(task) else HEAD) if read is True else "")', ('tests.test_harness.Engine.test_the_cli_is_told_the_roles_instructions_and_rubric_from_the_release_before_the_task',)),
+     '    told = PROMPT + ((BASE if writes(task) else HEAD) if read is True else "") + _draft(task) + instructions',
+     '    told = PROMPT + ((BASE if writes(task) else HEAD) if read is True else "") + _draft(task)', ('tests.test_harness.Engine.test_the_cli_is_told_the_roles_instructions_and_rubric_from_the_release_before_the_task',)),
     ('the Engine drops what it is told', 'harness/engine.py',
      '    args = argv(cli, task, engine["model"], session, instructions, read)\n',
      '    args = argv(cli, task, engine["model"], session, "", read)\n', ('tests.test_harness.Engine.test_the_cli_is_told_the_roles_instructions_and_rubric_from_the_release_before_the_task',)),
@@ -377,4 +377,11 @@ MUTANTS = [
      'READ_TOOLS = "Read,Grep,Glob"\n', 'READ_TOOLS = "Read,Grep"\n',
      ('tests.test_harness.Engine.test_no_run_is_given_a_tool_that_runs_code_or_writes',)),
     # Issue 589: the advisory check of a changed line of Python that no test notices.
+    # Issue 838: a Run that opens a draft is told the title's rule and its room, and only an issue's Run.
+    ("a Run that opens a draft is not told its title's rule", 'harness/engine.py',
+     ' + _draft(task) + instructions', ' + instructions', ('tests.test_apply.Opening.test_a_refused_draft_is_the_roles_attempt_and_its_run_was_told_the_rule',)),
+    ("a pull request's Run is told the draft's rule", 'harness/engine.py',
+     ' in task["permitted_effects"] and item["type"] == "issue" else', ' in task["permitted_effects"] else', ('tests.test_apply.Opening.test_a_refused_draft_is_the_roles_attempt_and_its_run_was_told_the_rule',)),
+    ("an issue's Run that may open no draft is told the draft's rule", 'harness/engine.py',
+     'if OPENING in task["permitted_effects"] and item["type"] == "issue"', 'if item["type"] == "issue"', ('tests.test_apply.Opening.test_a_refused_draft_is_the_roles_attempt_and_its_run_was_told_the_rule',)),
 ]

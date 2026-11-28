@@ -6,7 +6,8 @@ None. In this order, so that each has its own code: the item closed, its content
 held, or the Kernel, asked again with this Run left out, not admitting this Run's Intent on this content, all a change
 under the Run (`superseded`); then the Result: not this Run's or this Release's, giving a reason its status may not
 give (decision 0146), not completed, uncovered (decision
-0049), asking for an Effect the Task does not permit or naming one twice, posting a raised Finding other than once, a
+0049), asking for an Effect the Task does not permit or naming one twice, an opening's draft `harness/draft.py`
+refuses or one on no issue's Run, posting a raised Finding other than once, a
 Finding that does not gate on a thread or one that gates on an annotation, a Finding where it has no place, on a path
 the change does not hold, or adopted from a reviewer the configuration does not name advisory or from a surface other
 than that reviewer's thread on this item (decision 0145); a Disposition that gives neither half or both, or the half this
@@ -36,6 +37,7 @@ from adapters import github, identity
 from adapters.applied import OPENED
 from adapters.rules import UNREADABLE as LIST_UNREADABLE
 from harness import engine, shared
+from harness import draft as draft_
 from harness import task as task_
 from kernel import derive, gate
 from kernel import terms as t
@@ -198,6 +200,13 @@ def _effects(task: dict, result: dict, facts: dict, advisory):
     ids = [e["id"] for kind in ORDER for e in effects.get(kind, ())]
     if len(ids) != len(set(ids)):
         return "effect_named_twice"
+    # An opening's draft is held to `harness/draft.py`'s rules, its title with the issue's number and its body with the
+    # closing line, before any token is minted: a refused draft is the Role's attempt. Only an issue's Run opens one.
+    for opening in effects.get("open_pull_request", ()):
+        item = task["item"]
+        why = draft_.draft(opening, item["number"])[0] if item["type"] == "issue" else "opening_not_on_issue"
+        if why:
+            return why
     # A review is recovered as this App's one on this commit (section 3.6): a second would be read back as the first.
     if len(effects.get("submit_review", ())) > 1:
         return "review_twice"

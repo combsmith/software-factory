@@ -21,6 +21,8 @@ it, and as that trial hardened it:
   any other list, or leaves out one of these, is never made. A Run that writes code reads the commit its patch is
   applied to the same way, and is told so in the head's note's place (`BASE`); it has no tool that runs or writes
   (decision 0219);
+- where its Task permits an opening, told the title's rule and the room the issue's number leaves it
+  (`harness/draft.py`), so that a draft `apply` refuses as the Role's attempt is one the model was told of;
 - with `result/1` as the CLI is handed it: references resolved, the fields the Harness fills removed, `status` narrowed
   to what the Engine may write, `reason` to the model's codes (decision 0146), and `effects` to the Task's
   `permitted_effects` (decision 0038), and without `shown`, which the Harness fills from the Task with the Findings it
@@ -41,7 +43,7 @@ import json
 import re
 import subprocess
 
-from harness import shared
+from harness import draft, shared
 from tools.jsonschema_lite import validate
 
 ENGINE = "claude-cli"
@@ -58,6 +60,7 @@ PASSED = ("HOME", "TMPDIR")
 OPTIONS = ["--output-format", "json", "--no-session-persistence", "--strict-mcp-config", "--disable-slash-commands",
            "--permission-prompts", "none"]
 ENGINE_WRITES = ["completed", "incomplete", "refused"]
+OPENING = "open_pull_request"
 # The reason a Result that did not complete gives, one of these codes and never another (decision 0146): the model's,
 # by the status it writes, and the Harness's, with the `failed` Result it writes whole, here or in `harness/run.py`.
 MODEL_REASONS = {"incomplete": ("change_not_reviewed_whole",), "refused": ("task_not_a_review",)}
@@ -204,7 +207,7 @@ def environment(job_env: dict) -> dict:
 def argv(cli: str, task: dict, model: str, session: str, instructions: str = "", read: bool = False) -> list:
     """The CLI's arguments: the fixed instruction, the Role's instructions and rubric as the Release gives them, then
     the Task as data; with no tool, or, where `read` is asked, the read tools held to the head (decision 0138)."""
-    told = PROMPT + ((BASE if writes(task) else HEAD) if read is True else "") + instructions
+    told = PROMPT + ((BASE if writes(task) else HEAD) if read is True else "") + _draft(task) + instructions
     return ([cli, "-p", told + TASK + json.dumps(task, sort_keys=True), "--json-schema",
              json.dumps(handed(task)),
              "--model", model, "--session-id", session, "--max-turns", str(task["limits"]["turns"]),
@@ -213,6 +216,13 @@ def argv(cli: str, task: dict, model: str, session: str, instructions: str = "",
              # The tier's effort, never the CLI's default (decision 0147)
              "--effort", task["limits"]["effort"]]
             + OPTIONS + (READ if read is True else ["--tools", ""]))
+
+
+def _draft(task: dict) -> str:
+    """What a Run whose Task permits an opening is told of its draft: the title's rule and the room the issue's number
+    leaves it (`harness/draft.py`). A Task of another item is told nothing, as `apply` refuses its opening."""
+    item = task["item"]
+    return draft.told(item["number"]) if OPENING in task["permitted_effects"] and item["type"] == "issue" else ""
 
 
 def _flag(arg: str) -> str:

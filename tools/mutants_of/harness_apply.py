@@ -478,4 +478,9 @@ MUTANTS = [
     # Argon's reads of #348, #355 and #379, owed while it had no quota (no record; Boundaries rows on 0070, 0075, 0080).
     ('a list pattern with a backslash or a control character is read', 'harness/apply.py',
      'derive.readable_pattern(p) and not UNREADABLE_PATH.search(p) for p in protected_list', 'derive.readable_pattern(p) for p in protected_list', ('tests.test_apply.Push.test_a_list_that_is_none_or_empty_refuses_every_push',)),
+    # Issue 838: an opening's draft is held before any token is minted, as the Role's attempt, and only an issue's.
+    ("an opening's draft is not held", 'harness/apply.py',
+     '        if why:\n            return why\n    # A review is recovered', '    # A review is recovered', ('tests.test_apply.Job.test_a_refused_draft_mints_nothing',)),
+    ("a pull request's Run opens a draft", 'harness/apply.py',
+     'if item["type"] == "issue" else "opening_not_on_issue"', 'if item else "opening_not_on_issue"', ('tests.test_apply.Opening.test_a_refused_draft_is_the_roles_attempt_and_its_run_was_told_the_rule',)),
 ]
