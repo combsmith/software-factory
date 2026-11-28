@@ -13900,6 +13900,61 @@ class Writes(unittest.TestCase):
         # Nor can what an import of all of such a package binds (issue 640).
         self.assertTrue(caught(problems, "harness/nsstar.py:2 imports * from adapters"), problems)
 
+    def test_a_package_path_named_or_a_module_no_file_is_fails(self):  # issue 1323
+        # A package's __init__.py that adds a folder to its __path__ makes `import harness.github` load adapters/github.py,
+        # whose writes this check reads under its own name alone. So naming the path, or a module's __package__, any way
+        # the syntax shows it, fails; so does an import of a module below a package of the repo's that no file of the repo
+        # is, a name taken from such a package that it neither defines nor holds, and a file beside a folder of its name.
+        # Each case's line is its last.
+        write = "\n\ndef go(t):\n    return github.request('POST', '/repos/x/y/issues')\n"
+        named = {"name": "__path__.append('adapters')\n", "attribute": "import harness\n\nharness.__path__.append('a')\n",
+                 "spec": "__spec__.submodule_search_locations.append('a')\n", "imported": "from harness import __path__ as p\n",
+                 "keyword": "globals().update(__path__=['a'])\n", "key": "globals()['__path__'] = ['a']\n",
+                 "text": "import harness\n\np = getattr(harness, f'__path__')\n", "renamed": "from os import sep as __path__\n",
+                 "module renamed": "import os as __path__\n", "dotted": "import __path__.child\n",
+                 "dotted below": "import harness.__path__\n", "from below": "from harness.__path__ import x\n",
+                 "parameter": "def f(*, __package__=None): pass\n",
+                 "def": "def __path__(): return ['a']\n", "async def": "async def __path__(): return ['a']\n",
+                 "class": "class __path__: pass\n", "handler": "try:\n    pass\nexcept OSError as __path__:\n    pass",
+                 "package": "__package__ = 'adapters'\n"}
+        if sys.version_info >= (3, 10):     # the floor, 3.9, cannot parse a match, and reads such a file as no Python
+            named.update({"capture": "match []:\n    case __path__:\n        pass", "star": "match []:\n    case [*__path__]:\n        pass",
+                          "rest": "match {}:\n    case {**__path__}:\n        pass"})
+        files = {"harness/path%s.py" % why.replace(" ", ""): text for why, text in named.items()}
+        files.update({"harness/__init__.py": "__path__.append('adapters')\n",
+                      "harness/viapath.py": "import harness.github as github" + write,
+                      "harness/frompath.py": "from harness.github import request" + write.replace("github.request", "request"),
+                      "harness/relpath.py": "from .github import request" + write.replace("github.request", "request"),
+                      "harness/plain.py": "import json.decoder, harness.not_held\n",
+                      "harness/leaf.py": "import tools.hooks.missing\n",
+                      "harness/taken.py": "from harness import github\n",
+                      "harness/second.py": "from harness import steps, not_held\n",
+                      "harness/reltaken.py": "from . import github\n",
+                      "harness/foo.py": "def __getattr__(name):\n    return ['adapters']\n",
+                      "harness/foo/effects.py": "def approve(*a):\n    return None\n",
+                      "harness/task__init__.py": "value = 1\n", "harness/task__init__/leaf.py": "value = 1\n",
+                      "harness/held.py": "import harness.steps as github\nimport json.decoder\nfrom . import steps\nimport tools.hooks.shell\n"
+                                         "from harness import steps\nfrom tools.hooks import shell\nfrom tools import walk\nfrom tools.walk import not_there\n"})
+        # This check's own table names the path, and nothing else in it may: not its code, nor another table.
+        own = [(ROOT / "tools/check_writes.py").read_text() + "\n\nPACKAGE_PATHS = PACKAGE_PATHS + ('__path__',)\n"]
+        own.append(own[-1] + "PACKAGE_PATHS = ('__path__',)\n")
+        own.append(own[-1] + "\n\ndef roots(pkg):\n    return pkg.__path__\n")
+        files["tools/check_writes.py"] = own[-1]
+        problems = check_writes.run(clone(files))
+        self.assertEqual([p.partition(" ")[0] for p in problems if p.startswith("tools/check_writes.py")],
+                         ["tools/check_writes.py:%d" % text.count("\n") for text in own])
+        self.assertTrue(caught(problems, "harness/__init__.py:1 names where a package finds its modules"), problems)
+        for why in named:
+            line = named[why].count("\n")
+            self.assertTrue(caught(problems, "harness/path%s.py:%d names where" % (why.replace(" ", ""), line)), (why, problems))
+        for rel in ("viapath", "frompath", "relpath", "plain", "leaf", "taken", "reltaken", "second"):
+            self.assertTrue(caught(problems, "harness/%s.py:1 imports a module that no file of the repo is" % rel), (rel, problems))
+        for rel in ("foo", "task__init__"):
+            self.assertTrue(caught(problems, "harness/%s.py and the folder harness/%s/ are one name" % (rel, rel)), problems)
+        # A module the repo holds, one outside it, a module or a name taken from a package, and a name a module lacks,
+        # which Python never looks for as a module, are read as before.
+        self.assertFalse([p for p in problems if p.startswith("harness/held.py")], problems)
+
     def test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one(self):
         # Issue 1101: the mutants of a file outside kernel/ live in tools/mutants_of/, and a mutant of a script or a
         # hook names gh or git as the text it finds. Such a file imports no module, and names only from another file
