@@ -32,7 +32,6 @@
 # and a token that may be live is told to the Maintainer. A mint GitHub answered 201 whose token cannot be read is
 # written nowhere, not even to scratch: its token is revoked if it can be found in the answer, and the Maintainer is
 # told it may be live if not.
-# A token that may be live is told in OUT's finish.log too: the script's own words alone, never part of a fixture.
 set -eu
 # Nothing of the shell's environment steers it: no assignment is exported unasked, and no cd looks along CDPATH
 # (issue 1215).
@@ -121,12 +120,6 @@ unset SSLKEYLOGFILE token jwt signature minted minting
 # openssl, which signs with the App's key, load a configuration or a module the shell names (issue 1288).
 unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR CURL_SSL_BACKEND OPENSSL_CONF OPENSSL_CONF_INCLUDE OPENSSL_ENGINES OPENSSL_MODULES
 token=""
-# A token that may be live is told on the terminal and, since the terminal may be gone by then, in OUT's finish.log: a
-# note of the script's own words, with no credential and no answer of GitHub's, from which no fixture is built (issue
-# 1245). It is written only once this run has made OUT.
-noted=""
-note() { [ -z "$noted" ] || printf '%s\n' "$*" >> "$out/finish.log" || true; }
-live() { echo "$*" >&2; note "$*"; }
 
 revoke() {
     printf 'Authorization: Bearer %s\n' "$token" | curl -q --max-time 30 -sS -o /dev/null -w '%{http_code}' -X DELETE -H @- \
@@ -143,8 +136,8 @@ print(found.group(1) if found else "")' 2>/dev/null || true
 }
 
 unrevoked() {
-    live "trial_p8_cost: the token's revocation returned $1, not 204. The token may be live for up to an hour;" \
-        "the Maintainer must revoke it by hand."
+    echo "trial_p8_cost: revoking the token returned $1, not 204. The token may be live for up to an hour;" \
+        "the Maintainer must revoke it by hand." >&2
 }
 
 finish() {
@@ -163,8 +156,8 @@ finish() {
         token=""
     elif [ -n "${minting:-}" ]; then
         # Stopped while the mint was asked: its answer never came back here, and GitHub may have minted one (issue 1215).
-        live "trial_p8_cost: stopped while a token was being minted; GitHub may have minted one, live for up to" \
-            "an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation."
+        echo "trial_p8_cost: stopped while a token was being minted; GitHub may have minted one, live for up to" \
+            "an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation." >&2
     fi
     [ -n "$keep" ] || rm -rf "$scratch"
     [ -z "$keep" ] || printf '%s: the raw answers are kept in %s, as --keep-raw asked; delete it once read\n' trial_p8_cost "$scratch" >&2
@@ -195,7 +188,6 @@ if ! mkdir -m 700 "$out"; then
     echo "trial_p8_cost: $out could not be made new by this run (made since, or refused); name a new directory" >&2
     exit 2
 fi
-noted=1
 date -u +%Y-%m-%dT%H:%M:%SZ > "$out/ran_at"
 
 # The pass's read, as the design shapes it. Its variables size each page; a connection's own count and whether a
@@ -380,8 +372,8 @@ if [ "$minted_status" = 201 ] && [ -z "$token" ]; then
         token=""
         [ "$revoked" = 204 ] || unrevoked "$revoked"
     else
-        live "trial_p8_cost: $slug: GitHub minted a token for installation $installation and its answer could not" \
-            "be read; the token may be live for up to an hour, and the Maintainer must revoke it by hand."
+        echo "trial_p8_cost: $slug: GitHub minted a token for installation $installation and its answer could not" \
+            "be read; the token may be live for up to an hour, and the Maintainer must revoke it by hand." >&2
     fi
     minting=""
     echo "trial_p8_cost: $slug: nothing read, and nothing of the answer kept." >&2
@@ -405,7 +397,6 @@ if [ "$minted_status" != 201 ]; then
         4??) minting="" refused="no token was minted for installation $installation (status $minted_status)" ;;
         *) refused="the mint answered ${minted_status:-none} with no token, and GitHub may have minted one, live for up to an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation" ;;
     esac
-    [ -z "$minting" ] || note "trial_p8_cost: $slug: $refused"
     echo "trial_p8_cost: $slug: $refused;" \
         "nothing read. GitHub answered, redacted:" >&2
     if shown=$(printf '%s\n' "$minted" | (cd "$root" && python3 -m tools.redact_trial) 2>/dev/null); then

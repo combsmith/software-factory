@@ -1,6 +1,6 @@
 """The mutants of `tools/context_eval.sh`, `tools/trial_p12_status.sh`, `tools/trial_p13_cli.sh`, `tools/trial_p13_ended.sh`, `tools/trial_p26_sandbox.sh`, `tools/trial_p39_reach.sh`, `tools/trial_p4_narrow.sh`, `tools/trial_p50_linux_sandbox.sh`, `tools/trial_p51_sandbox_writes.sh`, `tools/trial_p54_issue_lookup.sh`, `tools/trial_p56_comments.sh`, `tools/trial_p58_edits.sh`, `tools/trial_p59_read_confinement.sh`, `tools/trial_p61_timeline.sh`, `tools/trial_p8_cost.sh`, `tools/trial_p80_branch_reads.sh`, `tools/trial_p81_review_order.sh`, `tools/trial_reader_reads.sh`: tools/mutants.py runs them."""
 
-from tools.mutants_of.common import FIRST_NEW, FIRST_OLD, KEEP_1215, P50_TESTS, P59_TESTS, UNPROXIED
+from tools.mutants_of.common import KEEP_1215, P50_TESTS, P59_TESTS, UNPROXIED
 
 P13 = "tools/trial_p13_cli.sh"
 P13_TESTS = "tests.test_tools.TrialScript."
@@ -37,6 +37,9 @@ TRIALS_ROOT = "tests.test_tools.SignalTraps.test_every_trial_finds_its_root_as_t
 TRIALS_SHELL = "tests.test_tools.SignalTraps.test_every_trial_is_steered_by_nothing_of_the_shells_environment"
 TRIALS_KEEP = "tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_in_a_private_directory_it_deletes"
 STATUS_DIGITS = "tests.test_tools.ReachScript.test_a_head_ends_where_the_next_line_is_no_head"
+# A head's first line clears the status, so the first of several heads is kept only with that clearing gone too.
+FIRST_OLD = 'head && /^HTTP\\// { found = "" } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit }'
+FIRST_NEW = '{ sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/ && found == "") found = $2; else exit }'
 ROOTS_1215 = SCRIPTS_1215 + ("trial_p13_cli.sh", "trial_p13_ended.sh", "trial_p26_sandbox.sh", "trial_p61_timeline.sh")
 # Not P-59's: trials/P-59.json holds the canary to have run that file as it is in tools/, byte for byte.
 EVERY_1215 = ROOTS_1215 + ("trial_p50_linux_sandbox.sh", "trial_p51_sandbox_writes.sh")
@@ -61,30 +64,21 @@ def mark_1245(script):
 # a token each could not revoke.
 NOTE_1245 = 'note() { [ -z "$noted" ] || printf \'%s\\n\' "$*" >> "$out/finish.log" || true; }'
 NOTED = "tests.test_tools.SignalTraps.test_every_token_script_tells_a_token_that_may_be_live_in_out_too"
-NARROWED = "tests.test_tools.NarrowedToken."
-REVOKED_1245 = dict({s: ("tests.test_tools.%s.test_a_refused_mint_or_revocation_stops_the_run_and_says_so" % c,) for s, c in FAMILY_1215.items()},
-                    **{"trial_p39_reach.sh": ("tests.test_tools.ReachScript.test_a_revocation_that_is_not_204_is_told_and_tried_once_more",),
-                       "trial_p4_narrow.sh": (NARROWED + "test_a_revocation_that_is_not_204_is_told_and_fails",)})
+REVOKED_1245 = {s: ("tests.test_tools.%s.test_a_refused_mint_or_revocation_stops_the_run_and_says_so" % c,) for s, c in FAMILY_1215.items()}
 
 
 def note_1245(script):
     """The tests that run `script` to a token that may be live and read OUT's note of it."""
-    if script == "trial_p4_narrow.sh":
-        return (NARROWED + "test_a_refused_mint_stops_with_nothing_read_and_the_answer_redacted",)
     return (MINT_REFUSED,) + run_1215(script, "test_a_mint_with_no_token_and_no_refusal_tells_the_maintainer_one_may_be_live")
 
 
 def unrevoked_1245(script):
     """The start of `script`'s words for a token it could not revoke."""
-    if script in ("trial_p4_narrow.sh", "trial_p8_cost.sh"):
-        return 'live "%s: the token\'s revocation returned' % script[:-3]
     return 'live "%s: $1: its revocation returned' % script[:-3]
 
 
 def cut_live_1245(script):
     """The start of `script`'s words for a 201 cut short before its token."""
-    if script in ("trial_p39_reach.sh", "trial_p8_cost.sh"):
-        return 'live "%s: $slug: GitHub minted a token for installation' % script[:-3]
     return 'live "%s: $slug: GitHub minted a token, narrowed to' % script[:-3]
 
 
@@ -1401,7 +1395,8 @@ MUTANTS = [
        ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
       for script in SCRIPTS_1215],
     *[("%s says nothing of a stop mid-mint" % script, "tools/" + script,
-       'live "%s: stopped while a token was being minted;' % script[:-3], ': "%s: stopped while a token was being minted;' % script[:-3],
+       '%s "%s: stopped while a token was being minted;' % ("live" if script in FAMILY_1215 else "echo", script[:-3]),
+       ': "%s: stopped while a token was being minted;' % script[:-3],
        ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
       for script in SCRIPTS_1215],
     # Issue 1215 (the Builder, from P-81's security read): a status is three digits, whole, or none, so nothing else of
@@ -1431,20 +1426,18 @@ MUTANTS = [
                             ("that runs on past three digits", "[0-9][0-9][0-9]/) found"))],
     # Issue 1245: each token that may be live is noted in OUT's finish.log too, for a terminal that is gone; a 4xx is not.
     *[("%s keeps no note of a token that may be live" % script, "tools/" + script, NOTE_1245, "note() { :; }",
-       note_1245(script)) for script in SCRIPTS_1215],
+       note_1245(script)) for script in FAMILY_1215],
     *[("%s tells a stop mid-mint on the terminal alone" % script, "tools/" + script, 'live "%s: stopped while' % script[:-3],
        'echo >&2 "%s: stopped while' % script[:-3], (NOTED,) + run_1215(script, "test_a_stop_while_a_token_is_minted_tells_the_maintainer_it_may_be_live"))
-      for script in SCRIPTS_1215],
+      for script in FAMILY_1215],
     *[("%s tells a token it could not revoke on the terminal alone" % script, "tools/" + script, unrevoked_1245(script),
        unrevoked_1245(script).replace("live ", "echo >&2 ", 1), (NOTED,) + REVOKED_1245.get(script, ()))
-      for script in SCRIPTS_1215],
+      for script in FAMILY_1215],
     *[("%s tells a 201 cut short on the terminal alone" % script, "tools/" + script, cut_live_1245(script),
-       cut_live_1245(script).replace("live ", "echo >&2 ", 1), (MINT_REFUSED,)) for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
+       cut_live_1245(script).replace("live ", "echo >&2 ", 1), (MINT_REFUSED,)) for script in FAMILY_1215],
     *[("%s notes no answer with no token" % script, "tools/" + script, '[ -z "$minting" ] || note "%s: $slug: $refused"\n' % script[:-3], "",
        (MINT_REFUSED,) + run_1215(script, "test_a_mint_with_no_token_and_no_refusal_tells_the_maintainer_one_may_be_live"))
-      for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
+      for script in FAMILY_1215],
     *[("%s notes a refusal that minted nothing" % script, "tools/" + script, '[ -z "$minting" ] || note "%s: $slug: $refused"' % script[:-3],
-       'note "%s: $slug: $refused"' % script[:-3], (MINT_REFUSED,)) for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
-    ("P-4 tells a mint it read no token from on the terminal alone", "tools/trial_p4_narrow.sh", 'live "trial_p4_narrow: no token was read',
-     'echo >&2 "trial_p4_narrow: no token was read', (NARROWED + "test_a_refused_mint_stops_with_nothing_read_and_the_answer_redacted",)),
+       'note "%s: $slug: $refused"' % script[:-3], (MINT_REFUSED,)) for script in FAMILY_1215],
 ]

@@ -70,9 +70,6 @@ KEEP_1215 = (
     ("%s keeps a scratch directory inside the repo", "    exit 2 ;;\nesac\n# The exit trap", "    ;;\nesac\n# The exit trap"),
     ("%s keeps a redacted raw answer to the end", '2> "$out/redacted-$n"\n    drop "$scratch/raw-$n"\n', '2> "$out/redacted-$n"\n'),
 )
-# A head's first line clears the status, so the first of several heads is kept only with that clearing gone too.
-FIRST_OLD = 'head && /^HTTP\\// { found = "" } { sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit }'
-FIRST_NEW = '{ sub(/\\r$/, "") } head && $0 != "" { if (/^HTTP\\/[0-9.]+ [0-9][0-9][0-9]( |$)/ && found == "") found = $2; else exit }'
 # Issue 1288: the line each token script unsets the proxy, TLS and openssl variables curl and openssl read with.
 UNPROXIED = "unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR CURL_SSL_BACKEND OPENSSL_CONF OPENSSL_CONF_INCLUDE OPENSSL_ENGINES OPENSSL_MODULES\n"
 # common.py holds no mutants. Its MUTANTS is empty so that a loader that read it as a file of them would still import,
