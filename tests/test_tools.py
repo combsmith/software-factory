@@ -6301,7 +6301,7 @@ class Workflows(unittest.TestCase):
             commands = [" ".join([e["value"]] + list(e["body"] or [])) for e in entries if e["key"] == "run"]
             return bad + [e["value"] for e in entries if e["key"] == "ref" and e["value"] not in release or e["key"] == "repository"] + [
                 c for c in commands if any(word in c for word in ("git checkout", "git switch", "git fetch", "git pull",
-                                                                  "git worktree", "git clone", "gh pr checkout", "gh repo clone"))]
+                                                                  "git worktree", "git clone", "git -", "gh pr checkout", "gh repo clone"))]
         for path in passed:
             self.assertEqual(checks_out_an_item(files[path]), [], path)
         release_yml = files[".github/workflows/release.yml"]

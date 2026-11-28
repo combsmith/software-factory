@@ -2641,6 +2641,9 @@ class Gated(unittest.TestCase):
         for home in ("combsmith/other", "combsmith", "", None, "combsmith/software-factory/x", "a/b c"):
             self.assertEqual(judged({CALLER_AT: caller(HOME_CALL)}, home=home), workflows.UNREADABLE, home)
         self.assertEqual(judged({CALLER_AT: caller("a/b/c" + HOME_CALL[len(HOME):])}, home="a/b/c"), workflows.UNREADABLE)
+        # A caller a work branch may start, or one off the list, is read as the table says: its call refuses it.
+        self.assertEqual(judged({CALLER_AT: caller(HOME_CALL, "on:\n  pull_request:\n")}), workflows.UNREADABLE)
+        self.assertEqual(judged({CALLER_AT: caller(HOME_CALL)}, listed=["sonar-project.properties"]), workflows.UNREADABLE)
 
     def test_a_secret_handed_to_a_called_workflow_is_held(self):
         # A secret given as an input reaches a called job that names none: every job of a workflow another may call
