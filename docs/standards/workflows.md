@@ -44,8 +44,11 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - run: make verify
-        timeout-minutes: 26
+      # `make verify` in two steps (issue 1050): a failed check ends the leg before any test code runs.
+      - run: make checks
+        timeout-minutes: 4
+      - run: make tests
+        timeout-minutes: 22
   mutants:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

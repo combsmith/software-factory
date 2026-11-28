@@ -1,6 +1,6 @@
 """The mutants of `tools/context_eval.sh`, `tools/trial_p12_status.sh`, `tools/trial_p13_cli.sh`, `tools/trial_p13_ended.sh`, `tools/trial_p26_sandbox.sh`, `tools/trial_p39_reach.sh`, `tools/trial_p4_narrow.sh`, `tools/trial_p50_linux_sandbox.sh`, `tools/trial_p51_sandbox_writes.sh`, `tools/trial_p54_issue_lookup.sh`, `tools/trial_p56_comments.sh`, `tools/trial_p58_edits.sh`, `tools/trial_p59_read_confinement.sh`, `tools/trial_p61_timeline.sh`, `tools/trial_p8_cost.sh`, `tools/trial_p80_branch_reads.sh`, `tools/trial_p81_review_order.sh`, `tools/trial_reader_reads.sh`: tools/mutants.py runs them."""
 
-from tools.mutants_of.common import FIRST_NEW, FIRST_OLD, KEEP_1215, P50_TESTS, P59_TESTS, UNPROXIED
+from tools.mutants_of.common import FIRST_NEW, FIRST_OLD, KEEP_1215, P50_TESTS, P59_TESTS, UNPROXIED, ISOLATED, ISOLATED_TEST, UNISOLATED, WITH_SITE
 
 P13 = "tools/trial_p13_cli.sh"
 P13_TESTS = "tests.test_tools.TrialScript."
@@ -917,7 +917,7 @@ MUTANTS = [
     ("P-56's token reaches every repo", "tools/trial_p56_comments.sh", '"{\\"repositories\\":[\\"$name\\"],', '"{', ("tests.test_tools.CommentsReadTrial.test_each_read_is_made_with_each_token_kept_with_its_status_and_no_token_is_kept",)),
     # Issue 551: trial P-61's script reads each step through the Maintainer's login and keeps it only redacted.
     ("P-61 keeps the raw answer", "tools/trial_p61_timeline.sh",
-     '(cd "$root" && python3 -m tools.redact_trial < "$dir/raw" > "$out/clean-$step")', '(cp "$dir/raw" "$out/clean-$step")', ("tests.test_tools.TimelineTrial.test_each_step_is_read_kept_redacted_outside_the_repo_and_named",)),
+     '(cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$dir/raw" > "$out/clean-$step")', '(cp "$dir/raw" "$out/clean-$step")', ("tests.test_tools.TimelineTrial.test_each_step_is_read_kept_redacted_outside_the_repo_and_named",)),
     ('P-61 asks no close or reopening of the pull request', "tools/trial_p61_timeline.sh",
      'CLOSED_EVENT,REOPENED_EVENT,MERGED_EVENT', 'MERGED_EVENT', ('tests.test_tools.TimelineTrial.test_each_step_is_read_kept_redacted_outside_the_repo_and_named',)),
     ("P-61 reads the pull request's timeline in part", "tools/trial_p61_timeline.sh",
@@ -936,7 +936,7 @@ MUTANTS = [
     ("P-61 takes GraphQL's errors as a read", "tools/trial_p61_timeline.sh", 'and not answer.get("errors") and whole', 'and whole', ('tests.test_tools.TimelineTrial.test_a_refused_read_is_said_and_offered_again_before_anything_changes',)),
     ('P-61 takes a failed gh as a read', "tools/trial_p61_timeline.sh", '    if [ "$status" -eq 0 ] && python3 -I -c', '    if python3 -I -c', ('tests.test_tools.TimelineTrial.test_a_refused_read_is_said_and_offered_again_before_anything_changes',)),
     ('P-61 offers no second read', "tools/trial_p61_timeline.sh", '    until read_step "$@"; do\n', '    if ! read_step "$@"; then exit 1; fi; while false; do\n', ('tests.test_tools.TimelineTrial.test_a_refused_read_is_said_and_offered_again_before_anything_changes',)),
-    ("P-61 shows gh's complaint unredacted", "tools/trial_p61_timeline.sh", '    (cd "$root" && python3 -m tools.redact_trial < "$dir/err") >&2 2>/dev/null || true\n', '    cat "$dir/err" >&2\n', ('tests.test_tools.TimelineTrial.test_a_refused_read_is_said_and_offered_again_before_anything_changes',)),
+    ("P-61 shows gh's complaint unredacted", "tools/trial_p61_timeline.sh", '    (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$dir/err") >&2 2>/dev/null || true\n', '    cat "$dir/err" >&2\n', ('tests.test_tools.TimelineTrial.test_a_refused_read_is_said_and_offered_again_before_anything_changes',)),
     ('P-61 keeps its scratch inside the repo', "tools/trial_p61_timeline.sh", 'case "$real/" in "$root"/*) echo "trial_p61_timeline: the scratch directory', 'case "$real/" in "$root"/nowhere/*) echo "trial_p61_timeline: the scratch directory', ('tests.test_tools.TimelineTrial.test_a_scratch_directory_inside_the_repo_is_refused',)),
     ('P-61 writes under a directory others can write', "tools/trial_p61_timeline.sh", '-o \\( -perm -0020 -o -perm -0002 \\) ! -perm -1000 \\)', '\\)', ('tests.test_tools.TimelineTrial.test_what_it_is_given_is_held_before_anything_is_read',)),
     ('P-61 takes a number with a leading zero', "tools/trial_p61_timeline.sh", '        ""|0*|*[!0-9]*) echo "trial_p61_timeline: $number', '        ""|*[!0-9]*) echo "trial_p61_timeline: $number', ('tests.test_tools.TimelineTrial.test_what_it_is_given_is_held_before_anything_is_read',)),
@@ -1455,4 +1455,9 @@ MUTANTS = [
     # And the note comes before the terminal's line, so a terminal gone loses nothing.
     *[("%s tells the terminal before it notes" % script, "tools/" + script, 'live() { note "$*"; echo "$*" >&2; }',
        'live() { echo "$*" >&2; note "$*"; }', (NOTED,)) for script in SCRIPTS_1215],
+    # Issue 1300: every redaction runs as a file under -I and -S.
+    *[(name % script, "tools/" + script, ISOLATED + after, call + after, ISOLATED_TEST)
+      for script, after in (("trial_p13_cli.sh", ' < "$1"'), ("trial_p26_sandbox.sh", ' < "$1"'), ("trial_p61_timeline.sh", ' < "$dir/raw"'))
+      for name, call in (("%s runs a redaction the shell's modules can steer", UNISOLATED),
+                         ("%s runs a redaction that reads site-packages", WITH_SITE))],
 ]

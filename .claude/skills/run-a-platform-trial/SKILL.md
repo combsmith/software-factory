@@ -92,7 +92,7 @@ artifact. No `set -x`, and no verbose curl.
    record the request yourself: who made it (`as`: kind and name, never the credential), how
    (`via`), the call, every `-H` header you passed, and the body sent.
 3. **Do not read it yet.** A raw capture is never printed, opened or read in this session.
-4. **Redact it, then read only what comes out.** From the repo, `python3 -m tools.redact_trial
+4. **Redact it, then read only what comes out.** From the repo, `python3 -I -S tools/redact_trial.py
    < "$dir/raw-1" > "$dir/clean-1"`: it reads the capture on standard input and writes it clean on
    standard output, opening no path. It deletes every field named for a credential, every header a
    fixture may not keep, and every string or line shaped like a credential, and says where on
@@ -121,6 +121,6 @@ artifact. No `set -x`, and no verbose curl.
    - branches, pull requests, issues, check runs and workflow runs that hold anything not redacted.
 
    Keep only what the story says stays.
-9. **Verify, then hand over.** `make checks` and `python3 -m tools.mutants PATH...` pass at the desk, and CI's `make verify`. The pull request
+9. **Verify, then hand over.** `make checks` and `python3 -m tools.mutants PATH...` pass at the desk, and CI's `make checks`, then `make tests`. The pull request
    holds the fixture and its grounding only, and is the Maintainer's to open. Its body names the
    trial, the verdict, what was removed, and what step 8 undid.

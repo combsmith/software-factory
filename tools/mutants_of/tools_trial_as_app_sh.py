@@ -1,6 +1,6 @@
 """The mutants of `tools/trial_as_app.sh`: tools/mutants.py runs them."""
 
-from tools.mutants_of.common import UNPROXIED
+from tools.mutants_of.common import UNPROXIED, ISOLATED, ISOLATED_TEST, UNISOLATED, WITH_SITE
 
 TARGETS = ("tools/trial_as_app.sh",)
 MUTANTS = [
@@ -122,4 +122,9 @@ MUTANTS = [
     ("the App's gh takes a pager or a configuration from the shell", "tools/trial_as_app.sh", "unset GH_CONFIG_DIR XDG_CONFIG_HOME GH_FORCE_TTY GH_PAGER PAGER\n", "", ("tests.test_tools.AppThreads.test_gh_reads_no_configuration_of_the_shells",)),
     ("the App's openssl takes a relative include from the shell", "tools/trial_as_app.sh", " OPENSSL_CONF_INCLUDE", "",
      ("tests.test_tools.SignalTraps.test_every_trial_takes_nothing_of_the_maintainers_environment",)),
+    # Issue 1300: its redaction runs as a file under -I.
+    ("trial_as_app.sh runs a redaction the shell's modules can steer", "tools/trial_as_app.sh", ISOLATED + ' < "$1"', UNISOLATED + ' < "$1"',
+     ISOLATED_TEST),
+    ("trial_as_app.sh runs a redaction that reads site-packages", "tools/trial_as_app.sh", ISOLATED + ' < "$1"', WITH_SITE + ' < "$1"',
+     ISOLATED_TEST),
 ]
