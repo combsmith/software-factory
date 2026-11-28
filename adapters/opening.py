@@ -17,10 +17,11 @@ only what `allowed` lets through.
   (section 4.1); one a person closed is `opened_closed`, and none is opened beside it. Else the draft is opened once,
   and `applied` only when read back by its number: open, opened by `login`, from `branch` of `repo` itself at
   `commit`, the one the push landed, to `base`, a draft. A 401 or a 403 is `refused`, `token_refused`; a list not
-  read whole, `pulls_unreadable`: it is whole only with no next page and each entry saying who opened it from where;
-  two by `login` from the branch, `opened_twice`; a write GitHub did not answer or did not take, `write_unanswered`
-  or `write_refused`; a write taken whose read-back fails, a 401 or a 403 on it among them, is `sent`, and nothing is
-  claimed for it. One told wrongly sends nothing, `TOLD_WRONGLY`; a pull request is the App's only as a `Bot`.
+  read whole, `pulls_unreadable`: it is whole only with no next page and each entry saying who opened it, a person
+  or an App, from where; two by `login` from the branch, `opened_twice`; a write GitHub did not answer or did not
+  take, `write_unanswered` or `write_refused`; a write taken whose read-back fails, a 401 or a 403 on it among them,
+  is `sent`, and nothing is claimed for it. One told wrongly sends nothing, `TOLD_WRONGLY`; a pull request is the
+  App's only as a `Bot`.
 
 Limits: the read-back holds the head, not the text, which `allowed` held as it was sent; a login or a repo is
 compared in the case given, so one GitHub reads back in another case claims nothing; a rate limit's 403 is

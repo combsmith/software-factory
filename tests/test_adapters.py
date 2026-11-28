@@ -9844,7 +9844,7 @@ class Opening(unittest.TestCase):
             self.assertEqual(apply.opened("e1", 12, OPENED_FROM, back)["key"], None)
 
     def test_a_listed_pull_request_that_says_not_whether_a_person_or_an_app_opened_it_posts_nothing(self):
-        # One of the App's login that says no kind may be its own draft, so none is opened beside it (issue 1346).
+        # One that does not say it is a person's or an App's may be the App's own draft: none is opened (issue 1346).
         for user in ({"login": OPENER}, {"login": OPENER, "type": None}, {"login": OPENER, "type": "Organization"},
                      {"login": OPENER, "type": ["Bot"]}, {"login": "someone", "type": "bot"}):
             back, sent = self.opened({self.LIST: {"status": 200, "body": [dict(self.pull(5), user=user)]},
