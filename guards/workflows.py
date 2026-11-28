@@ -16,7 +16,7 @@ says is refused, never passed.
     stands); a key the table does not name, at the top, in a job or in a step; a job that calls another workflow or
     runs in a container; a step that runs a command (`run:`) or uses an action, at its pin, that `ACTIONS` does not
     name; an input of an action its row does not name, or one whose value holds an expression, `${{`, which may read
-    a file; a job whose steps are no list of items, or none; an `env:` name outside `ENV`; a double-quoted value that
+    a file; a job whose steps are no list of items, or none; an `env:` name outside `ENV`; a quoted `{}`; a double-quoted value that
     holds an escape.
   - `UNLISTED`: a file the job takes its settings from, its own workflow among them, that the list holds neither word
     for word nor under a directory it names.
@@ -113,7 +113,8 @@ def _value(said: str):
     if first in ("'", '"'):
         inner = plain[1:-1]
         whole = len(plain) > 1 and plain[-1:] == first and first not in inner
-        return inner if whole and not (first == '"' and "\\" in inner) else None
+        # A quoted `{}` is the text, not the empty mapping: it is read nowhere, so never as quiet permissions.
+        return inner if whole and not (first == '"' and "\\" in inner) and inner != "{}" else None
     return None if first and first in MARKS else plain
 
 

@@ -2279,6 +2279,8 @@ class Secrets(unittest.TestCase):
             "a scope of no word read": tested("      contents: read\n", "      contents: reader\n"),
             "a scope with kids": tested("      contents: read\n", "      contents:\n        x: read\n"),
             "a scope of an item": tested("      contents: read\n", "      - read\n"),
+            "permissions of the text {} quoted": tested(own, "    permissions: '{}'\n"),
+            "permissions of the text {} double-quoted": tested(own, '    permissions: "{}"\n'),
             "a secret named in its env": tested("    steps:\n", "    env:\n      X: ${{ secrets.X }}\n    steps:\n"),
             "a secret named in a step": tested("        run: make test\n", "        run: make test ${{ secrets.X }}\n"),
             "a secret named in capitals": tested("        run: make test\n", "        run: echo ${{ SECRETS.X }}\n"),

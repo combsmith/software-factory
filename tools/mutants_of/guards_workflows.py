@@ -242,4 +242,7 @@ MUTANTS = [
     ("a job of no body is read", 'guards/workflows.py',
      ' or job["value"] or not job["kids"] for job in jobs["kids"]):\n',
      ' or job["value"] for job in jobs["kids"]):\n', WHOLE),
+    ("a quoted {} is the empty mapping", 'guards/workflows.py',
+     ' and inner != "{}" else None\n',
+     ' else None\n', HOLDS),
 ]
