@@ -14431,9 +14431,9 @@ class Verify(unittest.TestCase):
         self.assertIn("a problem", said.getvalue())
 
     def test_the_legs_of_make_verify_run_every_test_once(self):
-        # CI runs `make verify` in legs (docs/standards/workflows.md): each runs every check and each count-th test from
-        # its place, so that across the legs every test of the whole suite runs, the seeded simulation's included, and
-        # none twice. A leg it cannot read stops the run before any check or test.
+        # CI runs `make tests` in legs, after a step of `make checks` (docs/standards/workflows.md): each runs each
+        # count-th test from its place, so that across the legs every test of the whole suite runs, the seeded
+        # simulation's included, and none twice. A leg it cannot read stops the run before any check or test.
         whole = [test.id() for test in verify._tests(verify.suite(False))]
         self.assertTrue({"tests.test_simulator", "tests.test_issue_simulator"} <= {i.rsplit(".", 2)[0] for i in whole})
         for count in (1, 2, 3, 5):
@@ -18990,7 +18990,7 @@ class Desk(unittest.TestCase):
 
     def test_make_checks_note_fails_nothing(self):
         # The note is printed after the checks have answered, and nothing it does, an error or an exit, changes the
-        # answer. CI's legs never run it.
+        # answer. CI never runs it: a leg or CI set, its code is never imported (issue 1050).
         def ran(argv: list, checks_failed: bool, note) -> tuple:
             printed = io.StringIO()
             with mock.patch.object(verify, "failed", return_value=checks_failed), \
@@ -19004,6 +19004,14 @@ class Desk(unittest.TestCase):
                                (KeyboardInterrupt, "KeyboardInterrupt")):
                 self.assertEqual(ran(["--checks"], checks_failed, note),
                                  (int(checks_failed), "%-22s no note: it raised %s\n" % ("diff size", name)))
+        for environ in ({"CHECKS_SHARD": "0", "CHECKS_SHARDS": "2"}, {"CHECKS_SHARD": "1"}, {"CI": "true"}):
+            for checks_failed in (False, True):
+                printed = io.StringIO()
+                with mock.patch.object(verify, "failed", return_value=checks_failed), \
+                        mock.patch.object(verify, "desk_note") as note, contextlib.redirect_stdout(printed):
+                    self.assertEqual(verify.main(["--checks"], environ), int(checks_failed), environ)
+                note.assert_not_called()
+                self.assertEqual(printed.getvalue(), "", environ)
         for checks_failed in (False, True):
             read, write = os.pipe()
             os.close(read)      # a reader that closed before the note
