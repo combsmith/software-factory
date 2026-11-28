@@ -21,7 +21,7 @@ import urllib.parse
 import zipfile
 from unittest import mock
 
-from adapters import acceptance, applied, artifacts, branches, checks, draft_checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
+from adapters import acceptance, applied, artifacts, base, branches, checks, draft_checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
     opening, passes, pull, push, records, pause, rules, texts, threads, timeline
 from controller import shared
 from guards import patch
@@ -9782,6 +9782,70 @@ class Opening(unittest.TestCase):
             back = opening.write(scripted, repo, branch, base, (commit or [LANDED])[0], title, body, login)
             self.assertEqual((back, scripted.sent), ({"state": "refused", "number": None, "head": None,
                                                       "reason": opening.TOLD_WRONGLY}, []), (repo, branch, base))
+
+
+class Base(unittest.TestCase):
+    """Where the commit an opening admission carries stands on the default branch at the push (decision 0242)."""
+    ADMITTED, HEAD = "a" * 40, "b" * 40
+    COMPARE = "/repos/o/r/compare/%s...%s?per_page=1" % ("a" * 40, "b" * 40)
+
+    class Kept:
+        """A transport that keeps what was asked and answers nothing."""
+        def __init__(self):
+            self.sent = []
+
+        def send(self, req):
+            self.sent.append(req)
+            raise github.Unanswered("nothing is answered here")
+
+    def on(self, head=None, compare=None, status=200, admitted=None):
+        """What the port tells of `admitted` on o/r's default branch, `main` at `head`, compared as `compare` says."""
+        ref = {"ref": "refs/heads/main", "object": {"type": "commit", "sha": head or self.HEAD}}
+        exchanges = [rest_answer("/repos/o/r", {"default_branch": "main"}), rest_answer("/repos/o/r/git/ref/heads/main", ref)]
+        if compare is not None:
+            exchanges.append(rest_answer(self.COMPARE, compare))
+            exchanges[-1]["response"]["status"] = status
+        return base.on_default(github.Replay(exchanges), "o/r", admitted or self.ADMITTED)
+
+    @staticmethod
+    def compared(status, merge_base="a" * 40):
+        return {"status": status, "merge_base_commit": {"sha": merge_base}, "ahead_by": 1, "behind_by": 0}
+
+    def test_the_admitted_sha_is_the_head_an_ancestor_of_it_or_neither(self):
+        # The head itself asks nothing more: a comparison asked would find no answer, and be none of the three.
+        self.assertEqual(self.on(head=self.ADMITTED), (base.HEAD, self.ADMITTED))
+        # A head ahead of the admitted sha, whose merge base is that sha, holds it: an ancestor.
+        self.assertEqual(self.on(compare=self.compared("ahead")), (base.ANCESTOR, self.HEAD))
+        # Behind it or apart from it, the admitted sha was rewritten away: neither.
+        for status in ("behind", "diverged"):
+            self.assertEqual(self.on(compare=self.compared(status, "c" * 40)), (base.NEITHER, self.HEAD), status)
+            self.assertEqual(self.on(compare=self.compared(status)), (base.NEITHER, self.HEAD), status)
+
+    def test_a_comparison_that_cannot_be_read_is_none_of_the_three(self):
+        # What no history holds is untold, never a case: ahead of another merge base, or identical though the heads
+        # differ; and so is a comparison of another status, shape or word, or one GitHub does not answer.
+        for compare, status in ((self.compared("ahead", "c" * 40), 200), (self.compared("ahead", None), 200),
+                                (dict(self.compared("ahead"), merge_base_commit="a" * 40), 200),
+                                (self.compared("identical"), 200), (self.compared("Ahead"), 200),
+                                (self.compared("ahead"), 206), (self.compared("behind"), 404),
+                                ({"message": "No common ancestor"}, 404), ([self.compared("ahead")], 200),
+                                ({"merge_base_commit": {"sha": "a" * 40}}, 200)):
+            self.assertEqual(self.on(compare=compare, status=status), (None, self.HEAD), (compare, status))
+        self.assertEqual(self.on(), (None, self.HEAD))      # the comparison is asked, and not answered
+
+    def test_a_head_or_a_sha_that_cannot_be_read_is_none_of_the_three_and_nothing_is_compared(self):
+        # The default branch's head is read as the issues port reads it; unread, nothing is compared.
+        self.assertEqual(base.on_default(github.Replay([rest_answer("/repos/o/r", {})]), "o/r", self.ADMITTED),
+                         (None, None))
+        self.assertEqual(base.on_default(github.Replay([]), "o/r", self.ADMITTED), (None, None))
+        # A sha or a repo told wrongly asks nothing at all.
+        for repo, admitted in (("o/r", "a" * 39), ("o/r", "A" * 40), ("o/r", None), ("o/r", Lying("a" * 40)),
+                               ("o/r", "a" * 40 + "\n"), ("o", "a" * 40), ("o/..", "a" * 40), (None, "a" * 40),
+                               (Lying("o/r"), "a" * 40)):
+            kept = self.Kept()
+            self.assertEqual(base.on_default(kept, repo, admitted), (None, None), (repo, admitted))
+            self.assertEqual(kept.sent, [], (repo, admitted))
+
 
 if __name__ == "__main__":
     unittest.main()
