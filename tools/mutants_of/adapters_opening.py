@@ -6,6 +6,7 @@ OPENING_TOKEN = ('tests.test_adapters.Opening.test_a_roles_token_opens_one_draft
 OPENING_ONCE = ('tests.test_adapters.Opening.test_a_draft_is_opened_once_and_claimed_only_when_read_back_by_its_number',)
 OPENING_RECOVERED = ('tests.test_adapters.Opening.test_a_draft_its_app_already_opened_from_the_branch_is_recovered_and_none_is_opened',)
 OPENING_BACK = ('tests.test_adapters.Opening.test_an_opening_not_read_back_whole_claims_nothing_and_says_why',)
+OPENING_KIND = ('tests.test_adapters.Opening.test_a_listed_pull_request_that_says_not_whether_a_person_or_an_app_opened_it_posts_nothing',)
 OPENING_TOLD = ('tests.test_adapters.Opening.test_an_opening_told_wrongly_sends_nothing',)
 OPENING_PY = 'adapters/opening.py'
 
@@ -25,6 +26,8 @@ MUTANTS = [
     ("a draft of other text than was held may be sent", OPENING_PY, ' and (sent["title"], sent["body"]) == text', '', OPENING_TOKEN),
     ("a list with a next page is read whole", OPENING_PY, ' or _more(answer) \\\n', ' \\\n', OPENING_BACK),
     ("a list entry that says nothing of its author is passed over", OPENING_PY, '            or not all(_readable(p) for p in listed):', '            or False:', OPENING_BACK),
+    ("a list entry whose author is neither a person nor an App is read", OPENING_PY, ' and user.get("type") in ("User", "Bot") \\\n', ' \\\n', OPENING_KIND),
+    ("a list entry a person opened is passed over", OPENING_PY, 'user.get("type") in ("User", "Bot")', 'user.get("type") in ("Bot",)', OPENING_KIND),
     ("a draft read back at another head is claimed", OPENING_PY, '            and back["head"].get("sha") == commit', '            and True', OPENING_RECOVERED + OPENING_BACK),
     ("a 403 after the draft was taken is a refusal", OPENING_PY, 'return _back("sent") if posted else', 'return', OPENING_BACK),
     ("a 201 with no body is a refused write", OPENING_PY, '            made = made if isinstance(made, dict) else {}', '            pass', OPENING_BACK),
