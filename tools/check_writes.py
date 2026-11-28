@@ -95,7 +95,7 @@ NAMESPACES = ("__dict__", "__getattribute__", "__getattr__")
 LOADER_MODULES = ("importlib", "builtins", "pkgutil", "runpy")
 BY_NAME = ("sys", "modules", "__builtins__", "__import__") + LOADER_MODULES
 # Where a package finds its modules: changed, it loads a file under a name the syntax reads as another (issue 1323).
-PACKAGE_PATHS = ("__path__", "submodule_search_locations")
+PACKAGE_PATHS = ("__path__", "submodule_search_locations", "__package__")
 # The calls that read a key of a mapping by its name, bound or unbound, `dict.get(d, k)` (Muse's reads of issue 655's
 # change): `_keys` gives the argument each reads as its key.
 ACCESSORS = ("get", "pop", "setdefault", "__getitem__", "__delitem__")
@@ -148,6 +148,7 @@ class Module:
         self.conflicts, self.formatted, self.stars = set(), set(), []     # names bound two ways; `%` formats; import *
         self.nodes = list(ast.walk(tree))
         self.imports = []       # (line, module) for each module an import names, `import a.b` and `from .b import c`
+        self.froms = []         # (line, module, name) for each name an import takes from a module
         for node in self.nodes:     # an import anywhere, for one made inside a function binds as well
             bound = []
             if isinstance(node, ast.Import):
@@ -159,6 +160,7 @@ class Module:
                 base = package.split(".")[:len(package.split(".")) - node.level + 1] if node.level else []
                 source = ".".join(base + ([node.module] if node.module else [])) if node.level else node.module
                 self.imports.append((node.lineno, source))
+                self.froms += [(node.lineno, source, alias.name) for alias in node.names if alias.name != "*"]
                 for alias in node.names:
                     if alias.name == "*":
                         self.stars.append((node.lineno, source))
@@ -638,26 +640,32 @@ def _loaded(mods: dict, mod: Module) -> list:
 def _unheld(mods: dict, mod: Module) -> list:
     """Each line that imports a module below a package of the repo's that the repo does not hold, `import harness.github`
     with no harness/github.py: Python loads it only where something has changed how the package finds its modules, and
-    then it is a file this check reads under another name, if at all (issue 1323)."""
+    then it is a file this check reads under another name, if at all (issue 1323). So is a name taken from a package of
+    the repo's that neither defines it nor holds it as a module, `from harness import github`: Python looks for the
+    module, used or not."""
     return sorted({line for line, name in mod.imports if _package(mods, name.split(".")[0])
-                   and not _package(mods, name)})
+                   and not _package(mods, name)}
+                  | {line for line, source, name in mod.froms if _package(mods, source)
+                     and (_lookup(mods, source, name) or ("",))[0] == "unknown"})
 
 
 def _paths(mod: Module) -> list:
-    """Each line that names a package's `__path__` or its spec's `submodule_search_locations`, as a name, an attribute,
-    an import, a def, a class, a handler's name, a keyword or a literal text: a package whose path is changed loads a
-    file of another folder under its own name, so a write through it is read under a name the syntax does not know
-    (issue 1323). This file's own table aside. Its limits: a name built at run time, a pattern's attribute, and a change
-    to `sys.path`, `sys.meta_path` or `sys.path_hooks`."""
-    table = {id(n) for node in mod.tree.body if mod.rel == "tools/check_writes.py" and isinstance(node, ast.Assign)
-             and [getattr(t, "id", None) for t in node.targets] == ["PACKAGE_PATHS"] for n in ast.walk(node.value)}
+    """Each line that names a package's `__path__`, its spec's `submodule_search_locations` or a module's `__package__`,
+    as a name, an attribute, an import, anything else that binds a name (a def, a class, a handler, a pattern's
+    capture), a keyword or a literal text: a package whose path is changed loads a file of another folder under its own
+    name, and a module whose package is changed imports another's modules by its relative names, so a write through
+    either is read under a name the syntax does not know (issue 1323). The texts of this file's own table aside. Its
+    limits: a name built at run time, a pattern's attribute, and a change to `sys.path`, `sys.meta_path` or
+    `sys.path_hooks`."""
+    table = {id(e) for node in mod.tree.body if mod.rel == "tools/check_writes.py" and isinstance(node, ast.Assign)
+             and [getattr(t, "id", None) for t in node.targets] == ["PACKAGE_PATHS"] and isinstance(node.value, ast.Tuple)
+             for e in node.value.elts if isinstance(e, ast.Constant)}
     return sorted({n.lineno for n in mod.nodes if id(n) not in table and (
                    isinstance(n, ast.Name) and n.id in PACKAGE_PATHS
                    or isinstance(n, ast.Attribute) and n.attr in PACKAGE_PATHS
-                   or isinstance(n, (ast.Import, ast.ImportFrom)) and any(a.name in PACKAGE_PATHS or a.asname in PACKAGE_PATHS
-                                                                         for a in n.names)
-                   or isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.ExceptHandler))
-                   and n.name in PACKAGE_PATHS
+                   or isinstance(n, (ast.Import, ast.ImportFrom)) and any(a.name.split(".")[0] in PACKAGE_PATHS
+                                                                         or a.asname in PACKAGE_PATHS for a in n.names)
+                   or not isinstance(n, ast.alias) and any(getattr(n, field, None) in PACKAGE_PATHS for field in ("name", "rest"))
                    or isinstance(n, ast.keyword) and n.arg in PACKAGE_PATHS
                    or _literal(n) in PACKAGE_PATHS)})
 
@@ -1125,6 +1133,11 @@ def run(root: pathlib.Path = ROOT) -> list:
                             % (mods[_name(rel)].rel, rel, _name(rel)))
             continue
         mods[_name(rel)] = Module(rel, tree, known)
+    # harness/x.py beside a folder harness/x/ of modules: Python imports the file, whose own __getattr__ may give it a
+    # path, so what the folder holds is read under a name that may load another file (issue 1323).
+    problems += ["%s and the folder %s/ are one name, %s, which Python imports as the file, so what the folder holds "
+                 "cannot be read; keep one" % (mod.rel, mod.rel[:-len(".py")], name) for name, mod in sorted(mods.items())
+                 if not mod.rel.endswith("__init__.py") and any(other.startswith(name + ".") for other in mods)]
     reading = Reading(mods)
     problems += reading.problems
     inert = {}      # each file of the mutants read once in a run, whichever file names from it
