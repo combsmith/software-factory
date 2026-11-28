@@ -468,6 +468,18 @@ class Record(unittest.TestCase):
         entries = passed(reads(pulls=[pr(42)], runs=[run(number=42)]), cfg=told)["record"]["pull_requests"]
         self.assertEqual([(e["decision"].get("action"), "advisory_ask" in e) for e in entries], [("issue_approval", False)])
 
+    def test_a_records_unlisted_yeses_and_doubt_are_held_to_their_form(self):  # issue 932
+        # The next pass reads back what a record carries, so its schema refuses any other shape of either field.
+        base = passed(reads(pulls=[]))["record"]
+        entry = {"run": "r_00000A", "told_at": "2026-10-11T12:00:00Z"}
+        whole = dict(base, advisory_unlisted=[entry] * 1000, advisory_doubt_until="2026-10-11T13:00:00Z")
+        self.assertEqual(shared.errors(whole, "pass"), [])
+        for odd in ({"advisory_doubt_until": "2026-10-11T13:00:00"}, {"advisory_unlisted": [entry] * 1001},
+                    {"advisory_unlisted": [{}]}, {"advisory_unlisted": [{"run": "r_00000A"}]},
+                    {"advisory_unlisted": [dict(entry, extra=1)]}, {"advisory_unlisted": [dict(entry, run="bad")]},
+                    {"advisory_unlisted": [dict(entry, told_at="2026-10-11T12:00:00")]}):
+            self.assertTrue(shared.errors(dict(whole, **odd), "pass"), odd)
+
     def test_a_review_told_yes_a_pass_before_counts_until_its_run_is_listed(self):  # issue 932
         # Between a dispatch and GitHub's list of Runs no record holds the Run, so the yes a pass before told it is
         # counted at the worst case; once its record is listed, the record counts instead, and a no told counts nothing.
@@ -501,6 +513,9 @@ class Record(unittest.TestCase):
         self.assertEqual(asks(previous=(dict(quiet, advisory_unlisted=[]), dict(later, advisory_unlisted=aged))), [True])
         hour = [dict(e, told_at="2026-10-11T12:00:00Z") for e in later["advisory_unlisted"]]
         self.assertEqual(asks(previous=(dict(quiet, advisory_unlisted=[]), dict(later, advisory_unlisted=hour))), [False])
+        # One told in the pass's own second still counts.
+        same = [dict(e, told_at=NOW) for e in later["advisory_unlisted"]]
+        self.assertEqual(asks(previous=(dict(quiet, advisory_unlisted=[]), dict(later, advisory_unlisted=same))), [False])
         # Each yes keeps the moment it was first told as it is carried: two passes on, an hour after it, it lapses.
         self.assertEqual({e["told_at"] for e in quiet["advisory_unlisted"] + later["advisory_unlisted"]}, {first["now"]})
         self.assertEqual(asks(previous=(dict(first, now="2026-10-11T11:59:59Z", advisory_unlisted=[]),)), [True])
