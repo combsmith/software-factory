@@ -32,5 +32,5 @@ Status: accepted. The Maintainer's approval of 2026-10-30, for "Identity: a keyl
 | The job is granted `contents: read` and `pull-requests: read` and nothing else, and given its own token by name; a list of an event's types is a filter | `tests/test_tools.py::test_the_commits_job_reads_the_pull_requests_commits_from_the_base`, `examples/workflows/invalid/queue.a-type-left-out.yml` |
 | The job refuses for the commits or for the opener, neither in place of the other, and says what it held | `tests/test_tools.py::test_the_job_refuses_for_the_commits_or_the_opener_and_says_what_it_holds` |
 | The list is required, holds at least one account, each once, and each has a login that is one, an id that is one, and what it is | `tools/check_examples.py` |
-| The Factory's App joins the list by a record when an Intent can open a pull request | waiting on `harness/push.py` |
+| The Factory's App joins the list by a record when an Intent can open a pull request | waiting on `harness/opening.py` |
 | Each of these rules has a mutant that a test kills | `tools/mutants.py` |
