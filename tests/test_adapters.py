@@ -9569,6 +9569,7 @@ class Push(unittest.TestCase):
 OPENED_IN = "combsmith/widgets"
 OPENED_FROM = "factory-work/issue-12-1"
 OPENER = "combsmith-sf-qa-lead[bot]"
+LANDED = "a" * 40
 
 
 class Opening(unittest.TestCase):
@@ -9593,13 +9594,13 @@ class Opening(unittest.TestCase):
     @staticmethod
     def pull(number=7, login=OPENER, ref=OPENED_FROM, repo=OPENED_IN, base="main", draft=True):
         return {"number": number, "state": "open", "user": {"login": login},
-                "head": {"ref": ref, "repo": {"full_name": repo}}, "base": {"ref": base}, "draft": draft}
+                "head": {"ref": ref, "sha": LANDED, "repo": {"full_name": repo}}, "base": {"ref": base}, "draft": draft}
 
     def opened(self, script, title="docs: say it (#12)", body="Closes #12\n\nText.", base="main"):
         """What the port read back, through the Role's token narrowed to the opening, and what it sent."""
         scripted = self.Scripted(script)
-        sender = effects.Allowed(scripted, *opening.allowed(OPENED_IN, OPENED_FROM, base))
-        return opening.write(sender, OPENED_IN, OPENED_FROM, base, title, body, OPENER), scripted.sent
+        sender = effects.Allowed(scripted, *opening.allowed(OPENED_IN, OPENED_FROM, base, title, body))
+        return opening.write(sender, OPENED_IN, OPENED_FROM, base, LANDED, title, body, OPENER), scripted.sent
 
     def test_a_drafts_text_is_held_to_githubs_bounds_in_bytes_of_utf_8(self):
         for title, body, code in (("t" * 256, "b", None), ("t" * 257, "b", opening.TITLE_BYTES),
@@ -9614,7 +9615,7 @@ class Opening(unittest.TestCase):
             self.assertEqual(opening.refusal(title, body), code, (title[:3] if isinstance(title, str) else title, code))
 
     def test_a_roles_token_opens_one_draft_from_its_branch_to_its_base_and_reads_it_alone(self):
-        permits, patterns = opening.allowed(OPENED_IN, OPENED_FROM, "main")
+        permits, patterns = opening.allowed(OPENED_IN, OPENED_FROM, "main", "t", "b")
         allowed = effects.Allowed(self.Scripted({}), permits, patterns)
         good = {"title": "t", "body": "b", "head": OPENED_FROM, "base": "main", "draft": True}
         for req, sends in ((github.request(*self.LIST), True), (github.request(*self.READ), True),
@@ -9628,6 +9629,7 @@ class Opening(unittest.TestCase):
                 (github.request("POST", self.OPEN[1], body=dict(good, **{key: value})), False)
                 for key, value in (("draft", False), ("draft", 1), ("head", "factory-work/issue-13-1"),
                                    ("base", "release"), ("title", "t" * 257), ("body", "b" * 65537),
+                                   ("title", "u"), ("body", "Closes #13"),
                                    ("maintainer_can_modify", True))):
             try:
                 allowed.send(req)
@@ -9640,8 +9642,9 @@ class Opening(unittest.TestCase):
                                    (OPENED_IN, OPENED_FROM, "-main"), (OPENED_IN, OPENED_FROM, "main.lock"),
                                    (OPENED_IN, OPENED_FROM, "main/"), (OPENED_IN, OPENED_FROM, "a//b"),
                                    (OPENED_IN, OPENED_FROM, "ma in"), (OPENED_IN, OPENED_FROM, None)):
-            self.assertEqual(opening.allowed(repo, branch, base), ({}, []), (repo, branch, base))
-        self.assertNotEqual(opening.allowed(OPENED_IN, OPENED_FROM, "release/v1.2"), ({}, []))
+            self.assertEqual(opening.allowed(repo, branch, base, "t", "b"), ({}, []), (repo, branch, base))
+        self.assertEqual(opening.allowed(OPENED_IN, OPENED_FROM, "main", "t" * 257, "b"), ({}, []))
+        self.assertNotEqual(opening.allowed(OPENED_IN, OPENED_FROM, "release/v1.2", "t", "b"), ({}, []))
 
     def test_a_draft_is_opened_once_and_claimed_only_when_read_back_by_its_number(self):
         back, sent = self.opened({self.LIST: {"status": 200, "body": [self.pull(5, login="someone")]},
@@ -9662,6 +9665,11 @@ class Opening(unittest.TestCase):
                                       self.READ: {"status": 200, "body": dict(listed[-1], number=7)}})
             self.assertEqual(back, {"state": "already_applied", "number": 7, "head": OPENED_FROM, "reason": None})
             self.assertNotIn(self.OPEN, [(r["method"], r["path"]) for r in sent])
+        # A recovered draft is claimed only as its read by number says: at another head, it is not this push's.
+        back, _ = self.opened({self.LIST: {"status": 200, "body": [self.pull()]},
+                               self.READ: {"status": 200, "body": dict(self.pull(), head={
+                                   "ref": OPENED_FROM, "sha": "b" * 40, "repo": {"full_name": OPENED_IN}})}})
+        self.assertEqual(back["state"], "sent")
 
     def test_an_opening_not_read_back_whole_claims_nothing_and_says_why(self):
         listed = {"status": 200, "body": []}
@@ -9671,6 +9679,10 @@ class Opening(unittest.TestCase):
                 ({self.LIST: {"status": 200, "body": [self.pull(n, login="x") for n in range(1, 101)]}}, "failed",
                  "pulls_unreadable"),
                 ({self.LIST: {"status": 500, "body": None}}, "failed", "pulls_unreadable"),
+                ({self.LIST: {"status": 200, "body": [], "headers": {"Link": '<x?page=2>; rel="next"'}}}, "failed",
+                 "pulls_unreadable"),
+                ({self.LIST: {"status": 200, "body": [dict(self.pull(), user=None)]}}, "failed", "pulls_unreadable"),
+                ({self.LIST: {"status": 200, "body": ["#7"]}}, "failed", "pulls_unreadable"),
                 ({self.LIST: github.Unanswered("no answer")}, "failed", "pulls_unreadable"),
                 ({self.LIST: {"status": 200, "body": [self.pull(), self.pull(8)]}}, "failed", "opened_twice"),
                 ({self.LIST: {"status": 200, "body": [dict(self.pull(), state="closed")]}}, "failed", "opened_closed"),
@@ -9681,13 +9693,15 @@ class Opening(unittest.TestCase):
                  "write_unanswered"),
                 ({self.LIST: {"status": 403, "body": {}}}, "refused", "token_refused"),
                 ({self.LIST: listed, self.OPEN: {"status": 401, "body": {}}}, "refused", "token_refused"),
-                ({self.LIST: listed, self.OPEN: made, self.READ: {"status": 403, "body": {}}}, "refused",
-                 "token_refused")) + tuple(
+                ({self.LIST: listed, self.OPEN: made, self.READ: {"status": 403, "body": {}}}, "sent", None),
+                ({self.LIST: listed, self.OPEN: {"status": 201, "body": None}}, "sent", None)) + tuple(
                 ({self.LIST: listed, self.OPEN: made, self.READ: {"status": 200, "body": body}}, "sent", None)
                 for body in (self.pull(login="someone"), self.pull(ref="factory-work/issue-12-2"),
                              self.pull(repo="someone/widgets"), self.pull(base="release"),
                              self.pull(draft=False), self.pull(draft=None), self.pull(number=8),
-                             dict(self.pull(), state="closed"),
+                             dict(self.pull(), state="closed"), dict(self.pull(), number=True),
+                             dict(self.pull(), head={"ref": OPENED_FROM, "sha": "b" * 40,
+                                                     "repo": {"full_name": OPENED_IN}}),
                              dict(self.pull(), base="main"), dict(self.pull(), head=None), None)) + (
                 ({self.LIST: listed, self.OPEN: made, self.READ: {"status": 404, "body": {}}}, "sent", None),
                 ({self.LIST: listed, self.OPEN: {"status": 201, "body": {"number": "7"}}}, "sent", None),
@@ -9697,14 +9711,15 @@ class Opening(unittest.TestCase):
             self.assertEqual(apply.opened("e1", 12, OPENED_FROM, back)["key"], None)
 
     def test_an_opening_told_wrongly_sends_nothing(self):
-        for repo, branch, base, title, body, login in (
+        for repo, branch, base, title, body, login, *commit in (
                 ("combsmith/..", OPENED_FROM, "main", "t", "b", OPENER), (OPENED_IN, "main", "main", "t", "b", OPENER),
                 (OPENED_IN, OPENED_FROM, "a..b", "t", "b", OPENER),
                 (OPENED_IN, OPENED_FROM, "main", "t" * 257, "b", OPENER),
                 (OPENED_IN, OPENED_FROM, "main", "t", "b" * 65537, OPENER),
-                (OPENED_IN, OPENED_FROM, "main", "t", "b", ""), (OPENED_IN, OPENED_FROM, "main", "t", "b", None)):
+                (OPENED_IN, OPENED_FROM, "main", "t", "b", ""), (OPENED_IN, OPENED_FROM, "main", "t", "b", None),
+                (OPENED_IN, OPENED_FROM, "main", "t", "b", OPENER, "A" * 40)):
             scripted = self.Scripted({})
-            back = opening.write(scripted, repo, branch, base, title, body, login)
+            back = opening.write(scripted, repo, branch, base, (commit or [LANDED])[0], title, body, login)
             self.assertEqual((back, scripted.sent), ({"state": "refused", "number": None, "head": None,
                                                       "reason": opening.UNREADABLE}, []), (repo, branch, base))
 
