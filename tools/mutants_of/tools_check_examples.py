@@ -18,6 +18,10 @@ MUTANTS = [
     ("advice/1 is not held to codes alone", 'tools/check_examples.py',
      '"eval-set", "eval-report", "eval-aggregate", "eval-ledger", "rings", "advice", "advice-cost")',
      '"eval-set", "eval-report", "eval-aggregate", "eval-ledger", "rings", "advice-cost")', ADVICE_RESULT),
+    ("advice-cost/1 is not held to codes alone", 'tools/check_examples.py',
+     '"eval-set", "eval-report", "eval-aggregate", "eval-ledger", "rings", "advice", "advice-cost")',
+     '"eval-set", "eval-report", "eval-aggregate", "eval-ledger", "rings", "advice")',
+     ('tests.test_adapters.Artifacts.test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed',)),
     # Issue 141: a Consumer entry's protected paths are in the hooks' syntax, one at least, each once as written, and
     # name its setup and test scripts.
     ("a Consumer entry may leave its scripts unprotected", 'tools/check_examples.py',
