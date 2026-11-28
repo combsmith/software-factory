@@ -2443,9 +2443,10 @@ class Commands(unittest.TestCase):
             self.assertIsNone(released(RELEASE.replace("        run: |\n", "        run: %s\n" % mark)), mark)
         # What it holds is its key's value: a secret named in it, on any line, a comment's among them, is seen.
         quiet = "    permissions:\n      contents: read\n    steps:\n"
-        for line in ("echo ${{ secrets.X }}", "# ${{ secrets.X }}", "  more: ${{ secrets.X }}"):
+        for mark, line in (("|", "echo ${{ secrets.X }}"), (">-", "# ${{ secrets.X }}"), ("|+", "  more: ${{ secrets.X }}"),
+                           (">", "${{ secrets.X }}"), ("|-", "${{ secrets.X }}"), (">+", "${{ secrets.X }}")):
             text = TEST.replace("permissions: write-all\n", "").replace("        run: make test\n",
-                                                                          "        run: |\n          make\n\n          %s\n" % line)
+                                                                          "        run: %s\n          make\n\n          %s\n" % (mark, line))
             self.assertEqual(workflows.refusal_at({TEST_AT: text}, LISTED, "main"), workflows.STARTED, line)
             self.assertIsNone(workflows.refusal_at({TEST_AT: text.replace(line, "make test")}, LISTED, "main"), line)
             self.assertIn(quiet, text)
@@ -2458,6 +2459,10 @@ class Commands(unittest.TestCase):
         # A line its key's column holds is not its value: a key given twice there is refused, as anywhere.
         twice = TEST.replace("        run: make test\n", "        run: |\n          make\n        run: make\n")
         self.assertEqual(workflows.refusal_at({TEST_AT: twice}, LISTED, "main"), workflows.UNREADABLE)
+        # A line left of the block's first, yet right of its key, is neither its value nor a key: refused.
+        self.assertEqual(released(RELEASE.replace("          python3 -m release cut\n", "            true\n          true\n")),
+                         workflows.UNREADABLE)
+        self.assertIsNone(released(RELEASE.replace("          python3 -m release cut\n", "          true\n\n            true\n")))
         # A block scalar of no lines is an empty value; one given as a list item, or with an indentation mark, is refused.
         self.assertIsNone(released(RELEASE.replace("        run: |\n          python3 -m release cut\n",
                                                    "        if: |\n        run: make\n")))
@@ -2478,7 +2483,8 @@ class Commands(unittest.TestCase):
         # Every other event, or a push a branch but the default may start, refuses the command.
         for on in ("on:\n  pull_request:\n", "on:\n  pull_request_target:\n", "on:\n  merge_group:\n",
                    "on:\n  workflow_run:\n    workflows:\n      - ci\n", "on:\n  workflow_call:\n", "on:\n  issue_comment:\n",
-                   "on:\n  workflow_dispatch:\n  pull_request:\n", "on:\n  push:\n", "on: push\n", "on: schedule\n", "on:\n",
+                   "on:\n  workflow_dispatch:\n  pull_request:\n", "on:\n  pull_request:\n  workflow_dispatch:\n",
+                   "on:\n  push:\n    branches:\n      - dev\n      - main\n", "on:\n  push:\n", "on: push\n", "on: schedule\n", "on:\n",
                    "on:\n  - workflow_dispatch\n", "", "on:\n  push:\n    branches:\n      - main\n      - dev\n",
                    "on:\n  push:\n    branches:\n      - dev\n", "on:\n  push:\n    branches: main\n",
                    "on:\n  push:\n    branches:\n", "on:\n  push:\n    branches:\n      - main\n    tags:\n      - v1\n",
@@ -2492,6 +2498,9 @@ class Commands(unittest.TestCase):
         for default in ("dev", "Main", "", None, b"main", 1, "ma*n", "main?", "[main]", "!main", "main+"):
             self.assertEqual(released(default=default), workflows.STARTED, default)
         self.assertIsNone(released(started("on:\n  push:\n    branches:\n      - ma-in_1.x/y\n"), default="ma-in_1.x/y"))
+        # A pattern's mark in its name matters only to a push's filter: a dispatch or the schedule alone passes.
+        for on in ("on: workflow_dispatch\n", "on:\n  schedule:\n    - cron: x\n"):
+            self.assertIsNone(released(started(on), default="release+stable"), on)
         # A name with a pattern's mark, or none, is never matched, though the list names it word for word.
         for default in ("ma*n", "main?", "main+", "!main", "[main]", ""):
             self.assertEqual(released(started("on:\n  push:\n    branches:\n      - '%s'\n" % default), default=default),
@@ -2504,6 +2513,8 @@ class Commands(unittest.TestCase):
                          ("beside inputs", step + "        with:\n          x: y\n"),
                          ("an env name outside the table", step + "        env:\n          RELEASE: x\n"),
                          ("a command with kids", "        run:\n          x: y\n"),
+                         ("a command of the empty mapping", "        run: {}\n"), ("a command of no text", "        run: ''\n"),
+                         ("a command of no value", "        run:\n"), ("a command of a block of no lines", "        run: |\n"),
                          ("a working folder", step + "        working-directory: x\n"),
                          ("a shell", step + "        shell: bash\n")):
             self.assertEqual(released(RELEASE.replace(step, new)), workflows.UNREADABLE, why)

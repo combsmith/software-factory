@@ -12,7 +12,7 @@ Decision 0239 refuses a push where a job that holds a secret runs a file a Facto
 
 `guards/workflows.py` holds it, under the code `STARTED`; `refusal_at` is told the default branch.
 
-Limits: the runner is taken to be GitHub's own, as the guard says; a self-hosted one is not read. A person or an App that dispatches a workflow on a work branch runs that branch's files beside its secret; the ruling leaves that to them. A job that calls a workflow of this repo, and the actions and `env:` names the table lacks, still refuse every job here that holds a secret, but the scan's. Nothing calls the guard yet: the push's loop is not built.
+Limits: the runner is taken to be GitHub's own; a self-hosted one is not read. A command is read as text: one a person wrote that checks out a work branch runs its files, and so does a person's dispatch on one. A job that calls a workflow of this repo, and the actions and `env:` names the table lacks, still refuse every job here that holds a secret, but the scan's. Nothing calls the guard yet: the push's loop is not built.
 
 ## Why
 

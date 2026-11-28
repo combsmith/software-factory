@@ -37,7 +37,8 @@ says is refused, never passed.
   nothing but `workflow_dispatch`, `schedule`, and `push` with a list of `branches` that names `default` alone, word
   for word (the Solution Architect's ruling 1 of 2026-11-28): no branch but the default can then start it before a
   review. `on: workflow_dispatch` alone passes too. Any other event, its list form, a `push:` with no list or with
-  more beside it, and a `default` that is no text or holds a pattern's mark, refuse the command as `STARTED`.
+  more beside it, a `default` that is no text, and a push's filter where `default` holds a pattern's mark, refuse the
+  command as `STARTED`. A command of no text, `{}` among it, is `UNREADABLE`.
 
 Every route that points SonarCloud's scan at another settings file is refused: the scan's `args` and `projectBaseDir`
 are inputs its row does not name, and `SONAR_SCANNER_OPTS`, `SONAR_SCANNER_JSON_PARAMS` and `SONARQUBE_SCANNER_PARAMS`
@@ -51,7 +52,8 @@ Its stated limits:
   `refusal_at` reads which jobs hold one, but takes the repo's default permission as write: it costs a push, never
   passes one.
 - A command is read as text only: what it runs is the base's, from the default branch after a review, or from the
-  ref a person dispatches. A person or an App that may dispatch a workflow on a work branch runs that branch's files
+  ref a person dispatches. A command a person wrote that fetches a work branch, or checks one out, runs that
+  branch's files beside its secret, from the schedule too: what a listed workflow says is a person's. A person or an App that may dispatch a workflow on a work branch runs that branch's files
   beside its secret; that is theirs, as the ruling says, never a Role's.
 - A job that calls a workflow of this repo, and a workflow started by `workflow_call`, are refused: what calls it is
   not read. So, with the actions and `env:` names the table does not name, every job of this repo's own workflows
@@ -143,7 +145,9 @@ def _lines(text: str):
     """Each line that is no comment as `(column, item, key, value)`: where its key starts, the column of its list item's
     dash or None, its key, None for an item that is a value alone, and its value; or None where a line is outside the
     narrow form. A key's block scalar, `|` or `>` with a chomping mark or none, takes as its value every line after it
-    that is blank or stands right of its key, comments among them, joined as written."""
+    that is blank or stands right of its key, comments among them, joined as written; a line left of its first that
+    is not blank, which YAML reads as neither, is outside the form. The value is compared as written, never folded, so
+    a block scalar is never read as a quiet `permissions:` or an event's name."""
     if any(c < SPACE and c != "\n" or DEL <= c <= C1_LAST or c in BREAKS for c in text):
         return None
     out = []
@@ -162,9 +166,14 @@ def _lines(text: str):
             key, rest = None, " " + body
         column = len(raw) - len(body)
         if colon and rest.startswith(" ") and _lstrip(rest).rstrip(" ") in BLOCKS:
-            kept = []
+            kept, first = [], None
             while left and (not left[-1].rstrip(" ") or len(left[-1]) - len(_lstrip(left[-1])) > column):
-                kept.append(left.pop())
+                line = left.pop()
+                at = len(line) - len(_lstrip(line))
+                first = first or line.rstrip(" ") and at
+                if line.rstrip(" ") and at < first:
+                    return None
+                kept.append(line)
             value = "\n".join(kept)
         else:
             value = _value(rest) if colon or key is None else None
@@ -231,7 +240,7 @@ def _job(node: dict, started: bool):
     for step in steps["kids"]:
         held = _keys(step, STEP + ("uses", "with", "env", "run"))
         run = held.get("run") if held else None
-        if run is not None and not run["kids"] and "uses" not in held and "with" not in held and _env(held.get("env")):
+        if run is not None and run["value"] not in ("", "{}") and "uses" not in held and "with" not in held and _env(held.get("env")):
             if started:
                 return STARTED
             continue
@@ -246,16 +255,18 @@ def _job(node: dict, started: bool):
 
 
 def _branches(node: dict, default: str) -> bool:
-    """Whether a `push:` names a list of branches alone, and in it `default` alone, word for word."""
+    """Whether a `push:` names a list of branches alone, and in it `default` alone, word for word, where `default` holds
+    no mark a filter reads as a pattern."""
     named = node["kids"][0]["kids"] if [kid["key"] for kid in node["kids"]] == ["branches"] else []
-    return bool(named) and all(kid["key"] is None and not kid["kids"] and kid["value"] == default for kid in named)
+    return bool(named) and not any(c in PATTERN for c in default) \
+        and all(kid["key"] is None and not kid["kids"] and kid["value"] == default for kid in named)
 
 
 def _started(root: dict, default) -> bool:
     """Whether a branch but `default`, the default branch, may start the workflow: true unless its `on:` names
     `workflow_dispatch` alone, or a mapping of `workflow_dispatch`, `schedule` and a `push:` that `_branches` holds."""
     on = [kid for kid in root["kids"] if kid["key"] == "on"]
-    if type(default) is not str or not default or any(c in PATTERN for c in default) or not on:
+    if type(default) is not str or not default or not on:
         return True
     if not on[0]["kids"]:
         return on[0]["value"] != DISPATCH
