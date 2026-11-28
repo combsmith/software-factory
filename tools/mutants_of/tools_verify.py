@@ -14,6 +14,8 @@ ALONE = ("tests.test_tools.Verify.test_a_check_that_ends_its_process_fails_alone
 FIRST = ("tests.test_tools.Verify.test_the_checks_that_run_no_role_code_answer_first",)
 BYTECODE = ("tests.test_tools.Verify.test_each_checks_process_keeps_its_bytecode_outside_the_tree_and_is_stopped_when_it_hangs",)
 STOPS = ("tests.test_tools.Verify.test_a_check_that_runs_no_role_code_and_fails_stops_verify_and_its_own_step",)
+CLOSED = ("tests.test_tools.Verify.test_a_protected_check_whose_closure_leaves_the_list_fails_verify_naming_the_file",)
+BESIDE = ("tests.test_tools.Verify.test_a_file_python_never_imports_moves_no_check_out_of_the_first_phase",)
 
 TARGETS = ("tools/verify.py",)
 MUTANTS = [
@@ -31,7 +33,7 @@ MUTANTS = [
     ("a check that runs Role code starts though one that runs none failed", "tools/verify.py",
      "    return None if told(early, ran) else early\n", "    told(early, ran)\n    return early\n", FIRST),
     ("a check whose closure leaves the protected list runs first", "tools/verify.py",
-     "        if tree is None:\n            return False\n", "        if tree is None:\n            continue\n", FIRST),
+     "        if not held(rel):\n", "        if False:\n", FIRST),
     ("an import by a worked-out name is read as closed", "tools/verify.py",
      "(node.id in DYNAMIC or node.id in RUNS_TEXT)", "node.id in RUNS_TEXT", FIRST),
     ("a check's process is not isolated", "tools/verify.py",
@@ -44,11 +46,33 @@ MUTANTS = [
      "        return []\n", FIRST),
     ("no check that runs first passes", "tools/verify.py", "    if not early:\n", "    if False:\n", FIRST),
     ("a standard module's name is looked up in the tree", "tools/verify.py",
-     "                if _standard(parts[0]):\n                    continue\n", "", FIRST),
+     "                if not _standard(parts[0]):\n", "                if True:\n", FIRST),
     ("an import of a worked-out name under another name is read as closed", "tools/verify.py",
-     "                if any(part in DYNAMIC or part in RUNS_TEXT for part in parts):", "                if parts[0] in DYNAMIC:",
+     "                if any(part in DYNAMIC for part in parts) or parts[0] == \"builtins\" and parts[-1] in RUNS_TEXT:", "                if parts[0] in DYNAMIC:",
      FIRST),
     ("text run as code is read as closed", "tools/verify.py", " or node.id in RUNS_TEXT)", ")", FIRST),
+    ("a protected check's closure is not checked before the first phase", "tools/verify.py",
+     "        leaving = unclosed(checks)\n", "        leaving = []\n", CLOSED),
+    ("a protected check whose closure leaves the list still runs", "tools/verify.py",
+     "    if leaving:\n        return None\n", "", CLOSED),
+    ("the closure check's failure names no file", "tools/verify.py",
+     '    for why in leaving:\n        print("    " + why)\n', "", CLOSED),
+    ("the closure check follows imports outside tools/", "tools/verify.py",
+     " or not rel.startswith(within):", ":", CLOSED),
+    ("a check off the protected list is held to its closure", "tools/verify.py",
+     ' if held("tools/%s.py" % module) else None\n', "\n", CLOSED),
+    ("a protected file that cannot be read is read as closed", "tools/verify.py",
+     '            return "%s cannot be read" % rel\n', "            continue\n", CLOSED),
+    ("a star import is read as closed", "tools/verify.py",
+     'isinstance(node, ast.ImportFrom) and (node.level or "*" in [a.name for a in node.names])',
+     "isinstance(node, ast.ImportFrom) and node.level", CLOSED),
+    ("the package's __init__.py is not read before the check", "tools/verify.py",
+     '    seen, todo = set(), [(rel, "") for rel in found]\n', '    seen, todo = set(), [(found[-1], "")]\n', BESIDE),
+    ("a check that cannot be found is read as closed", "tools/verify.py",
+     '    if len(found) != start.count(".") + 1:\n        return "%s cannot be found" % start\n', "", BESIDE),
+    ("a file beside a package is read in its place", "tools/verify.py",
+     'found = base / "__init__.py" if (base / "__init__.py").is_file() else base.with_suffix(".py")',
+     'found = base.with_suffix(".py") if base.with_suffix(".py").is_file() else base / "__init__.py"', BESIDE),
     ("make verify runs the tests after a check that runs no Role code failed", "tools/verify.py",
      "    if checks_failed == EARLY:", "    if False:", STOPS),
     ("make checks-first passes whatever its checks found", "tools/verify.py",
