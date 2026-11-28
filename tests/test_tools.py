@@ -10386,7 +10386,7 @@ if url.endswith("/access_tokens"):
     token = "ghs_" + "Q" * 30 + "%06d" % len((here / "mints").read_text())
     body = plan["mint"]["body"].replace("TOKEN", token).encode()
     sys.stdout.buffer.write(body[:-1] if plan["mint"].get("cut") else body)     # cut: inside its last character
-    sys.stdout.buffer.write(b"\n%d" % plan["mint"]["status"])
+    sys.stdout.buffer.write(("\n%s" % plan["mint"]["status"]).encode())     # "000": curl's word for no answer
 elif method == "DELETE":
     sys.stdout.write(str(plan.get("revoke", 204)))
 else:
@@ -10536,7 +10536,11 @@ else:
                     ({"status": 201, "body": "<html>gateway</html>"}, False, "the Maintainer must revoke it by hand"),
                     ({"status": 403, "body": '{"message": "Resource not accessible by integration"}'}, False, "403"),
                     ({"status": 502, "body": '{"token": "TOKEN", "expires_at": "2026-10'}, True, "held a token all the same"),
-                    ({"status": 422, "body": self.MINTED}, True, "held a token all the same")):
+                    ({"status": 422, "body": self.MINTED}, True, "held a token all the same"),
+                    # No refusal and no token: a transfer that failed with no answer, or a gateway's 5xx (issue 1245).
+                    ({"status": "000", "body": ""}, False, "GitHub may have minted one"),
+                    ({"status": 503, "body": "<html>unavailable</html>"}, False, "GitHub may have minted one"),
+                    ({"status": 429, "body": '{"message": "API rate limit exceeded"}'}, False, "429")):
                 with self.subTest(script=name, plan=plan):
                     self.setUp()
                     argv = [a.replace("KEY", self.key_file) for a in args]
@@ -10546,6 +10550,10 @@ else:
                     self.assertNotIn("ermission denied", told_)
                     self.assertNotIn("ghs_", said + told_)
                     self.assertIn(told, told_)
+                    if plan["status"] in (403, 429):
+                        self.assertNotIn("may have minted one", told_)
+                    # Each is told where it is handled, so the clean-up never adds a stop mid-mint (issue 1245).
+                    self.assertNotIn("stopped while a token was being minted", told_)
                     self.assertEqual(self.revoked(calls), self.minted(calls) if revoked else [])
                     self.assertFalse((self.out / "requests.json").exists())
 
@@ -10985,7 +10993,9 @@ import json, os, pathlib, sys
 here = pathlib.Path(__file__).resolve().parent
 args = sys.argv[1:]
 with open(here / "calls", "a") as calls:
-    calls.write(json.dumps({"argv": args, "token": os.environ.get("GH_TOKEN")}) + "\n")
+    calls.write(json.dumps({"argv": args, "token": os.environ.get("GH_TOKEN"), "config": os.environ.get("GH_CONFIG_DIR"),
+                            "config_there": os.path.exists(os.environ.get("GH_CONFIG_DIR") or "/nonexistent"),
+                            "pager": [os.environ.get(k) for k in ("GH_FORCE_TTY", "GH_PAGER", "PAGER")]}) + "\n")
 state = json.loads((here / "state").read_text()) if (here / "state").exists() else {"reviews": 0, "resolved": False, "reply": False, "deleted": False}
 def answer(status, body):
     (here / "state").write_text(json.dumps(state))
@@ -11196,6 +11206,28 @@ esac
                          [["PRRT_T1"], ["PRRT_T1"], ["PRRT_T1", "PRRT_T2"], ["PRRT_T1", "PRRT_T2"], ["PRRT_T1", "PRRT_T2"]])
         self.assertEqual([r["nodes"][0]["isResolved"] for r in reads], [False, True, True, True, True])
         self.assertEqual(exchanges[-1]["request"]["call"], "DELETE /installation/token")
+
+    def test_gh_reads_no_configuration_of_the_shells(self):
+        # A configuration the shell names, by GH_CONFIG_DIR or XDG_CONFIG_HOME, or the one in ~/.config/gh, could send
+        # each request and GH_TOKEN to a socket of its own, and a pager it names would read GH_TOKEN from its environment.
+        # Every gh call is pointed at a directory that does not exist, in OUT, none is made there, and no pager is named
+        # (issue 1300).
+        planted = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (planted / "gh").mkdir()
+        for where in (planted, planted / "gh"):
+            (where / "config.yml").write_text("http_unix_socket: /tmp/planted.sock\n")
+        pager = {"GH_FORCE_TTY": "1", "GH_PAGER": str(planted / "pager"), "PAGER": str(planted / "pager")}
+        for shell in ({"GH_CONFIG_DIR": str(planted), "XDG_CONFIG_HOME": str(planted)}, {"XDG_CONFIG_HOME": str(planted)}, {}):
+            with self.subTest(shell=sorted(shell)):
+                bin_, ran = self.run_threads(**shell, **pager)
+                self.assertEqual(ran.returncode, 0, ran.stderr)
+                out = pathlib.Path(re.search(r"^trial_as_app: OUT is (.+)$", ran.stdout, re.M).group(1))
+                calls = [json.loads(line) for line in (bin_ / "calls").read_text().splitlines()]
+                self.assertTrue(calls)
+                self.assertEqual({c["config"] for c in calls}, {str(out / "gh-reads-no-config")})
+                self.assertFalse(any(c["config_there"] for c in calls))
+                self.assertEqual({tuple(c["pager"]) for c in calls}, {(None, None, None)})
+                self.assertFalse((out / "gh-reads-no-config").exists())
 
     def test_a_thread_it_cannot_find_stops_it_before_any_write_and_the_token_is_revoked(self):
         # The first thread is not the App's own trial thread, being another's words, another's comment, or given an id
@@ -13994,6 +14026,33 @@ class Writes(unittest.TestCase):
         with mock.patch.object(check_writes, "NAME_LOADERS", check_writes.NAME_LOADERS + ("controller/takes.py",)):
             self.assertTrue(caught(check_writes.run(clone(files)), "controller/takes.py:1 " + taken))
 
+    def test_a_bare_import_of_a_file_of_its_own_folder_fails(self):  # issue 1276
+        # Run as a script, a file has its own folder first on its path: a bare name of a file or a package there loads
+        # it, under a name this check does not read. From the root, or by a name the folder does not hold, it passes.
+        files = {"tools/bare.py": "import mutants\n", "tools/from_bare.py": "from mutants_of import common\n",
+                 "tools/dotted.py": "import mutants_of.common as c\n", "tools/hooks/near.py": "import os\nimport protected\n",
+                 "tools/space/inside.py": "X = 1\n", "tools/to_space.py": "import space.inside\n",
+                 "tools/probe.py": "def probe():\n    import os, mutants\n", "tools/hooks/init.py": "from __init__ import x\n",
+                 "tools/ci.jobs/report.py": "import calendar\n", "tools/ci/jobs/calendar.py": "X = 1\n",
+                 "harness/json.py": "X = 1\n", "harness/uses.py": "import json\n",
+                 "tools/rooted.py": "from tools import walk\nimport os, json\n", "tools/hooks/up.py": "from .. import walk\n",
+                 "tools/hooks/beside.py": "from .shell import words\n", "rootfile.py": "import tools\n",
+                 "controller/other.py": "import walk\n"}
+        problems = check_writes.run(clone(files))
+        said = "imports %s by its bare name, which run as a script may load %s beside it in its place"
+        for rel, line, name, near in (("tools/bare.py", 1, "mutants", "tools/mutants"),
+                                      ("tools/from_bare.py", 1, "mutants_of", "tools/mutants_of"),
+                                      ("tools/dotted.py", 1, "mutants_of.common", "tools/mutants_of"),
+                                      ("tools/hooks/near.py", 2, "protected", "tools/hooks/protected"),
+                                      ("tools/to_space.py", 1, "space.inside", "tools/space"),
+                                      ("tools/probe.py", 2, "mutants", "tools/mutants"),
+                                      ("tools/hooks/init.py", 1, "__init__", "tools/hooks/__init__"),
+                                      ("harness/uses.py", 1, "json", "harness/json")):
+            self.assertTrue(caught(problems, "%s:%d %s" % (rel, line, said % (name, near))), (rel, problems))
+        for rel in ("tools/rooted.py:", "tools/hooks/up.py:", "tools/hooks/beside.py:", "rootfile.py:", "tools/ci.jobs/report.py:",
+                    "controller/other.py:", "tools/hooks/near.py:1"):
+            self.assertFalse(caught(problems, rel), (rel, problems))
+
     def test_a_listed_caller_that_reaches_a_new_writer_or_none_fails(self):
         queue = (ROOT / "harness" / "queue.py").read_text() + "\n\ndef more(transport, item, req):\n    from adapters import effects\n" \
             "    return effects.role_write(transport, item, 'review', req, 'me')\n"
@@ -16048,7 +16107,9 @@ class SignalTraps(unittest.TestCase):
 
     def test_every_token_script_tells_of_a_stop_mid_mint(self):  # issue 1215
         # A stop while the mint is asked leaves no answer to find a token in, and GitHub may have minted one: each sh script
-        # that mints marks the ask, and its clean-up tells the Maintainer the token may be live.
+        # that mints marks the ask, and its clean-up tells the Maintainer the token may be live. The mark stands until the
+        # answer is read, not only until curl returns (issue 1245): nothing on the line that clears the JWT clears it, and
+        # nothing clears it before the answer's token is read.
         scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
                    if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
         self.assertEqual(len(scripts), 11)
@@ -16056,7 +16117,12 @@ class SignalTraps(unittest.TestCase):
             lines = [line.strip() for line in script.read_text().splitlines()]
             mint = next(n for n, line in enumerate(lines) if line.startswith("minted=$(") and '"$jwt" | curl' in line)
             self.assertEqual(lines[mint - 1], "minting=1", script.name)
-            self.assertIn('minting=""', next(line for line in lines[mint:] if line.startswith('jwt=""')), script.name)
+            self.assertNotIn('minting=""', next(line for line in lines[mint:] if line.startswith('jwt=""')), script.name)
+            read = next(n for n in range(mint, len(lines)) if lines[n].startswith("token=$(printf '%s\\n' \"$minted\""))
+            cleared = next(n for n in range(mint, len(lines)) if 'minting=""' in lines[n])
+            self.assertLess(read, cleared, script.name)
+            # And the answer read, the last clear of the answer, which hands the token on, clears the mark too.
+            self.assertIn('minting=""', [line for line in lines[mint:] if line.startswith('minted=""')][-1], script.name)
             finish = lines.index("finish() {")
             told = lines.index('elif [ -n "${minting:-}" ]; then', finish)
             said = [line for line in lines[told + 1:lines.index("}", finish)] if not line.startswith("#")][:2]
@@ -16090,10 +16156,20 @@ class SignalTraps(unittest.TestCase):
                          and re.search(r"(?:^|\||\$\(|&&|;)\s*openssl\s", line)]
                 self.assertLess(lines.index(unproxied), min(calls[:1] + signs[:1]), script.name)
         self.assertEqual(minting, 12)
+        # P-61 mints nothing, but its gh reads with the Maintainer's own login: the same line, before its first gh (issue
+        # 1300).
+        p61 = (ROOT / "tools" / "trial_p61_timeline.sh").read_text().splitlines()
+        reads = [n for n, line in enumerate(p61) if not line.lstrip().startswith("#") and re.search(r"(?:^|\||\$\(|&&|;)\s*gh\s", line)]
         app = (ROOT / "tools" / "trial_as_app.sh").read_text().splitlines()
+        # Nor does either gh hand its output to a pager, or read a configuration, the shell names (issue 1300).
+        for line in (unproxied, "unset GH_DEBUG DEBUG CURL_HOME GODEBUG", GH_UNSTEERED):
+            self.assertEqual(p61.count(line), 1, line)
+            self.assertLess(p61.index(line), reads[0], line)
+        self.assertEqual(app.count(GH_UNSTEERED), 1)
         gh = [n for n, line in enumerate(app) if not line.lstrip().startswith("#") and re.search(r'GH_TOKEN="\$token" gh\s', line)]
         self.assertEqual(app.count("unset GH_DEBUG DEBUG CURL_HOME GODEBUG"), 1)
         self.assertLess(app.index("unset GH_DEBUG DEBUG CURL_HOME GODEBUG"), gh[0])
+        self.assertLess(app.index(GH_UNSTEERED), gh[0])
 
     def test_every_trial_finds_its_root_as_the_file_system_does(self):  # issue 1215
         # A plain cd looks a relative path up along CDPATH, and says where it went, and takes .. past a link logically.
@@ -16119,11 +16195,15 @@ class SignalTraps(unittest.TestCase):
             self.assertEqual(then[:2], ["set +a", "unset CDPATH"], script.name)
 
 
+# What gh reads from the environment to choose a configuration or a pager (issue 1300).
+GH_UNSTEERED = "unset GH_CONFIG_DIR XDG_CONFIG_HOME GH_FORCE_TTY GH_PAGER PAGER"
+
+
 # What curl and openssl read from the environment to choose a proxy, a certificate authority, a TLS library or a
 # configuration: each token trial unsets them all before its first curl (issue 1288).
 PROXY_AND_TLS = ("http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY", "no_proxy", "NO_PROXY",
-                 "CURL_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_SSL_BACKEND", "OPENSSL_CONF", "OPENSSL_ENGINES",
-                 "OPENSSL_MODULES")
+                 "CURL_CA_BUNDLE", "SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_SSL_BACKEND", "OPENSSL_CONF", "OPENSSL_CONF_INCLUDE",
+                 "OPENSSL_ENGINES", "OPENSSL_MODULES")
 
 
 class ReaderTrialScript(unittest.TestCase):
@@ -16156,6 +16236,10 @@ if url.endswith("/access_tokens") and os.path.exists(os.path.join(here, "mint.sl
     told, held = (int(n) for n in open(os.path.join(here, "mint.slow")).read().split())
     os.write(told, b"m")
     os.read(held, 1)
+    sys.exit(28)
+if url.endswith("/access_tokens") and os.path.exists(os.path.join(here, "mint.dead")):
+    # A transfer that timed out with no answer at all: curl's -w gives 000 (issue 1245).
+    sys.stdout.write("\n000")
     sys.exit(28)
 if url.endswith("/access_tokens"):
     status = open(os.path.join(here, "mint.status")).read().strip()
@@ -16498,6 +16582,30 @@ esac
         calls = [line for line in script.splitlines() if "| curl " in line]
         self.assertEqual(len(calls), 3)
         self.assertTrue(all(line.split("| curl ", 1)[1].startswith("-q ") for line in calls))
+
+    def test_a_mint_with_no_token_and_no_refusal_tells_the_maintainer_one_may_be_live(self):  # issue 1245
+        # A 000 (the transfer failed with no answer) or a 5xx is no refusal: GitHub may have minted a token the script never
+        # saw. A 4xx minted nothing, and says so.
+        for flag, status, said in (("mint.dead", "201", "the mint answered 000 with no token, and GitHub may have minted one"),
+                                   (None, "502", "the mint answered 502 with no token, and GitHub may have minted one"),
+                                   (None, "401", "was minted (status 401)")):
+            with self.subTest(status=status, flag=flag):
+                self.setUp()
+                if flag:
+                    (self.stand_in / flag).write_text("")
+                (self.stand_in / "mint.status").write_text(status + "\n")
+                ran = self.run_script()
+                self.assertEqual(ran.returncode, 1, ran.stderr)
+                self.assertIn(said, ran.stderr)
+                self.assertNotIn("stopped while a token was being minted", ran.stderr)
+                if status == "401":
+                    self.assertNotIn("may have minted one", ran.stderr)
+                else:
+                    self.assertNotIn("was minted (status", ran.stderr)
+                    self.assertIn("suspends the App's installation", ran.stderr)
+                calls = self.calls()
+                self.assertEqual(len(calls), 1, calls)
+                self.assertTrue(calls[0]["url"].endswith("/access_tokens"), calls)
 
     def test_a_refused_mint_or_revocation_stops_the_run_and_says_so(self):
         (self.stand_in / "mint.status").write_text("401\n")
@@ -18219,6 +18327,13 @@ import json, os, sys
 here = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(here, "calls"), "a") as kept:
     kept.write(json.dumps(sys.argv[1:]) + "\\n")
+with open(os.path.join(here, "steered"), "a") as kept:
+    # Whether each is set, never its value, which may be the tester's own; and the three P-61 sets, as they are.
+    steer = {k: k in os.environ for k in ("GH_CONFIG_DIR", "XDG_CONFIG_HOME", "GH_FORCE_TTY", "GH_PAGER", "PAGER", "GODEBUG",
+                                          "GH_DEBUG", "DEBUG", "HTTPS_PROXY", "https_proxy", "GH_TOKEN", "GITHUB_TOKEN",
+                                          "GH_ENTERPRISE_TOKEN")}
+    steer.update({k: os.environ.get(k) for k in ("GH_HOST", "GH_NO_UPDATE_NOTIFIER", "GH_PROMPT_DISABLED")})
+    kept.write(json.dumps(steer) + "\\n")
 token = "ghs_" + "x" * 36
 refuse = os.path.join(here, "refuse")
 mode = None
@@ -18273,14 +18388,15 @@ if mode == "cut":
     sys.exit(1)
 """
 
-    def run_script(self, args, answers="\n" * 10, refuse=0, tmpdir=None):
+    def run_script(self, args, answers="\n" * 10, refuse=0, tmpdir=None, **shell):
         bin_ = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name))
+        self.bin_ = bin_
         (bin_ / "gh").write_text(self.STAND_IN)
         (bin_ / "gh").chmod(0o755)
         if refuse:
             (bin_ / "refuse").write_text("%d %s" % refuse)
         scratch = pathlib.Path(tmpdir or tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
-        env = dict(os.environ, PATH="%s:/usr/bin:/bin" % bin_, TMPDIR=str(scratch))
+        env = dict(os.environ, PATH="%s:/usr/bin:/bin" % bin_, TMPDIR=str(scratch), **shell)
         done = subprocess.run(["sh", str(self.SCRIPT)] + list(args), env=env, input=answers,
                               capture_output=True, text=True, timeout=120)
         calls = (bin_ / "calls").read_text().splitlines() if (bin_ / "calls").exists() else []
@@ -18319,6 +18435,24 @@ if mode == "cut":
         self.assertEqual(list(scratch.glob("trial-p61.*")), [])
         self.assertNotIn("ghs_", done.stdout + done.stderr)
         self.assertEqual(out.stat().st_mode & 0o077, 0)     # OUT is the Maintainer's alone
+
+    def test_gh_takes_nothing_of_the_shells_but_the_maintainers_login(self):
+        # His gh reads his own login, in ~/.config/gh: a proxy, a header log, a pager, a configuration, a token or a host
+        # the shell names reaches no read, and gh neither prompts nor checks for updates (issue 1300).
+        planted = str(pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve())
+        # gh's Go reads a proxy by either case, and its older DEBUG where GH_DEBUG is unset.
+        shell = {"HTTPS_PROXY": "http://127.0.0.1:9", "https_proxy": "http://127.0.0.1:9", "GODEBUG": "http2debug=2",
+                 "GH_DEBUG": "api", "DEBUG": "api", "GH_CONFIG_DIR": planted,
+                 "XDG_CONFIG_HOME": planted, "GH_FORCE_TTY": "1", "GH_PAGER": "cat", "PAGER": "cat", "GH_HOST": "example.com",
+                 "GH_TOKEN": "a" * 40, "GITHUB_TOKEN": "a" * 40, "GH_ENTERPRISE_TOKEN": "a" * 40,
+                 "GH_NO_UPDATE_NOTIFIER": "", "GH_PROMPT_DISABLED": ""}
+        done, calls, _ = self.run_script([str(self.out()), "x/canary", "7", "8"], **shell)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        steered = [json.loads(line) for line in (self.bin_ / "steered").read_text().splitlines()]
+        self.assertEqual(len(steered), len(calls))
+        self.assertEqual({json.dumps(s, sort_keys=True) for s in steered},
+                         {json.dumps(dict({k: False for k in shell}, GH_HOST="github.com", GH_NO_UPDATE_NOTIFIER="1",
+                                          GH_PROMPT_DISABLED="1"), sort_keys=True)})
 
     def test_a_refused_read_is_said_and_offered_again_before_anything_changes(self):
         # A wrong field is refused with errors: the run says so at step 1, with gh's complaint redacted, and stops when

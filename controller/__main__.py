@@ -99,7 +99,7 @@ class Stages:
     fails says less, and never fails the pass; with no timer nothing is timed or said. Timing changes no read."""
 
     # What the carry's line counts of it, by these names alone.
-    CARRIED = ("hand", "taken",
+    COUNTED = ("hand", "taken",
                "runs", "passes", "keys", "items", "dispatched", "owed", "left", "owed_issues", "left_issues", "hands")
     FARTHEST = 1e300      # a reading no clock gives: two inside it differ by a finite number
 
@@ -158,7 +158,7 @@ class Stages:
         """What the record carries for reconciliation, counted by the carry's own names: what the pass rebuilt and
         checked, which grows with the window (issue 1025)."""
         held = record.get("reconciled") if isinstance(record, dict) else None
-        return {k: len(held[k]) for k in self.CARRIED if isinstance(held, dict) and isinstance(held.get(k), (list, dict))}
+        return {k: len(held[k]) for k in self.COUNTED if isinstance(held, dict) and isinstance(held.get(k), (list, dict))}
 
 
 QUIET = Stages()

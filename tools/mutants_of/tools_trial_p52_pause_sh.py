@@ -3,6 +3,7 @@
 TARGETS = ("tools/trial_p52_pause.sh",)
 from tools.mutants_of.common import KEEP_1215, UNPROXIED  # noqa: E402
 from tools.mutants_of.tools_trial_p12_status_sh import FIRST_NEW, FIRST_OLD  # noqa: E402
+MINT_REFUSED = "tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused"
 KEEP = "tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_in_a_private_directory_it_deletes"
 MUTANTS = [
     # Issue 481: the first signal stops the run, a later one stops neither the revocation nor the redaction, and the
@@ -114,7 +115,18 @@ MUTANTS = [
     ("P-52 tells nothing of a stop mid-mint", "tools/trial_p52_pause.sh", '    elif [ -n "${minting:-}" ]; then', '    elif false; then',
      ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
     ("P-52 marks no mint", "tools/trial_p52_pause.sh", "minting=1\n", "", ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
-    ("P-52 never clears its mint mark", "tools/trial_p52_pause.sh", 'minting=""\n', "\n", ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
+    # Issue 1245: the mark stands until the answer is read; only a 4xx says no token was minted.
+    ("P-52 never clears its mint mark", "tools/trial_p52_pause.sh", '\nminted="" minting=""\n', '\nminted=""\n',
+     ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
+    ("P-52 clears its mint mark when curl returns", "tools/trial_p52_pause.sh", '\njwt=""\n', '\njwt="" minting=""\n',
+     ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
+    ("P-52 keeps its mint mark past an answer cut short", "tools/trial_p52_pause.sh",
+     '    minting=""\n    echo "trial_p52_pause: $slug: nothing read, and nothing of the answer kept."',
+     '    echo "trial_p52_pause: $slug: nothing read, and nothing of the answer kept."', (MINT_REFUSED,)),
+    ("P-52 keeps its mint mark past an answer with no token", "tools/trial_p52_pause.sh",
+     '        "nothing read" >&2\n    minting=""\n', '        "nothing read" >&2\n', (MINT_REFUSED,)),
+    ("P-52 tells a mint with no answer as none minted", "tools/trial_p52_pause.sh", '4??) minting="" refused=', '*) minting="" refused=', (MINT_REFUSED,)),
+    ("P-52 tells a mint refused as one that may be live", "tools/trial_p52_pause.sh", '4??) minting="" refused=', '5??) minting="" refused=', (MINT_REFUSED,)),
     ("P-52 says nothing of a stop mid-mint", "tools/trial_p52_pause.sh", 'echo "trial_p52_pause: stopped while a token was being minted;',
      ': "trial_p52_pause: stopped while a token was being minted;', ("tests.test_tools.SignalTraps.test_every_token_script_tells_of_a_stop_mid_mint",)),
     ("P-52 keeps an earlier head's status past a malformed one", "tools/trial_p52_pause.sh", 'head && /^HTTP\\// { found = "" } ', "",
