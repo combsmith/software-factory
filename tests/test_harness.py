@@ -2076,10 +2076,10 @@ class PushLoop(unittest.TestCase):
         reads_b = [PUSH_A[13], PUSH_A[10], PUSH_A[8]] + PUSH_B[0:5]
         refused = dict(PUSH_B[5], response=PUSH_B[6]["response"])
         self.assertEqual(refused["response"]["status"], 422)
-        # A 422, and the branch then read where the Decision admitted none: someone else made it, moved.
-        (state, why), replay = self.walk(push_a(), reads_a, PUSH_A[12], PUSH_A[13:14])
+        # A 422, and the branch then read where the Decision admitted none: someone else made it, moved. It is read once.
+        (state, why), replay = self.walk(push_a(), reads_a, PUSH_A[12], PUSH_A[13:14] * 2)
         self.assertEqual((state, why), (None, guard.BRANCH_MOVED))
-        self.assertEqual(replay._left, [])
+        self.assertEqual(len(replay._left), 1)
         # A 422, and the branch then read where the Decision admitted it: refused by a rule, a person's.
         (state, why), replay = self.walk(push_b(), reads_b, refused, PUSH_A[13:14])
         self.assertEqual((state, why), (None, guard.ANSWER_REFUSED))
@@ -2113,6 +2113,21 @@ class PushLoop(unittest.TestCase):
         self.assertIsNone(why)
         self.assertTrue(state["branch_read"])
         self.assertEqual([(r["method"], r["path"], r["body"]) for r in transport.sent], [(branch["method"], branch["path"], None)])
+        # A write out of turn leaves nothing, nor a request with a key the port never builds, nor one for another branch.
+        other = "factory-work/issue-9972-1"
+        for at, req, on in ((None, push_request(PUSH_A[11]), PUSH_BRANCH), (None, dict(branch, note="x"), PUSH_BRANCH),
+                            (state, push_request(PUSH_A[0]), other)):
+            transport = self.Recording(absent)
+            self.assertEqual(push_loop.step(at or guard.began(push_a())[0], port.transport(transport, PUSH_REPO, on), PUSH_REPO,
+                                            on, req), (None, guard.NOT_PERMITTED), req)
+            self.assertEqual(transport.sent, [], req)
+        self.assertTrue(guard.permits(state, "GET", push_request(PUSH_A[0])["path"], None))
+        # A repo named as a tree's path is read as no tree: its branch read's 404 is the branch absent.
+        named = dict(push_a(), repo="git/trees")
+        transport = self.Recording(absent)
+        state, why = push_loop.step(guard.began(named)[0], port.transport(transport, "git/trees", PUSH_BRANCH), "git/trees",
+                                    PUSH_BRANCH, port.read_branch("git/trees", PUSH_BRANCH))
+        self.assertIsNone(why)
         # A bare transport is no push's sender: nothing is sent, and the read is unanswered.
         transport = self.Recording(absent)
         self.assertEqual(push_loop.step(guard.began(push_a())[0], transport, PUSH_REPO, PUSH_BRANCH, branch),
@@ -2152,7 +2167,7 @@ class PushLoop(unittest.TestCase):
         for at, name in enumerate(push_loop.ORDER):
             del asked[:]
             checks = [check(other, "refused_" + other if other == name else None) for other in push_loop.ORDER]
-            self.assertEqual(push_loop.first(checks + [] if False else tuple(checks)), "refused_" + name)
+            self.assertEqual(push_loop.first(tuple(checks) if at % 2 else checks), "refused_" + name)
             self.assertEqual(asked, list(push_loop.ORDER[:at + 1]))
         # Checks in another order, one missing, one more, or in no shape: none is asked, and the push is not permitted.
         names = list(push_loop.ORDER)
@@ -2164,8 +2179,17 @@ class PushLoop(unittest.TestCase):
                        iter([check(name) for name in names])):
             self.assertEqual(push_loop.first(checks), guard.NOT_PERMITTED)
             self.assertEqual(asked, [])
-        # A check that gives anything but None or a code is no pass.
-        for said in (False, 0, "", ["x"], b"x"):
+        # A list changed while it is asked asks nothing less: it was read once. A check that cannot be called asks none.
+        del asked[:]
+        live = [check(name) for name in names]
+        live[0] = ("consumer", lambda: live.clear())
+        self.assertIsNone(push_loop.first(live))
+        self.assertEqual(asked, names[1:])
+        del asked[:]
+        self.assertEqual(push_loop.first([check(name) if name != "base" else ("base", None) for name in names]), guard.NOT_PERMITTED)
+        self.assertEqual(asked, [])
+        # A check that gives anything but None or a code is no pass: a sentence is no reason.
+        for said in (False, 0, "", ["x"], b"x", "could not read main", "Refused", "a__b", "_a"):
             del asked[:]
             self.assertEqual(push_loop.first([check(name, said if name == "base" else None) for name in names]),
                              guard.NOT_PERMITTED, said)
