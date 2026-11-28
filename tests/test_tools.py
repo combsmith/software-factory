@@ -16205,8 +16205,8 @@ NOTING = ("trial_reader_reads.sh", "trial_p54_issue_lookup.sh", "trial_p12_statu
 
 def note_in(test: unittest.TestCase, out: pathlib.Path, told: str) -> str:
     """OUT's finish.log, held to be a note of the script's own words (issue 1245), or "" when the run left none. Each line
-    is one the script told the terminal, whole or up to where the terminal is told what GitHub answered, so it holds no
-    answer of GitHub's. The tooling that reads what a trial leaves reads it as text and finds nothing in it: the
+    is one the script told the terminal, whole or but for the words after it that bring GitHub's answer, so it holds no
+    answer of GitHub's and loses none of the advice. The tooling that reads what a trial leaves reads it as text and finds nothing in it: the
     redaction gives it back byte for byte, removing nothing, and the fixture check finds no credential's shape. No fixture
     is built from it: OUT's other files are what they would be without it."""
     path = out / "finish.log"
@@ -16216,7 +16216,8 @@ def note_in(test: unittest.TestCase, out: pathlib.Path, told: str) -> str:
     said = told.splitlines()
     test.assertTrue(note.endswith("\n"), note)
     for line in note.splitlines():
-        test.assertTrue(any(s == line or s.startswith(line + ";") for s in said), (line, told))
+        test.assertTrue(any(s in (line, line + "; GitHub answered, redacted:", line + "; nothing read. GitHub answered, redacted:",
+                                  line + "; nothing read") for s in said), (line, told))
     clean = subprocess.run([sys.executable, "-m", "tools.redact_trial"], input=note, capture_output=True, text=True,
                            cwd=str(ROOT), timeout=60)
     test.assertEqual((clean.returncode, clean.stdout), (0, note), clean.stderr)
