@@ -35,7 +35,7 @@ MUTANTS = [
      ('tests.test_controller.Feed.test_a_path_a_model_lens_reads_is_never_given_as_a_persons_alone',)),
     # Issue 305: each stored credential's age read, and one alert near its limit (L-37).
     ('credentials that are not JSON stop the pass', 'controller/configuration.py',
-     '    except (OSError, ValueError):\n        return None', '    except OSError:\n        return None', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+     '    except (OSError, ValueError, RecursionError):\n        return None', '    except (OSError, RecursionError):\n        return None', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
     ('a pass is told no credentials', 'controller/configuration.py',
      '            "credentials": _readable(root, "config", "credential-ages.json")}', '            "credentials": None}', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
     # Decision 0224: the run records read each review Run's advisory cost, and the pass tells each review whether the day admits it.
