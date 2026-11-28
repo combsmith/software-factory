@@ -1280,8 +1280,8 @@ class Push(unittest.TestCase):
         # holds who reaches a GitHub write, and the one that holds that nothing is fetched and no secret written down: a
         # Role's push of any of them could blind it to a later change, so each is refused, at its own path alone. So is
         # each file whose only job is to decide whether one of them runs, what it reads, or its verdict: verify's list
-        # of checks, the walk of the tree, and the required check's verdict (issue 1048). One hop, no further: the other
-        # checks, and the transport the commits' check reads through, stay verify's inputs, pushed and read by every Lens.
+        # of checks, the walk of the tree, and the required check's verdict (issue 1048). The transport the commits' check
+        # reads through stays verify's input, pushed and read by every Lens.
         # And the title check, which the commits' check imports and folds into its verdict (issue 1090). And every other
         # check verify runs, with the two files of tools/ they import beyond them, so a push can blind none (issue
         # 1377): the runner of the mutants and its files stay verify's inputs.
