@@ -1,4 +1,4 @@
-# 0000. Each check runs in its own process, and the protected ones answer first
+# 1402. Each check runs in its own process, and the protected ones answer first
 
 Status: accepted. 2026-11-28, the Solution Architect via the Factory Builder; issue 1377; extends record 1381.
 
