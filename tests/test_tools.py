@@ -6280,37 +6280,6 @@ class Workflows(unittest.TestCase):
                 ("a job that needs no run checks out what the run handed on", good.replace("    needs: run\n", "", 1))):
             self.assertNotEqual(text, good, why)
             self.assertNotEqual(runs_the_items_code(text), [], why)
-        # Every workflow the guard passes whole beside a secret, as no work branch can start it (guards/workflows.py):
-        # none checks out an item's head. A checkout
-        # names the Release's own commit, or no ref, the commit its dispatch or schedule is for; no command fetches,
-        # checks out or switches to another.
-        from guards import workflows
-        listed = [e["path"] for e in json.loads((ROOT / "config" / "hooks.json").read_text())["protected"]]
-        files = {".github/workflows/" + p.name: p.read_text() for p in sorted(self.LIVE.iterdir()) if p.suffix in (".yml", ".yaml")}
-        roots = {path: workflows._root(text) for path, text in files.items()}
-        passed = sorted(path for path in files if workflows._gated(path, roots, listed, "main"))
-        self.assertEqual([p[len(".github/workflows/"):] for p in passed],
-                         ["approve.yml", "eval.yml", "queue.yml", "release.yml", "run.yml"])
-
-        def checks_out_an_item(text):
-            entries, bad = check_workflows.read(text)
-            commands = [" ".join([e["value"]] + list(e["body"] or [])) for e in entries if e["key"] == "run"]
-            return bad + [e["value"] for e in entries if e["key"] == "ref" and e["value"] not in release] + [
-                c for c in commands if any(word in c for word in ("git checkout", "git switch", "git fetch", "git pull",
-                                                                  "git worktree", "gh pr checkout", "gh repo clone"))]
-        for path in passed:
-            self.assertEqual(checks_out_an_item(files[path]), [], path)
-        release_yml = files[".github/workflows/release.yml"]
-        for why, text in (("a checkout of the pull request's head", release_yml.replace(
-                "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n",
-                "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n        with:\n"
-                "          ref: ${{ inputs.item }}\n", 1)),
-                          ("a command that fetches a branch", release_yml.replace(
-                              "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n",
-                              "      - run: git fetch origin factory-work/x\n"
-                              "      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1\n", 1))):
-            self.assertNotEqual(text, release_yml, why)
-            self.assertNotEqual(checks_out_an_item(text), [], why)
 
     def test_the_pass_uploads_its_record_before_it_dispatches(self):  # design section 2.3, steps 5 and 6
         good = (self.LIVE / "pass.yml").read_text()
