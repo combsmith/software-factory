@@ -243,11 +243,11 @@ def _listed(root: pathlib.Path) -> list:
     """[(description, (file, tests))] as a child that imports `tools/mutants.py` of `root` prints them on its last line.
     A child that fails, prints no list or prints anything but a list of mutants makes the mutants unreadable."""
     try:
-        done = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", LISTED, str(root)], cwd=str(root),
+        done = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", LISTED, str(root)], cwd=str(root), env={},
                               stdin=subprocess.DEVNULL, capture_output=True, timeout=LISTED_SECONDS)
         lines = done.stdout.decode("utf-8").splitlines()
         listed = json.loads(lines[-1]) if done.returncode == 0 and lines else None
-    except (OSError, subprocess.SubprocessError, UnicodeDecodeError, ValueError) as err:
+    except (OSError, subprocess.SubprocessError, UnicodeDecodeError, ValueError, RecursionError, MemoryError) as err:
         raise Unreadable("tools/mutants.py cannot be read (%s)" % type(err).__name__)
     if not (isinstance(listed, list) and listed and all(_a_mutant(m) for m in listed)):
         raise Unreadable("tools/mutants.py cannot be read (its child printed no list of mutants)")

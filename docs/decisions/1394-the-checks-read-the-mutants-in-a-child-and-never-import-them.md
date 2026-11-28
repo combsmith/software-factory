@@ -10,7 +10,7 @@ What the child prints is untrusted. A child that exits other than 0 fails the ch
 
 Limits:
 - A patched file of mutants can misstate the list the check reads. Review and the merge group's mutant leg read that list.
-- `tools/mutants.py`, the runner, is still pushable. On import it runs `tools/__init__.py`, `tools/verify.py` and every file of `tools/mutants_of/`. A patch to the runner or a file of mutants can blind the mutant leg (issue 1388).
+- `tools/mutants.py`, the runner, is still pushable. On import it runs `tools/__init__.py`, `tools/walk.py`, `tools/verify.py` with the checks it imports, and every file of `tools/mutants_of/`. A patch to the runner or a file of mutants can blind the mutant leg (issue 1388).
 - The checks still import modules of `kernel/`, `harness/` and `adapters/`, and check files a push can change. Issue 1377's later parts close those.
 
 ## Why
