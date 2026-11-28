@@ -1473,6 +1473,10 @@ MUTANTS = [
        revoked_1338(script)) for script in SCRIPTS_1215],
     *[("%s tells a 201 cut before its token to revoke it by hand" % script, "tools/" + script, CUT_1338,
        "token may be live for up to an hour, and the Maintainer must revoke it by hand; to end it sooner", (MINT_REFUSED,)) for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
+    ("P-4 tells a 201 cut before its token no advice", "tools/trial_p4_narrow.sh",
+     '"revoked, and expires within an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends" \\\n'
+     '        "the App\'s installation. GitHub', '"revoked, and expires within an hour. GitHub',
+     (NARROWED + "test_a_refused_mint_stops_with_nothing_read_and_the_answer_redacted",)),
     # Issue 1300: every redaction runs as a file under -I and -S.
     *[(name % script, "tools/" + script, ISOLATED + after, call + after, ISOLATED_TEST)
       for script, after in (("trial_p13_cli.sh", ' < "$1"'), ("trial_p26_sandbox.sh", ' < "$1"'), ("trial_p61_timeline.sh", ' < "$dir/raw"'))

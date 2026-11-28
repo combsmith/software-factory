@@ -267,7 +267,8 @@ asked="$asked{\"n\": 2, \"call\": \"POST /app/installations/$installation/access
 if [ "$minted_status" != 201 ] || [ -z "$token" ]; then
     token=""
     live "trial_p4_narrow: no token was read from the mint (status ${minted_status:-none}); if one was minted it was not" \
-        "revoked, and expires within an hour. GitHub's answer, redacted, is $out/clean-2."
+        "revoked, and expires within an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends" \
+        "the App's installation. GitHub's answer, redacted, is $out/clean-2."
     exit 1
 fi
 echo "minted, narrowed, status 201"

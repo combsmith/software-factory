@@ -9995,6 +9995,12 @@ exit 0
         self.assertEqual(note.count("\n"), 1, note)
         self.assertIn("no token was read from the mint (status 401)", note)
         self.assertNotIn("Bad credentials", note)
+        # A 201 cut before its token is told the advice that works, as a stop mid-mint is (issue 1338).
+        folder = self.stand_in(mint_body='{"expires_at": "2026-10')
+        done = self.run_script(folder, "x/canary", "x/other")
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("no token was read from the mint (status 201)", done.stderr)
+        self.assertIn(SUSPEND, note_in(self, folder / "out", done.stderr))
 
     def test_a_revocation_that_is_not_204_is_told_and_fails(self):
         folder = self.stand_in(revoke_status="500")
@@ -10661,7 +10667,7 @@ else:
                                                                                        "issues": {"totalCount": 1}}}}},
                                                           script=ROOT / "tools" / name, args=argv)
                 self.assertEqual(code, 1, told)
-                self.assertEqual(len(self.revoked(calls)), 2, told)
+                self.assertEqual(self.revoked(calls), self.minted(calls) * 2, told)     # the same token, twice
                 note = note_in(self, self.out, told).splitlines()
                 self.assertEqual(len(note), 2, note)
                 self.assertIn("returned 500, not 204. The token may be live", note[0])
@@ -16608,7 +16614,7 @@ if method == "DELETE":
         os.write(told, b"r")
         os.read(held, 1)
     # Each line answers one revocation in turn, the last every one after (issue 1338).
-    statuses = open(os.path.join(here, "revoke.status")).read().split()
+    statuses = open(os.path.join(here, "revoke.status")).read().splitlines() or [""]
     made = [json.loads(line)["method"] for line in open(os.path.join(here, "log"))].count("DELETE")
     sys.stdout.write(statuses[min(made, len(statuses)) - 1])
     sys.exit(0)
