@@ -7673,7 +7673,18 @@ class Decisions(unittest.TestCase):
         bare = REPLACING.replace("Replaces", "Adds to").replace(ONE_ROW, "| One thing | `tools/check_x.py` |")
         self.assertTrue(refused({LATER: bare}, "0002-two-things.md, boundary 1: a new or changed row names no mutant"))
         # Mutants that cannot be read, or that share a description, hold no row.
+        # They are read in a child, whose word is untrusted: one that ends 0 having printed no list, or a list of anything
+        # but mutants, or that prints a list and then fails, or that holds none, holds no row (issue 1377).
+        unlisted = "its child printed no list of mutants"
         for broken, words in (("MUTANTS = [\n", "tools/mutants.py cannot be read"),
+                              (RECORD_MUTANTS + "import os\nos._exit(0)\n", unlisted),
+                              (RECORD_MUTANTS + "import os\nprint('[[\"a\", \"b\", 1]]', flush=True)\nos._exit(0)\n", unlisted),
+                              (RECORD_MUTANTS + "import os\nprint('[[\"a\", \"b\", [1]]]', flush=True)\nos._exit(0)\n", unlisted),
+                              (RECORD_MUTANTS + "print('[[\"a\", \"b\", []]]')\nraise SystemExit(3)\n", unlisted),
+                              (RECORD_MUTANTS + "import os\nprint('[[', flush=True)\nos._exit(0)\n", "cannot be read (JSONDecodeError)"),
+                              ("MUTANTS = []\n", unlisted),
+                              (RECORD_MUTANTS + "import os\nprint('[[\"ok\", \"tools/check_x.py\", [\"tests.test_x.T.test_y\"]], "
+                                                "[\"bad\", 17, []]]', flush=True)\nos._exit(0)\n", unlisted),
                               (RECORD_MUTANTS.replace("]\n", '    ("one thing is undone", "tools/check_x.py", "c", "d", '
                                                               '("tests.test_x.T.test_y",)),\n]\n'), "share a description")):
             with self.subTest(words):
@@ -7681,13 +7692,38 @@ class Decisions(unittest.TestCase):
         # They are read again once the file holds other mutants, in the same tree.
         root = edited(history(), {FIRST: row(x + '`tests/test_x.py::test_z`, mutant: "another thing is undone"')})
         self.assertEqual(check_decisions.run(root), [])
-        (root / "tools/mutants.py").write_text(RECORD_MUTANTS.replace('"another thing is undone"', '"another thing is gone"'))
+        (root / "tools/mutants.py").write_text(RECORD_MUTANTS.replace('"another thing is undone"', '"another thing is unseen"'))
         self.assertTrue(caught(check_decisions.run(root), 'mutant "another thing is undone", which tools/mutants.py does not hold'))
         # They are not read where no row needs them.
         plain = RECORD.replace(ONE_ROW, "| One thing | `tests/test_x.py` |")
         self.assertEqual(check_decisions.run(edited(history({FIRST: plain}), {
             FIRST: plain + "| Another thing | waiting on `roles/x.py` |\n", "tools/mutants.py": "MUTANTS = [\n"},
             commit=True)), [])
+
+    def test_the_checks_read_the_mutants_in_a_child_and_never_import_them(self):  # issue 1377
+        # The checks' process imports no file of mutants, and the list it reads is the one the runner runs.
+        code = ("import json, sys\nfrom tools import check_decisions\nread = check_decisions._mutants(check_decisions.ROOT)\n"
+                "print(json.dumps([sorted(m for m in sys.modules if m.startswith('tools.mutants')), sorted(read.items())]))\n")
+        done = subprocess.run([sys.executable, "-B", "-c", code], cwd=str(ROOT), capture_output=True, text=True, timeout=300)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        imported, read = json.loads(done.stdout.splitlines()[-1])
+        self.assertEqual(imported, [])
+        from tools import mutants   # the runner, imported in this test's own process alone, to compare
+        self.assertEqual(read, sorted([m[0], [m[1], list(m[4])]] for m in mutants.MUTANTS))
+
+    def test_a_change_to_a_file_of_mutants_alone_is_read_again(self):  # issue 1377
+        # The runner imports its files of mutants; a change to one of them alone is read again, in the same tree.
+        x = '| One thing | `tools/check_x.py`, `tests/test_x.py::test_z`, mutant: "another thing is undone" |'
+        listed = RECORD_MUTANTS
+        root = edited(history(), {FIRST: RECORD.replace(ONE_ROW, x), "tools/mutants_of/x.py": listed,
+                                  "tools/mutants.py": "from tools.mutants_of.x import MUTANTS\n"})
+        self.assertEqual(check_decisions.run(root), [])
+        # The child is isolated: a file at the top named as one of Python's modules is not imported in its place.
+        (root / "json.py").write_text("raise SystemExit(5)\n")
+        (root / "tools/mutants.py").write_text("from tools.mutants_of.x import MUTANTS\n\n")
+        self.assertEqual(check_decisions.run(root), [])
+        (root / "tools/mutants_of/x.py").write_text(listed.replace('"another thing is undone"', '"another thing is unseen"'))
+        self.assertTrue(caught(check_decisions.run(root), 'mutant "another thing is undone", which tools/mutants.py does not hold'))
 
     def test_a_row_main_holds_fails_when_any_mutant_it_names_is_gone(self):  # issue 1242
         # A row of three mutants, held on main in a live record and in one replaced by another, names each: any one taken
@@ -14146,6 +14182,7 @@ class Writes(unittest.TestCase):
                  "tools/plain.py": "import tools.mutants\n",
                  "tools/near.py": "from .mutants import AREAS\n",
                  "tools/lazy.py": "def listed():\n    from tools import mutants\n    return mutants.MUTANTS\n",
+                 "tools/after_lazy.py": "import tools.lazy\n",
                  "tools/beside.py": "from tools.mutants_of import common\n"}
         problems = check_writes.run(clone(files))
         taken = "imports tools/mutants.py, or a module that imports it when imported, which hands on the text"
@@ -14155,7 +14192,8 @@ class Writes(unittest.TestCase):
                           ("controller/takes.py", 1), ("tools/hands_on.py", 1), ("controller/after_hands.py", 1),
                           ("tools/eager.py", 2), ("tools/after_eager.py", 1)):
             self.assertTrue(caught(problems, "%s:%d %s" % (rel, line, taken)), (rel, problems))
-        for rel in ("tools/beside.py", "tools/untested.py", "tools/check_decisions.py", "tools/calls_later.py"):
+        for rel in ("tools/beside.py", "tools/untested.py", "tools/check_decisions.py", "tools/calls_later.py",
+                    "tools/after_lazy.py"):
             self.assertFalse(caught(problems, rel + ":"), (rel, problems))
         # Two runners, the second importing the first, still hand it on to a file that imports the second. A runner may
         # import it; a file that may load a module by its name may not, for that alone, nor does it hand anything on.

@@ -2,6 +2,9 @@
 
 from tools.mutants_of.common import MAIN_ROWS, NAMED_MUTANTS
 
+IN_A_CHILD = ("tests.test_tools.Decisions.test_the_checks_read_the_mutants_in_a_child_and_never_import_them",)
+READ_AGAIN = ("tests.test_tools.Decisions.test_a_change_to_a_file_of_mutants_alone_is_read_again",)
+
 TARGETS = ("tools/check_decisions.py",)
 MUTANTS = [
     # Issue 590: a check names a test, never a file of tests, and a row names the mutant its own tests kill.
@@ -56,7 +59,8 @@ MUTANTS = [
     ('a path through a parent is not the file it reaches', 'tools/check_decisions.py',
      '        if part == ".." and parts and parts[-1] != "..":\n', '        if False:\n', NAMED_MUTANTS),
     ('the mutants are read once whatever the file holds', 'tools/check_decisions.py',
-     '        key = (str(root.resolve()), hashlib.sha256(', '        key = (str(root.resolve()), len(', NAMED_MUTANTS),
+     'tuple((path.name, hashlib.sha256(path.read_bytes()).hexdigest()) for path in files)',
+     'tuple((path.name, len(path.read_bytes())) for path in files)', NAMED_MUTANTS),
     ('two mutants may share a description', 'tools/check_decisions.py',
      '        if len({name for name, _ in read}) != len(read):\n', '        if False:\n', NAMED_MUTANTS),
     ('the mutants are read for rows that need none', 'tools/check_decisions.py',
@@ -145,4 +149,21 @@ MUTANTS = [
     ("a row's mutants after its first are not read", "tools/check_decisions.py",
      '    for name in named:\n', '    for name in named[:1]:\n',
      ("tests.test_tools.Decisions.test_a_row_main_holds_fails_when_any_mutant_it_names_is_gone",)),
+    # Issue 1377: the runner and its files of mutants are imported in a child, whose word is untrusted.
+    ("the runner is imported in the checks' process", 'tools/check_decisions.py',
+     '        read = _listed(root)\n',
+     '        from tools import mutants\n        read = [(m[0], (m[1], tuple(m[4]))) for m in mutants.MUTANTS]\n', IN_A_CHILD),
+    ('the mutant child is not isolated', 'tools/check_decisions.py',
+     '[sys.executable, "-I", "-S", "-B", "-X"', '[sys.executable, "-B", "-X"', READ_AGAIN),
+    ("a child's exit is not read", 'tools/check_decisions.py',
+     ' if done.returncode == 0 and lines else None', ' if lines else None', NAMED_MUTANTS),
+    ('a child that holds no mutants is read', 'tools/check_decisions.py',
+     '(isinstance(listed, list) and listed and all(', '(isinstance(listed, list) and all(', NAMED_MUTANTS),
+    ("a mutant's tests are not read as text", 'tools/check_decisions.py',
+     '\n            and isinstance(item[2], list) and all(isinstance(test, str) for test in item[2]))',
+     '\n            and isinstance(item[2], list))', NAMED_MUTANTS),
+    ('a change to a file of mutants but tools/mutants.py is not read again', 'tools/check_decisions.py',
+     '[root / "tools" / "mutants.py"] + [path for path in walk.files(root, "tools/mutants_of")\n',
+     '[root / "tools" / "mutants.py"] + [path for path in walk.files(root, "tools/mutants_of") if False\n',
+     READ_AGAIN),
 ]

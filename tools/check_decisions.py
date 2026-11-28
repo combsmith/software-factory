@@ -20,14 +20,17 @@ skipped; `verify` says so. In GitHub Actions a missing `.git` fails, so CI canno
 """
 from __future__ import annotations
 
-import ast
 import hashlib
+import json
 import os
 import pathlib
 import re
 import shutil
 import subprocess
+import sys
+import tempfile
 
+from tools import walk
 from tools.check_context import LINK, PENDING, TOKEN, WAITING, _cells, _is_pending, _rows, _sections
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -214,23 +217,16 @@ def _changed(old: list, new: list) -> list:
 
 def _mutants(root: pathlib.Path) -> dict:
     """{description: (file, the tests that kill it)} of every mutant `tools/mutants.py` holds, read once for each root and
-    each text of the file. Two
-    that share a description name no one mutant. Raises Unreadable."""
+    each text of the runner and the files of `tools/mutants_of/`. Two that share a description name no one mutant.
+    Raises Unreadable."""
     try:
-        key = (str(root.resolve()), hashlib.sha256((root / "tools" / "mutants.py").read_bytes()).hexdigest())
+        files = [root / "tools" / "mutants.py"] + [path for path in walk.files(root, "tools/mutants_of")
+                                                   if path.suffix == ".py"]
+        key = (str(root.resolve()),) + tuple((path.name, hashlib.sha256(path.read_bytes()).hexdigest()) for path in files)
     except OSError as err:
         raise Unreadable("tools/mutants.py cannot be read (%s)" % type(err).__name__)
     if key not in _READ:
-        try:
-            if root.resolve() == ROOT.resolve():
-                from tools import mutants
-                listed = mutants.MUTANTS
-            else:
-                # Another tree's list is read as a literal, never run: nothing is loaded by a name (tools/check_writes.py).
-                listed = _literal_mutants((root / "tools" / "mutants.py").read_text(encoding="utf-8"))
-            read = [(m[0], (m[1], tuple(m[4]))) for m in listed]
-        except Exception as err:    # noqa: BLE001 -- whatever stops it being read, the mutants are unreadable
-            raise Unreadable("tools/mutants.py cannot be read (%s)" % type(err).__name__)
+        read = _listed(root)
         if len({name for name, _ in read}) != len(read):
             raise Unreadable("two mutants in tools/mutants.py share a description, so a row cannot name one of them")
         _READ[key] = dict(read)
@@ -238,14 +234,37 @@ def _mutants(root: pathlib.Path) -> dict:
 
 
 _READ = {}
+# The runner and its files of mutants are imported in a child of their own, never in the checks' process (issue 1377):
+# a patch to one of them can then misstate the list, but cannot end the checks. What the child prints is untrusted. The
+# tree comes last on the child's path, so a file at its top named as one of Python's own modules is not imported.
+LISTED = ("import json, sys\nsys.path.append(sys.argv[1])\nfrom tools import mutants\n"
+          "print(json.dumps([[m[0], m[1], list(m[4])] for m in mutants.MUTANTS]))\n")
+LISTED_SECONDS = 300
 
 
-def _literal_mutants(source: str) -> list:
-    """The `MUTANTS = [...]` of a file that writes it as a literal, which a tree other than this one holds in a test."""
-    for node in ast.parse(source).body:
-        if isinstance(node, ast.Assign) and [getattr(t, "id", None) for t in node.targets] == ["MUTANTS"]:
-            return ast.literal_eval(node.value)
-    raise ValueError("no MUTANTS")
+def _listed(root: pathlib.Path) -> list:
+    """[(description, (file, tests))] as a child that imports `tools/mutants.py` of `root` prints them on its last line,
+    its bytecode read from an empty folder, never a __pycache__ of the tree.
+    A child that fails, prints no list or prints anything but a list of mutants makes the mutants unreadable."""
+    root, cache = root.resolve(), tempfile.mkdtemp(prefix="mutants-bytecode-")
+    try:
+        done = subprocess.run([sys.executable, "-I", "-S", "-B", "-X", "pycache_prefix=" + cache, "-c", LISTED, str(root)],
+                              cwd=str(root), env={}, stdin=subprocess.DEVNULL, capture_output=True, timeout=LISTED_SECONDS)
+        lines = done.stdout.decode("utf-8").splitlines()
+        listed = json.loads(lines[-1]) if done.returncode == 0 and lines else None
+    except (OSError, subprocess.SubprocessError, UnicodeDecodeError, ValueError, RecursionError, MemoryError) as err:
+        raise Unreadable("tools/mutants.py cannot be read (%s)" % type(err).__name__)
+    finally:
+        shutil.rmtree(cache, ignore_errors=True)
+    if not (isinstance(listed, list) and listed and all(_a_mutant(m) for m in listed)):
+        raise Unreadable("tools/mutants.py cannot be read (its child printed no list of mutants)")
+    return [(m[0], (m[1], tuple(m[2]))) for m in listed]
+
+
+def _a_mutant(item) -> bool:
+    """Whether `item` is [description, file, [test, ...]], each a str, as the child prints a mutant."""
+    return (isinstance(item, list) and len(item) == 3 and isinstance(item[0], str) and isinstance(item[1], str)
+            and isinstance(item[2], list) and all(isinstance(test, str) for test in item[2]))
 
 
 def _is_test(killer: str, module: str, name: str) -> bool:
