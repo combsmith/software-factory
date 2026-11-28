@@ -123,8 +123,8 @@ def advice_cost(transport, repo: str, github_id: int, run: str, attempt: int, se
     as `{asks, cost_usd}`, or None. It is read as an outcome is, one small file in the same bounds, through the same
     requests, and never a Lens's Result. None for a Run that left none, one past its retention, and one that cannot be
     read, is over the bounds, breaks its schema or is another Run's or another attempt's, as a re-run may list: whatever the reason, the pass counts a cost it
-    does not hold at the worst case, so None is never nought. `whole` says only whether there was nothing to read
-    (true) or something that could not be read (false); it says nothing of the run records, and is never a reason to
+    does not hold at the worst case, so None is never nought. `whole` is true for a cost read and for nothing to
+    read, and false for something that could not be read; it says nothing of the run records, and is never a reason to
     defer. A list GitHub does not answer raises
     `Unanswered`, as an outcome's does."""
     held, whole = read(transport, repo, github_id, seen, ADVICE_COST, ADVICE_COST_MEMBER)
@@ -140,7 +140,7 @@ def advice_cost(transport, repo: str, github_id: int, run: str, attempt: int, se
     except (ValueError, RecursionError):
         record = None
     if not isinstance(record, dict) or validate(record, SCHEMAS["advice-cost"]) or record["run"] != run \
-            or record["attempt"] != attempt:
+            or type(attempt) is not int or record["attempt"] != attempt:
         return None, False      # the validator refuses NaN and the infinities as no finite number
     return {"asks": record["asks"], "cost_usd": record["cost_usd"]}, True
 
