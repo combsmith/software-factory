@@ -3,25 +3,36 @@
 `make fast` runs the same checks and every test but the seeded simulation. `make checks` runs the checks alone, half a
 minute, and is what a session's hooks run after an edit and before a stop (`tools/hooks/after_edit.py`,
 `tools/hooks/before_stop.py`), and what the desk owes with the mutants of the files a change touches; the tests are CI's.
-After the checks it prints one note that fails nothing, `tools/desk.py`'s size (`desk_note`), which CI's legs never run.
+After the checks it prints one note that fails nothing, `tools/desk.py`'s size (`desk_note`), at a desk alone.
+`make tests` runs the tests alone, and prints first what verify says of the records and of the fake GitHub.
 
-CI runs `make verify` in legs, each told CHECKS_SHARD and CHECKS_SHARDS by its matrix: each leg runs every check and its
-share of the tests, so that across the legs every test runs once and no leg nears the step's limit. Neither set: every
-test, as at a desk.
+CI runs `make checks` in a step of its own, then `make tests` in another, in legs, each told CHECKS_SHARD and
+CHECKS_SHARDS by its matrix, so that across the legs every test runs once and no leg nears the step's limit. A failed
+check ends the job before any test runs. Neither set: every test, as at a desk.
+
+The Makefile runs this file in Python's isolated mode, without site, so the repo's top is put on the path here, after
+the standard library: a file at the top named as one of its modules is never imported in its place. `make verify` runs
+the checks here and the tests in a process of their own (`tested`), and no test module is imported in this one, so a
+test module that ends its process at import ends only the tests' process, and the checks' verdict is still the answer
+(issue 1050).
 """
 from __future__ import annotations
 
 import os
 import pathlib
 import re
+import subprocess
 import sys
 import unittest
+
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))      # after the standard library: a file at the top never stands in for one of its modules
 
 from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_gate_sets,
                    check_lifecycle,
                    check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes)
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
 CHECKS = [
     ("schemas and examples", check_examples.run),
     ("lifecycle", check_lifecycle.run),
@@ -139,27 +150,44 @@ def quiet(stream) -> None:
         pass
 
 
+def tested(fast: bool, share: tuple = None) -> int:
+    """The exit of the tests, run in a process of their own, isolated as this one is, told the leg this one read, or
+    none: a test module that ends that process can end only the tests' verdict."""
+    env = {k: v for k, v in os.environ.items() if k not in ("CHECKS_SHARD", "CHECKS_SHARDS")}
+    if share is not None:
+        env.update(CHECKS_SHARD=str(share[0]), CHECKS_SHARDS=str(share[1]))
+    return subprocess.run([sys.executable, "-I", "-S", str(ROOT / "tools" / "verify.py"), "--tests"]
+                          + (["--fast"] if fast else []), cwd=str(ROOT), env=env, check=False).returncode
+
+
 def main(argv: list, environ=None) -> int:
     try:
         share = None if "--checks" in argv or "--fast" in argv else leg(environ or {})
     except ValueError as err:
         print(err)
         return 1
+    if "--tests" in argv:       # `make tests`, or the tests' process that `tested` starts: it runs no check
+        for line in notes():
+            print(line)
+        unverified(check_trials.unverified())
+        if share is not None:
+            print("%-22s leg %d of %d counted from 0" % ("tests", share[0], share[1]))
+        result = unittest.TextTestRunner(verbosity=1).run(suite("--fast" in argv, share))
+        return 0 if result.wasSuccessful() else 1
     checks_failed = failed(CHECKS)
     if "--checks" in argv:
         answer = 1 if checks_failed else 0      # the checks' answer, told before the note runs
+        if any(name in (environ or {}) for name in ("CHECKS_SHARD", "CHECKS_SHARDS", "CI")):
+            return answer       # CI: the note's code, which a push can change, is never imported there
         try:
             print("%-22s %s" % ("diff size", desk_note()), flush=True)
         except BaseException:       # NOSONAR: a closed pipe too; the note never decides make checks' answer
             quiet(sys.stdout)
         return answer
-    for line in notes():
-        print(line)
-    unverified(check_trials.unverified())
-    if share is not None:
-        print("%-22s leg %d of %d counted from 0" % ("tests", share[0], share[1]))
-    result = unittest.TextTestRunner(verbosity=1).run(suite("--fast" in argv, share))
-    return 1 if checks_failed or not result.wasSuccessful() else 0
+    sys.stdout.flush()      # what the checks printed goes out before what the tests' process prints
+    tests = tested("--fast" in argv, share)
+    print("%-22s %s" % ("tests", "their process ended %d" % tests))
+    return 1 if checks_failed or tests != 0 else 0
 
 
 if __name__ == "__main__":
