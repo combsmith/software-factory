@@ -78,7 +78,9 @@ ENDED = (404, 410)
 # A list's link header, as trials/P-43.json recorded one: entries `<...&page=12>; rel="last"`, each with its
 # parameters, quoted, as GitHub's deprecation notice has more (trials/P-1.json), and no white space in its address,
 # which urllib would drop (Carbon); the relations that page a list.
-ENTRY = re.compile(r'\s*<([^<>\s]*)>((?:\s*;\s*[a-z-]+="(?:[^"\\]|\\.)*")+)\s*(?:,|$)')
+# NOSONAR below: a false positive, confirmed (issue 1196). Each parameter starts at its own `;` and `_links` anchors each
+# match where the last ended, so the read is linear: 8,000 parameters ending in no comma take about a millisecond.
+ENTRY = re.compile(r'\s*<([^<>\s]*)>((?:\s*;\s*[a-z-]+="(?:[^"\\]|\\.)*")+)\s*(?:,|$)')  # NOSONAR
 PARAM = re.compile(r'\s*;\s*([a-z-]+)="((?:[^"\\]|\\.)*)"')
 PAGING = ("next", "last", "prev", "first")
 PAGE_NUMBER = re.compile(r"[0-9]{1,9}")

@@ -39,7 +39,9 @@ HEADINGS = ("Why", "What changed", "What to look at", "Record and protected edit
 # what it holds too (reading an indented fence as one only hides more); it closes on its own kind, at least as long,
 # at most three columns further in than its list item, with nothing but spaces or tabs after it. A backtick fence's words
 # hold no backtick, or it is inline code. It opens only on a line that starts outside the scaffolding, read as written.
-FENCE_OPEN = re.compile(r"[ \t]*(?:(?:[-*+]|[0-9]{1,9}[.)])[ \t]+)*(`{3,}|~{3,})([^\n]*)")
+# NOSONAR below: a false positive, confirmed (issue 1196). Each list marker must start its group and a fence ends
+# the pattern, which is matched whole on one line: 8,000 markers with no fence take under a millisecond.
+FENCE_OPEN = re.compile(r"[ \t]*(?:(?:[-*+]|[0-9]{1,9}[.)])[ \t]+)*(`{3,}|~{3,})([^\n]*)")  # NOSONAR
 FENCE_CLOSE = re.compile(r"[ \t]*(`{3,}|~{3,})[ \t]*")
 # The template's own scaffolding, which is no text and hides any heading in it: its comments, the checks-and-readers
 # block (nested, of any case, with attributes), and an empty list item. A comment or a block left open runs to the end.

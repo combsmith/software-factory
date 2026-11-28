@@ -229,6 +229,7 @@
   "opened_for": null,
   "issue_stands": null,
   "acceptance_bounded": false,
+  "closes_another_issue": false,
   "timeline_bounded": false,
   "complete": {
     "acceptance": true,
