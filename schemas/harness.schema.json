@@ -186,6 +186,7 @@
           "output_tokens",
           "prompt_characters",
           "seconds",
+          "share",
           "usd_per_million"
         ],
         "properties": {
@@ -250,6 +251,12 @@
             "type": "integer",
             "minimum": 1,
             "maximum": 1200
+          },
+          "share": {
+            "description": "The seconds of the advise step this reader's turn may take: it runs until only the shares of the readers after it are left of the step's whole (decision 0243, trials P-78 and P-79).",
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 1440
           },
           "usd_per_million": {
             "type": "object",

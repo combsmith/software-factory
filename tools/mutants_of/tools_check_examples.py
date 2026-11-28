@@ -261,6 +261,12 @@ MUTANTS = [
     ("a counter-example of the pin's file is not held to its readers' names", 'tools/check_examples.py',
      '        if kind == "harness" and not errors:\n            errors = _readers(value)\n        if not errors:\n',
      '        if not errors:\n', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
+    # Decision 0243: the readers' shares fit in the advise step's whole.
+    ("the readers' shares may pass the step's whole", 'tools/check_examples.py',
+     '    if all(type(share) is int for share in shares) and sum(shares) > STEP_SECONDS:\n',
+     '    if False:\n', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
+    ("readers' shares as long as the step's whole are refused", 'tools/check_examples.py',
+     'and sum(shares) > STEP_SECONDS:', 'and sum(shares) >= STEP_SECONDS:', ('tests.test_tools.Repo.test_a_reader_is_an_advisory_lens_and_the_days_ceiling_has_no_default',)),
     # Decision 0224: the worst case one read is counted at, held by tools/check_examples.py (worded in 0243).
     ('the worst case may be under what a read may cost', 'tools/check_examples.py',
      '        if worst < least:\n',
