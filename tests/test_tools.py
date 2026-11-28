@@ -4469,7 +4469,7 @@ class Workflows(unittest.TestCase):
                  (run, run + "        working-directory: evil\n", shape), (run, run + "        env:\n          CHECKS_SHARD: 0\n", shape),
                  (run, run + "      - run: make fast\n", shape),
                  (run, "      - run: make fast\n      - run: make tests\n", shape),
-                 ("          fetch-depth: 0\n" + checks, checks, shape),
+                 ("          fetch-depth: 0\n", "", shape),
                  # The checks gone, run after the tests, run as another target, or let the tests run when they failed.
                  (checks, "", shape), (checks + tests, tests + checks, shape),
                  (checks, "      - run: make fast\n        timeout-minutes: 4\n", shape),
