@@ -1822,10 +1822,12 @@ class Push(unittest.TestCase):
         self.assertIsNone(push.landed(self.upto(PUSH, 0)))
         # A state in no shape seen gives lands nothing, a landing said in another word or with no commit among them.
         done = self.upto(PUSH, len(self.landing()))
-        for bad in (dict(done, landed=1), dict(done, landed="yes"), dict(done, commit=None), dict(done, commit="x"),
-                    dict(done, moved=False), dict(done, push=dict(done["push"], branch="main")), Mapping(done), None,
-                    {k: v for k, v in done.items() if k != "landed"}):
-            self.assertIsNone(push.landed(bad), bad if not isinstance(bad, dict) else sorted(set(done) ^ set(bad)))
+        reading, _ = push.began(READING)
+        for at, bad in enumerate((dict(done, landed=1), dict(done, landed="yes"), dict(done, commit=None),
+                                  dict(done, commit="x"), dict(done, moved=False), dict(done, stale=True),
+                                  dict(done, push=dict(done["push"], branch="main")), Mapping(done), None,
+                                  {k: v for k, v in done.items() if k != "landed"}, dict(reading, landed=True))):
+            self.assertIsNone(push.landed(bad), at)
 
     def test_each_read_back_and_branch_write_says_whose_a_stop_is(self):
         refused, moved, unanswered = (None, push.ANSWER_REFUSED), (None, push.BRANCH_MOVED), (None, push.UNANSWERED)
