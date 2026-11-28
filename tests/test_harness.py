@@ -2405,9 +2405,9 @@ class Push(unittest.TestCase):
         # tests imports the push, so no push leaves by it.
         import ast
         callers = []
-        for path in sorted(ROOT.rglob("*.py")):
+        for path in walk.files(ROOT):
             rel = path.relative_to(ROOT).as_posix()
-            if rel.startswith(("tests/", ".git/")):
+            if path.suffix != ".py" or rel.startswith("tests/"):
                 continue
             for node in ast.walk(ast.parse(path.read_text(), rel)):
                 names = [alias.name for alias in node.names] if isinstance(node, (ast.Import, ast.ImportFrom)) else []
