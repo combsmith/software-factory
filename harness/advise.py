@@ -8,7 +8,7 @@ makes. For a review of a change that is no dependency's, the step asks each read
 the order `advisory` names them, once. It reads the diff and the Run's own files and nothing from GitHub, and it holds
 one secret, the Azure key, under `ADVISORY_AZURE_KEY`. It writes
 `advice.<lens>.json`, an `advice/1`, and its digest beside it, for every reader that can be asked: `completed`,
-`incomplete` or `failed`. A reader whose name or settings build no `advice/1` is not asked, and has none.
+`incomplete` or `failed`.
 
 `advice-cost.json`, the Run's `advice-cost/1`, is all the Controller reads of the Run, and `harness.unasked` wrote it
 with no asks. A Run that is about to ask a reader can no longer say so. For now this step only takes that word back:
@@ -19,11 +19,14 @@ its place. A Run that asks nobody leaves the file as it was written.
 The step never fails its job. A reader that cannot be asked, or that Azure does not answer, has a Result that says why
 by a code, `transport` for the second, for that reader alone; the review then runs without that reader. It asks
 nothing unless the pass record says the day's ceiling admits it, beside the Run's Decision: with no such word the
-Result is `budget` (decision 0224, Spend). A diff too large for one prompt is not asked: `too_large`.
+Result is `budget` (decision 0224, Spend). A prompt past the reader's `prompt_characters`, in bytes of
+UTF-8 as decision 0243 prices it, is not asked: `too_large`.
 
 Time. The readers share WHOLE seconds from the step's start, asked one after another: a reader's turn ends where only
 the `share` of each reader after it that is to be asked is left, and the last runs to the step's end (trial P-78). A
-request waits the reader's `seconds`, or what is left of its turn where that is less. No workflow runs the step yet.
+request waits the reader's `seconds`, or what is left of its turn where that is less. Limits: a read of a response,
+and its cancel, wait as long as the ask that made it, so one sent near its turn's end may run past it. No workflow runs
+the step yet.
 
 What a reader is sent: a fixed instruction, `roles/pr-review/advisory-reader.md` of the Release, then the base's rules
 where the reader's folder holds them, then the whole diff, as data. It is given no tool.
@@ -75,7 +78,7 @@ def body_of(reader: dict, effort: str, prompt: str) -> dict:
 
 def turn_of(later: list, until: float) -> float:
     """Where a reader's turn ends: where only the shares of `later`, the readers after it that are to be asked, are
-    left of the step. With none, the step's end; never past it."""
+    left of the step. With none, the step's end."""
     return until - sum(reader["share"] for reader in later)
 
 
@@ -98,7 +101,7 @@ def asked(send, reader: dict, request: dict, until: float, clock, sleep) -> tupl
     ident = body.get("id")
     while body.get("status") in RUNNING:
         if clock() + POLL >= until:
-            send(azure.cancel(ident))       # not left to run on and be billed; what it answers changes nothing
+            send(azure.cancel(ident))       # not left to run on and be billed
             break
         sleep(POLL)
         answer = send(azure.read(ident))
@@ -112,7 +115,7 @@ def refusal(reader: dict, prompt: str, admitted: bool, key):
     """The code a reader is refused by before anything is sent, or None."""
     if not admitted:
         return "budget"
-    if len(prompt) > reader["prompt_characters"]:
+    if len(prompt.encode("utf-8")) > reader["prompt_characters"]:
         return "too_large"
     if not isinstance(key, str) or not key:
         return "no_key"
