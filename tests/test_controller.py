@@ -534,7 +534,9 @@ class Record(unittest.TestCase):
         self.assertEqual(asks(previous=(blind, blind2)), [False])
         carried = passed(reads(pulls=[]), cfg=told, previous=[blind, blind2])["record"]
         self.assertEqual(carried["advisory_doubt_until"], "2026-10-11T13:59:40Z")
-        lapsed = passed(reads(pulls=[pr(4)]), cfg=told, now="2026-10-11T13:59:40Z", previous=[dict(carried, now="2026-10-11T13:30:00Z")])["record"]
+        stands = passed(reads(pulls=[pr(4)]), cfg=told, now="2026-10-11T13:59:40Z", previous=[dict(carried, now="2026-10-11T13:30:00Z")])["record"]
+        self.assertEqual([e.get("advisory_ask") for e in stands["pull_requests"]], [False])     # to its last second, as a yes counts
+        lapsed = passed(reads(pulls=[pr(4)]), cfg=told, now="2026-10-11T13:59:41Z", previous=[dict(carried, now="2026-10-11T13:30:00Z")])["record"]
         self.assertEqual(([e.get("advisory_ask") for e in lapsed["pull_requests"]], "advisory_doubt_until" in lapsed), ([True], False))
         self.assertNotIn("advisory_doubt_until", first)
         # Of two doubts that stand, the later is carried; a new one is never shortened by an earlier that stands.
@@ -546,6 +548,9 @@ class Record(unittest.TestCase):
         # A doubt more than an hour past its own record is no doubt carried, but a new one of an hour.
         far = passed(reads(pulls=[pr(4)]), cfg=told, previous=[dict(quiet, advisory_unlisted=[], advisory_doubt_until="9999-12-31T23:59:59Z")])["record"]
         self.assertEqual(([e.get("advisory_ask") for e in far["pull_requests"]], far["advisory_doubt_until"]), ([False], "2026-10-11T14:00:00Z"))
+        # Nor is one before its own record's `now`, which no pass writes.
+        before_ = passed(reads(pulls=[pr(4)]), cfg=told, previous=[dict(quiet, advisory_unlisted=[], advisory_doubt_until="2026-10-11T00:00:00Z")])["record"]
+        self.assertEqual(([e.get("advisory_ask") for e in before_["pull_requests"]], before_["advisory_doubt_until"]), ([False], "2026-10-11T14:00:00Z"))
         edge = dict(quiet, advisory_unlisted=[], advisory_doubt_until="2026-10-11T13:59:40Z")      # its `now` an hour on
         self.assertEqual(passed(reads(pulls=[]), cfg=told, previous=[edge])["record"]["advisory_doubt_until"], "2026-10-11T13:59:40Z")
         # A doubt an hour past the last moment the form can write is that moment.
