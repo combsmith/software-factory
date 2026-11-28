@@ -28,6 +28,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 
 from tools.check_context import LINK, PENDING, TOKEN, WAITING, _cells, _is_pending, _rows, _sections
 
@@ -218,7 +219,7 @@ def _mutants(root: pathlib.Path) -> dict:
     each text of the runner and the files of `tools/mutants_of/`. Two that share a description name no one mutant.
     Raises Unreadable."""
     try:
-        files = [root / "tools" / "mutants.py"] + sorted((root / "tools" / "mutants_of").glob("*.py"))
+        files = [root / "tools" / "mutants.py"] + sorted((root / "tools" / "mutants_of").rglob("*.py"))
         key = (str(root.resolve()),) + tuple((path.name, hashlib.sha256(path.read_bytes()).hexdigest()) for path in files)
     except OSError as err:
         raise Unreadable("tools/mutants.py cannot be read (%s)" % type(err).__name__)
@@ -240,15 +241,19 @@ LISTED_SECONDS = 300
 
 
 def _listed(root: pathlib.Path) -> list:
-    """[(description, (file, tests))] as a child that imports `tools/mutants.py` of `root` prints them on its last line.
+    """[(description, (file, tests))] as a child that imports `tools/mutants.py` of `root` prints them on its last line,
+    its bytecode read from an empty folder, never a __pycache__ of the tree.
     A child that fails, prints no list or prints anything but a list of mutants makes the mutants unreadable."""
+    root, cache = root.resolve(), tempfile.mkdtemp(prefix="mutants-bytecode-")
     try:
-        done = subprocess.run([sys.executable, "-I", "-S", "-B", "-c", LISTED, str(root)], cwd=str(root), env={},
-                              stdin=subprocess.DEVNULL, capture_output=True, timeout=LISTED_SECONDS)
+        done = subprocess.run([sys.executable, "-I", "-S", "-B", "-X", "pycache_prefix=" + cache, "-c", LISTED, str(root)],
+                              cwd=str(root), env={}, stdin=subprocess.DEVNULL, capture_output=True, timeout=LISTED_SECONDS)
         lines = done.stdout.decode("utf-8").splitlines()
         listed = json.loads(lines[-1]) if done.returncode == 0 and lines else None
     except (OSError, subprocess.SubprocessError, UnicodeDecodeError, ValueError, RecursionError, MemoryError) as err:
         raise Unreadable("tools/mutants.py cannot be read (%s)" % type(err).__name__)
+    finally:
+        shutil.rmtree(cache, ignore_errors=True)
     if not (isinstance(listed, list) and listed and all(_a_mutant(m) for m in listed)):
         raise Unreadable("tools/mutants.py cannot be read (its child printed no list of mutants)")
     return [(m[0], (m[1], tuple(m[2]))) for m in listed]

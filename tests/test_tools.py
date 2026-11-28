@@ -7683,6 +7683,8 @@ class Decisions(unittest.TestCase):
                               (RECORD_MUTANTS + "print('[[\"a\", \"b\", []]]')\nraise SystemExit(3)\n", unlisted),
                               (RECORD_MUTANTS + "import os\nprint('[[', flush=True)\nos._exit(0)\n", "cannot be read (JSONDecodeError)"),
                               ("MUTANTS = []\n", unlisted),
+                              (RECORD_MUTANTS + "import os\nprint('[[\"ok\", \"tools/check_x.py\", [\"tests.test_x.T.test_y\"]], "
+                                                "[\"bad\", 17, []]]', flush=True)\nos._exit(0)\n", unlisted),
                               (RECORD_MUTANTS.replace("]\n", '    ("one thing is undone", "tools/check_x.py", "c", "d", '
                                                               '("tests.test_x.T.test_y",)),\n]\n'), "share a description")):
             with self.subTest(words):
@@ -7715,6 +7717,10 @@ class Decisions(unittest.TestCase):
         listed = RECORD_MUTANTS
         root = edited(history(), {FIRST: RECORD.replace(ONE_ROW, x), "tools/mutants_of/x.py": listed,
                                   "tools/mutants.py": "from tools.mutants_of.x import MUTANTS\n"})
+        self.assertEqual(check_decisions.run(root), [])
+        # The child is isolated: a file at the top named as one of Python's modules is not imported in its place.
+        (root / "json.py").write_text("raise SystemExit(5)\n")
+        (root / "tools/mutants.py").write_text("from tools.mutants_of.x import MUTANTS\n\n")
         self.assertEqual(check_decisions.run(root), [])
         (root / "tools/mutants_of/x.py").write_text(listed.replace('"another thing is undone"', '"another thing is unseen"'))
         self.assertTrue(caught(check_decisions.run(root), 'mutant "another thing is undone", which tools/mutants.py does not hold'))

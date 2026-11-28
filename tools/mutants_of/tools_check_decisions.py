@@ -153,6 +153,8 @@ MUTANTS = [
     ("the runner is imported in the checks' process", 'tools/check_decisions.py',
      '        read = _listed(root)\n',
      '        from tools import mutants\n        read = [(m[0], (m[1], tuple(m[4]))) for m in mutants.MUTANTS]\n', IN_A_CHILD),
+    ('the mutant child is not isolated', 'tools/check_decisions.py',
+     '[sys.executable, "-I", "-S", "-B", "-X"', '[sys.executable, "-B", "-X"', READ_AGAIN),
     ("a child's exit is not read", 'tools/check_decisions.py',
      ' if done.returncode == 0 and lines else None', ' if lines else None', NAMED_MUTANTS),
     ('a child that holds no mutants is read', 'tools/check_decisions.py',
@@ -161,6 +163,6 @@ MUTANTS = [
      '\n            and isinstance(item[2], list) and all(isinstance(test, str) for test in item[2]))',
      '\n            and isinstance(item[2], list))', NAMED_MUTANTS),
     ('a change to a file of mutants but tools/mutants.py is not read again', 'tools/check_decisions.py',
-     '[root / "tools" / "mutants.py"] + sorted((root / "tools" / "mutants_of").glob("*.py"))',
+     '[root / "tools" / "mutants.py"] + sorted((root / "tools" / "mutants_of").rglob("*.py"))',
      '[root / "tools" / "mutants.py"]', READ_AGAIN),
 ]
