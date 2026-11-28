@@ -6,7 +6,7 @@ Status: accepted. 2026-11-28, the Solution Architect via the Factory Builder; is
 
 Every check that verify runs joins the protected list in `config/hooks.json`: `check_apps`, `check_authority`, `check_context`, `check_decisions`, `check_examples`, `check_gate_sets`, `check_lifecycle`, `check_purity`, `check_release`, `check_rulesets` and `check_trials`. So do `tools/jsonschema_lite.py` and `tools/eval_result.py`, which the checks import. Each is listed at any suffix, with a package at its name, as record 0240 lists its checks. `tools/check_decisions.py` leaves the reported list.
 
-This narrows record 0188's row "What is pushed" by these names: a Role's push of one is refused. A Role may still push `kernel/`, `tests/`, `tools/mutants.py`, `tools/mutants_of/` and the rest of `tools/`.
+This narrows record 0188's row "What is pushed" by these names: a Role's push of one is refused. A Role may still push what no list holds, such as `tools/mutants.py`, `tools/mutants_of/` and most of `kernel/` and `tests/`.
 
 Limits:
 - The runner, `tools/mutants.py`, and `tools/mutants_of/` stay pushable, so a patch can still blind the merge group's mutant leg (issue 1388).

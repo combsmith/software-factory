@@ -10,6 +10,7 @@ import copy
 import hashlib
 import json
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -1291,6 +1292,12 @@ class Push(unittest.TestCase):
                                          "check_examples", "check_gate_sets", "check_lifecycle", "check_purity",
                                          "check_release", "check_rulesets", "check_trials", "jsonschema_lite",
                                          "eval_result"))
+        # Every check verify's list names is among them, read from that list, so a check added to it is held too
+        # (Astra's and Carbon's reads).
+        source = (ROOT / "tools" / "verify.py").read_text()
+        start = source.index("\nCHECKS = [")
+        listed = set(re.findall(r"\bcheck_[a-z_]+", source[start:source.index("\n]\n", start)]))
+        self.assertTrue(listed and {"tools/" + name for name in listed} <= set(checks), listed)
         # A module Python would import at the name, whatever its suffix: an extension module is found ahead of the
         # source, so it is the same path (Astra's read). And a package at the name is too, the name itself among it, a
         # link to a directory: Python imports it in place of the module, and python3 -m runs its __main__ (the Claude
