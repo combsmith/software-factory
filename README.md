@@ -112,7 +112,7 @@ python3 -m tools.mutants PATH... # the mutants of the files a change touches
 
 Run those two before a change is finished, as the Verify block of `AGENTS.md` says, which also says
 when to run every mutant of a file. The tests themselves run in CI: the required check,
-`factory / verify` (`.github/workflows/verify.yml`), runs `make verify` in three legs on every pull
+`factory / verify` (`.github/workflows/verify.yml`), runs `make checks` then `make tests` in three legs on every pull
 request and merge group, and the mutation check in shards on the merge group alone. Its verdict
 job and its `commits` job run the base's tools, never the head's, so a change cannot write its own
 verdict (decision 0023). The checks and tests themselves run from the head, which is why a change to

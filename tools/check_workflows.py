@@ -14,8 +14,9 @@ pull_request and merge_group, and has a job whose own `name:`, or whose id where
 with no `strategy.matrix` and no `uses:`. Its one job-level `if:` is exactly `always()`, beside a `needs:` that names
 every other job in its file, and then it judges them with `tools/needs_passed.py`, the base's: its one checkout is
 of the base, never the head. Only `jobs.<id>.name` is read: a workflow's or a step's `name:` names no check run.
-In the required check's workflow, the mutants and `make verify` each run in a matrix whose legs are told their place
-and the count by the matrix itself (_shards, _legs), so that no mutant and no test is left in no leg. Its one top-level
+In the required check's workflow, the mutants and `make tests` each run in a matrix whose legs are told their place
+and the count by the matrix itself (_shards, _legs), so that no mutant and no test is left in no leg; each leg runs
+`make checks` in a step before the tests, so that a failed check ends it before any test code runs (issue 1050). Its one top-level
 concurrency, if any, is PR_LANE and PR_CANCEL: a pull request's run gives way to a newer push's, and a merge group's never.
 
 The secret scan, the exempt `ci.yml`, reads its rules from the base (scan_problems): `.gitleaks.toml` and
@@ -707,8 +708,10 @@ COMMITS = "python3 -m tools.commits_are_the_maintainers"
 SHARDED = "python3 -m tools.mutants"
 INDEX = "${{ strategy.job-index }}"
 TOTAL = "${{ strategy.job-total }}"
-# The legs of `make verify`, dealt its tests as the mutant shards are dealt mutants, and told the same way.
-LEGGED = "make verify"
+# The legs of `make tests`, dealt the tests as the mutant shards are dealt mutants, and told the same way; each leg runs
+# `make checks` in a step of its own first, so that a failed check ends the leg before any test runs (issue 1050).
+LEGGED = "make tests"
+CHECKED = "make checks"
 JUDGING_KEYS = {"name", "needs", "if", "runs-on", "timeout-minutes", "permissions", "env", "steps"}
 SHARD_KEYS = {"runs-on", "timeout-minutes", "permissions", "strategy", "env", "steps"}
 HEAD = "${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}"
@@ -1408,8 +1411,8 @@ def _legs(entries: list, jobs: list) -> list:
     """Why the workflow would not run every test once: a job that runs `LEGGED` exists, and its env: is exactly
     CHECKS_SHARD: INDEX and CHECKS_SHARDS: TOTAL, the matrix's own index and size, so a number written in cannot leave a
     share of the tests in no leg; its matrix is one key, shard; and its shape is closed, as the mutant shards' is: the
-    keys SHARD_KEYS and no other, contents: read, a checkout of the head with the whole history and `LEGGED` on a line
-    of its own, each step holding no other key."""
+    keys SHARD_KEYS and no other, contents: read, a checkout of the head with the whole history, then `CHECKED` and
+    `LEGGED`, in that order, each on a line of its own, each step holding no other key."""
     whys, any_leg = [], False
     for job in jobs:
         own = [e for e in entries if e["path"][:2] == ["jobs", job]]
@@ -1432,11 +1435,12 @@ def _legs(entries: list, jobs: list) -> list:
             whys.append(said + "whose strategy.matrix is not the one key shard")
         if granted != {"contents": "read"}:
             whys.append(said + "granted other than contents: read")
-        if not ([set(step) for step in _steps(entries, job)] == [{"uses", "with"}, {"run", "timeout-minutes"}]
-                and [(e["value"], e["body"] or []) for e in steps] == [(LEGGED, [])]
+        if not ([set(step) for step in _steps(entries, job)] == [{"uses", "with"}] + [{"run", "timeout-minutes"}] * 2
+                and [(e["value"], e["body"] or []) for e in steps] == [(CHECKED, []), (LEGGED, [])]
                 and checkouts == [{"persist-credentials": "false", "fetch-depth": "0"}]):
-            whys.append(said + "whose steps are not a checkout of the head with the whole history and `%s` on a line "
-                        "of its own with its own timeout-minutes, each holding no other key" % LEGGED)
+            whys.append(said + "whose steps are not a checkout of the head with the whole history, then `%s` and `%s`, "
+                        "each on a line of its own with its own timeout-minutes, each holding no other key"
+                        % (CHECKED, LEGGED))
     if not any_leg:
         whys.append("has no job that runs `%s`, so no check and no test runs before a merge" % LEGGED)
     return whys

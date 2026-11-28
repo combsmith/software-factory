@@ -31,3 +31,5 @@ Decision 0240 named two ways a push could pass a failed check without touching a
 | The tests' process runs no check | `tests/test_tools.py::Verify.test_make_fast_is_verify_without_the_seeded_simulation`, `tools/verify.py`, mutant: "the tests' process runs the checks" |
 | make tests runs no check | `tests/test_tools.py::Verify.test_make_fast_is_verify_without_the_seeded_simulation`, `Makefile`, mutant: "make tests runs the checks too" |
 | A failed test fails make tests | `tests/test_tools.py::Verify.test_make_fast_is_verify_without_the_seeded_simulation`, `tools/verify.py`, mutant: "a failed test passes make tests" |
+| Each leg of CI runs the checks in a step before the tests | `tests/test_tools.py::Workflows.test_the_legs_of_make_verify_are_told_their_place_and_count_by_the_matrix`, `tools/check_workflows.py`, mutant: "the tests may run before the checks" |
+| CI's make checks imports no desk note | `tests/test_tools.py::Desk.test_make_checks_note_fails_nothing`, `tools/verify.py`, mutant: "CI runs the note when make checks runs" |
