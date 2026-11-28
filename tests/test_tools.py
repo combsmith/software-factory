@@ -12840,6 +12840,8 @@ esac
         self.assertIn("revoking the token returned 500", ran.stderr)
         self.assertIn("revoke it by hand", ran.stderr)
         self.assertFalse((out / "requests.json").exists())
+        self.assertEqual(note_in(self, out, ran.stderr),     # in OUT too, for a terminal that is gone (issue 1245)
+                         "trial_p52_pause: the token may be live for up to an hour; the Maintainer must revoke it by hand.\n")
 
     def test_each_refusal_stops_before_anything_is_asked(self):
         folder = self.stand_in()
