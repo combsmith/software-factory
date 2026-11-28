@@ -14182,6 +14182,7 @@ class Writes(unittest.TestCase):
                  "tools/plain.py": "import tools.mutants\n",
                  "tools/near.py": "from .mutants import AREAS\n",
                  "tools/lazy.py": "def listed():\n    from tools import mutants\n    return mutants.MUTANTS\n",
+                 "tools/after_lazy.py": "import tools.lazy\n",
                  "tools/beside.py": "from tools.mutants_of import common\n"}
         problems = check_writes.run(clone(files))
         taken = "imports tools/mutants.py, or a module that imports it when imported, which hands on the text"
@@ -14191,7 +14192,8 @@ class Writes(unittest.TestCase):
                           ("controller/takes.py", 1), ("tools/hands_on.py", 1), ("controller/after_hands.py", 1),
                           ("tools/eager.py", 2), ("tools/after_eager.py", 1)):
             self.assertTrue(caught(problems, "%s:%d %s" % (rel, line, taken)), (rel, problems))
-        for rel in ("tools/beside.py", "tools/untested.py", "tools/check_decisions.py", "tools/calls_later.py"):
+        for rel in ("tools/beside.py", "tools/untested.py", "tools/check_decisions.py", "tools/calls_later.py",
+                    "tools/after_lazy.py"):
             self.assertFalse(caught(problems, rel + ":"), (rel, problems))
         # Two runners, the second importing the first, still hand it on to a file that imports the second. A runner may
         # import it; a file that may load a module by its name may not, for that alone, nor does it hand anything on.
