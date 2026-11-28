@@ -757,10 +757,10 @@ class Schemas(unittest.TestCase):
                             ("an-id-made-of-text", "$.findings[0].id"),
                             ("a-finding-that-carries-its-text", "$.findings[0]")):
             self.assertEqual(wrong("advice", name), [place], name)
-        # The reasons are the design's ten and no other, and a reader's words lie under `body` alone.
+        # The reasons are the design's ten and a re-run's, and no other, and a reader's words lie under `body` alone.
         self.assertEqual(SCHEMAS["advice"]["properties"]["reason"]["enum"],
                          [None, "too_large", "cut_short", "unparsed", "not_the_model", "rate_limited", "refused",
-                          "timed_out", "no_key", "transport", "budget"])
+                          "timed_out", "no_key", "transport", "budget", "rerun"])
         whole = loaded("examples/advice.json")
         for path, value in ((("texts", 0, "id"), "a title"), (("texts", 0, "body"), ""), (("texts", 0, "category"), "style"),
                             (("findings", 0, "surface", "key"), "PRRT_kw7"), (("findings", 0, "content_id"), "5d0c"),

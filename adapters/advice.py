@@ -25,8 +25,9 @@ import re
 from tools.jsonschema_lite import validate
 
 FAILED = ("unparsed", "not_the_model", "no_key", "transport")
-# What the step may say with no answer in hand: nothing was asked, or nothing came back.
-UNASKED = ("too_large", "budget", "no_key", "timed_out", "transport", "rate_limited")
+# What the step may say with no answer in hand: nothing was asked, or nothing came back. `rerun` is a later attempt's,
+# which asks no reader (the Solution Architect, 2026-11-28).
+UNASKED = ("too_large", "budget", "no_key", "timed_out", "transport", "rate_limited", "rerun")
 # An answer wrapped in one fence, which a model asked for JSON alone still writes: the object inside is the answer.
 FENCED = re.compile(r"```(?:json)?[ \t]*\r?\n(.*)\r?\n[ \t]*```", re.S)
 MODEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]{0,127}")   # as advice/1 holds a model, in either case
@@ -135,8 +136,8 @@ def _result(told: dict, reason, findings: list, texts: list, off: int, usage: di
 
 
 def unasked(told: dict, reason: str, asks: int, seconds, schemas: dict) -> dict:
-    """The Result of a read that has no answer: over the day's ceiling, too large to ask, no key, out of time, or Azure
-    not reached."""
+    """The Result of a read that has no answer: over the day's ceiling, too large to ask, no key, out of time, Azure
+    not reached, or a re-run's, which asks nobody."""
     if reason not in UNASKED:
         raise ValueError("no answer in hand is one of %s" % ", ".join(UNASKED))
     return _result(told, reason, [], [], 0, _usage(told, None, (None, None), asks, seconds), schemas)

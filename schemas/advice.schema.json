@@ -54,7 +54,8 @@
         "timed_out",
         "no_key",
         "transport",
-        "budget"
+        "budget",
+        "rerun"
       ]
     },
     "findings": {
