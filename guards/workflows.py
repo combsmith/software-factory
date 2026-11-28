@@ -39,6 +39,12 @@ says is refused, never passed.
   review. `on: workflow_dispatch` alone passes too. Any other event, its list form, a `push:` with no list or with
   more beside it, a `default` that is no text, and a push's filter where `default` holds a pattern's mark, refuse the
   command as `STARTED`. A command of no text, `{}` among it, is `UNREADABLE`.
+  A workflow on the list that no branch but the default may start passes whole, its actions and `env:` unread (the
+  Solution Architect's ruling of 2026-11-28): a patch cannot change it, and a work branch cannot start it. In such a
+  workflow, a job that holds a secret must call a workflow of this folder by its path, or `home`'s at a Release's or
+  a Channel's tag, `factory/v1.2.3` or `factory/v0-next`, word for word, or run on a label `HOSTED` names; else it
+  is `UNREADABLE`. Every job that holds a secret and runs steps runs on a label `HOSTED` names, wherever its workflow
+  stands. A workflow started by `workflow_call` is refused: what calls it is not read here.
 
 Every route that points SonarCloud's scan at another settings file is refused: the scan's `args` and `projectBaseDir`
 are inputs its row does not name, and `SONAR_SCANNER_OPTS`, `SONAR_SCANNER_JSON_PARAMS` and `SONARQUBE_SCANNER_PARAMS`
@@ -55,9 +61,9 @@ Its stated limits:
   ref a person dispatches. A command a person wrote that fetches a work branch, or checks one out, runs that
   branch's files beside its secret, from the schedule too: what a listed workflow says is a person's. A person or an App that may dispatch a workflow on a work branch runs that branch's files
   beside its secret; that is theirs, as the ruling says, never a Role's.
-- A job that calls a workflow of this repo, and a workflow started by `workflow_call`, are refused: what calls it is
-  not read. So, with the actions and `env:` names the table does not name, every job of this repo's own workflows
-  that holds a secret and runs a command is still refused, and so is every push here.
+- A job that calls another workflow is read only in a workflow passed whole. What a call at the home repo's tag
+  runs is the Release's, so whoever may move a `factory/` tag changes it: the tag's protection is the boundary. So,
+  with the workflows `workflow_call` starts, every push here is still refused.
 - The Actions cache a job may write is not read: no action the table names restores one, and a command is given no
   cache's token by the table.
 - What an action reads at its pin is read from its source by a person when its row is written: the rows hold the pins
@@ -65,8 +71,9 @@ Its stated limits:
   row names it.
 - What a listed file says is a person's: a `sonar-project.properties` that names modules points the scanner at files
   of their folders, and this reads no file's text.
-- The events are read only for a command; the runner is not read: a runner is taken to be GitHub's own, on Linux, which keeps nothing of an
-  earlier job, sets no variable of its own, and reads a file's name in its case.
+- A runner named by a label `HOSTED` holds is taken to be GitHub's own, on Linux, which keeps nothing of an earlier
+  job, sets no variable of its own, and reads a file's name in its case: a self-hosted runner given such a label is
+  the org's setting. A job that holds no secret may run anywhere, and a self-hosted runner it poisons is issue 1380's.
 - That a listed file is a plain file, not a link to an unlisted one, is the caller's to read in the tree. A file
   `.gitattributes` may change how a listed file's bytes land, never what a person wrote in it.
 - What an analyser reads as source to analyse is not settings, as decision 0239 says: a `tsconfig.json` among them.
@@ -112,6 +119,19 @@ DISPATCH = "workflow_dispatch"
 EVENTS = ("workflow_dispatch", "schedule")
 # What a branch filter reads as a pattern: a default branch's name with one is never matched word for word.
 PATTERN = "*?+[]!"
+# A workflow a job calls: by its path in this folder, run at the caller's own commit, or in the home repo at a Release's
+# tag, `factory/v1.2.3`, or a Channel's, `factory/v0-next` or `factory/v0-stable`, run as released (the Solution
+# Architect's rulings of 2026-11-28).
+LOCAL = "./.github/workflows/"
+TAG = "@factory/"
+CHANNELS = ("next", "stable")
+SEMVER = ("major", "minor", "patch")
+DIGITS = "0123456789"
+NAME = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-."
+WORKFLOW_ENDS = (".yml", ".yaml")
+# The labels of GitHub's own Linux runners, the only ones a job that holds a secret may run on: any other, a
+# self-hosted runner's among them, or an expression, is refused (the Solution Architect's ruling of 2026-11-28).
+HOSTED = ("ubuntu-latest", "ubuntu-24.04", "ubuntu-22.04", "ubuntu-24.04-arm", "ubuntu-22.04-arm")
 # Each action a job may use, at its pin: the inputs it may be given, and the files of the repo it takes settings from.
 ACTIONS = (
     ("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", ("fetch-depth", "persist-credentials"), ()),
@@ -228,12 +248,18 @@ def _env(node) -> bool:
     return node is None or _flat(node, ENV)
 
 
+def _hosted(node: dict) -> bool:
+    """Whether a job runs on one of GitHub's own Linux runners, its `runs-on:` one label `HOSTED` names."""
+    runs = [kid for kid in node["kids"] if kid["key"] == "runs-on"]
+    return bool(runs) and not runs[0]["kids"] and runs[0]["value"] in HOSTED
+
+
 def _job(node: dict, started: bool):
     """The files of the repo a job takes its settings from, `STARTED` where a step runs a command and `started` says a
     branch but the default may start the workflow, or None where it is not read as the table says."""
     keys = _keys(node, JOB + ("env", "steps"))
     steps = keys.get("steps") if keys else None
-    if steps is None or steps["value"] or not steps["kids"] or not _env(keys.get("env")) \
+    if steps is None or steps["value"] or not steps["kids"] or not _env(keys.get("env")) or not _hosted(node) \
             or any(kid["key"] is not None for kid in steps["kids"]):
         return None
     files = []
@@ -271,6 +297,55 @@ def _started(root: dict, default) -> bool:
     if not on[0]["kids"]:
         return on[0]["value"] != DISPATCH
     return not all(kid["key"] in EVENTS or kid["key"] == "push" and _branches(kid, default) for kid in on[0]["kids"])
+
+
+def _number(said: str) -> bool:
+    return bool(said) and all(c in DIGITS for c in said)
+
+
+def _tag(tag: str) -> bool:
+    """Whether `tag`, after `factory/`, is a Release's, `v1.2.3`, or a Channel's, `v0-next` or `v0-stable`."""
+    major, dash, channel = tag[1:].partition("-")
+    parts = tag[1:].split(".")
+    return tag[:1] == "v" and (_number(major) and channel in CHANNELS if dash else
+                               len(parts) == len(SEMVER) and all(_number(part) for part in parts))
+
+
+def _file(name: str) -> bool:
+    """Whether `name` is a workflow's file name right in the folder, of the characters a port reads one by."""
+    return any(name.endswith(end) for end in WORKFLOW_ENDS) and all(c in NAME for c in name)
+
+
+def _home(uses: str, home) -> str:
+    """The file `uses` calls in the home repo `home`, `owner/name`, at a Release's or a Channel's tag, all word for
+    word; or "" where it is no such call."""
+    owner, _, name = home.partition("/") if type(home) is str else ("", "", "")
+    if not (owner and name and all(c in NAME for c in owner + name)) or type(uses) is not str:
+        return ""
+    called, at, tag = uses[len(home + "/" + FOLDER):].partition(TAG) if uses.startswith(home + "/" + FOLDER) else ("", "", "")
+    return called if at and _file(called) and _tag(tag) else ""
+
+
+def _gated(path: str, roots: dict, listed: list, default) -> bool:
+    """Whether the workflow at `path` is on `listed` and no branch but `default` may start it, as `_started` reads."""
+    root = roots.get(path)
+    return root is not None and _listed(path, listed) and not _started(root, default)
+
+
+def _call(job: dict, roots: dict, home) -> bool:
+    """Whether a job of a gated workflow is read as the table says: it calls a workflow of this folder by its path or
+    the home repo's at a Release tag, or it runs on GitHub's own runner."""
+    uses = [kid for kid in job["kids"] if kid["key"] == "uses"]
+    if not uses:
+        return _hosted(job)
+    value = uses[0]["value"] if not uses[0]["kids"] else None
+    return type(value) is str and (bool(_home(value, home)) or value.startswith(LOCAL) and FOLDER + value[len(LOCAL):] in roots)
+
+
+def _root(text):
+    """The workflow's lines as a tree, or None where they are outside the narrow form."""
+    lines = _lines(text) if type(text) is str else None
+    return _tree(lines) if lines is not None else None
 
 
 def _listed(name: str, listed: list) -> bool:
@@ -311,9 +386,11 @@ def _holds(job: dict, outer: bool, given: list) -> bool:
         or not given or not _quiet(given[0])
 
 
-def _read(path, text, listed, narrow: bool, default):
+def _read(path, text, listed, narrow: bool, default, roots=None, home=None):
     """`refusal`'s answer, of every job where `narrow` is false, or of each job that holds a secret where it is true;
-    a command is read only where `default`, the default branch, alone may start the workflow."""
+    a command is read only where `default`, the default branch, alone may start the workflow. Where `narrow` is true,
+    `roots` maps each workflow of the commit to its tree, and `home` names the home repo: a workflow `_gated` passes
+    holds its secret-holding jobs only to `_call`."""
     name = path[len(FOLDER):] if type(path) is str and path.startswith(FOLDER) else ""
     if "/" in name or name in ("", ".", "..") or type(text) is not str or type(listed) is not list \
             or not all(type(entry) is str for entry in listed):
@@ -332,6 +409,8 @@ def _read(path, text, listed, narrow: bool, default):
     held = [job for job in jobs["kids"] if not narrow or _holds(job, outer, given)]
     if not held:
         return None
+    if narrow and _gated(path, roots, listed, default):
+        return None if all(_call(job, roots, home) for job in held) else UNREADABLE
     top = _keys(root, TOP + ("env", "jobs"))
     if top is None or not _env(top.get("env")):
         return UNREADABLE
@@ -351,15 +430,17 @@ def refusal(path, text, listed):
     return _read(path, text, listed, False, None)
 
 
-def refusal_at(files, listed, default):
+def refusal_at(files, listed, default, home):
     """None where, in every workflow a commit holds, each job that holds a secret takes its settings only from files on
     `listed`, the base's protected list; or the first reason why not, the workflows taken in their paths' order.
-    `files` maps each workflow's path to its text, every one the folder holds, as a port read them whole."""
+    `files` maps each workflow's path to its text, every one the folder holds, as a port read them whole; `default`
+    names the default branch and `home` the home repo, `owner/name`."""
     kinds = type(files) is dict and type(listed) is list and all(type(entry) is str for entry in listed)
     if not kinds or not all(type(path) is str for path in files):
         return UNREADABLE
+    roots = {path: _root(files[path]) for path in files}
     for path in sorted(files):
-        why = _read(path, files[path], listed, True, default)
+        why = _read(path, files[path], listed, True, default, roots, home)
         if why is not None:
             return why
     return None

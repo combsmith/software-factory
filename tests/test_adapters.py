@@ -8910,7 +8910,7 @@ class Workflows(unittest.TestCase):
         # What it hands over is what the guard reads at a commit: the repo's own scan, against its own list, passes.
         from guards import workflows
         listed = [e["path"] for e in json.loads((self.ROOT / "config" / "hooks.json").read_text())["protected"]]
-        self.assertIsNone(workflows.refusal_at({p: t for p, t in files.items() if p.endswith("sonarcloud.yml")}, listed, "main"))
+        self.assertIsNone(workflows.refusal_at({p: t for p, t in files.items() if p.endswith("sonarcloud.yml")}, listed, "main", "combsmith/software-factory"))
         # A folder that holds no workflow holds none, read whole.
         self.assertEqual(self.workflows(self.listing("README.md")), ({}, None))
         self.assertEqual(self.workflows(self.listing()), ({}, None))
