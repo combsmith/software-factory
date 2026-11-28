@@ -6,7 +6,7 @@ Status: accepted. 2026-11-28, the Solution Architect; issue 838. Narrows a row o
 
 Two older rows still read as if every Lens's input needed a person, or were refused at the push. This record narrows each by name to the rule in force. Their text stays as written.
 
-- The row of decisions 0018, 0022 and 0026 that opens "A Role's change to a Lens's own workflow file" (issue 113). A change under `.github/` is a protected path, so a Role's push of it is refused (0188). A change to a model Lens's own input waits for a person's approval (0052, issue 140). A change to a path that is only a deterministic Lens's input needs no person: it is pushed, and held at convergence until every model Lens has reviewed its head (0020).
+- The row of decisions 0018, 0022 and 0026 that opens "A Role's change to a Lens's own workflow file" (issue 113). A change under `.github/` is a protected path, so a Role's push of it is refused, approved or not (0188). A change to a model Lens's own input waits for a person's approval (0052, issue 140). A change to a path that is only a deterministic Lens's input needs no person: it is pushed, and held at convergence until every model Lens has reviewed its head (0020).
 - The row of decision 0020 that opens "`apply` refuses a Role's push". The push is refused where it touches the list, the protected paths and each model Lens's input, whether or not a model Lens has reviewed it, and every push where the list cannot be read (0188). A path that is only a deterministic Lens's input is pushed and held at convergence.
 
 `harness/bundle.py` and `harness/apply.py` hold the refusal; `kernel/derive.py` and `tools/hooks/protected.py` hold the wait at convergence.
