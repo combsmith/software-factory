@@ -12942,8 +12942,14 @@ class Redaction(unittest.TestCase):
         self.assertEqual(bad.stdout, b"")
         wide = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "tools" / "redact_trial.py")], cwd=ROOT, capture_output=True,
                               input="HTTP/2.0 200 OK\n\nfine \u2713\n".encode(), timeout=60,
-                              env=dict(os.environ, LC_ALL="C", LANG="C", PYTHONIOENCODING="ascii"))
+                              env=dict(os.environ, LC_ALL="C", LANG="C"))
         self.assertEqual((wide.returncode, wide.stdout), (0, "HTTP/2.0 200 OK\n\nfine \u2713\n".encode()))
+        # Under -I no PYTHONIOENCODING is read, and a C locale is taken as UTF-8, so a pipe that encodes as ASCII is
+        # handed to main() itself: the text goes to the pipe's bytes as UTF-8, never through its ASCII text.
+        told = io.TextIOWrapper(io.BytesIO(), encoding="ascii")
+        self.assertEqual(redact_trial.main([], stdin=io.BytesIO("HTTP/2.0 200 OK\n\nfine \u2713\n".encode()), stdout=told,
+                                           stderr=io.StringIO()), 0)
+        self.assertEqual(told.buffer.getvalue(), "HTTP/2.0 200 OK\n\nfine \u2713\n".encode())
         # The App's script sends the report to its pipe and the clean text to its file: in that order, or the report
         # would go to the file.
         script = (ROOT / "tools" / "trial_as_app.sh").read_text()
