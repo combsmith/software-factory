@@ -220,7 +220,7 @@ read_one() {   # NARROWED PATH
         echo "trial_reader_reads: GET /$2 with a token narrowed to $1: $why; nothing of it reaches OUT" >&2
         exit 1
     fi
-    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
+    (cd "$root" && python3 -I "$root/tools/redact_trial.py" < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
     drop "$scratch/raw-$n"
     asked="$asked{\"n\": $n, \"as\": \"${slug}[bot]\", \"narrowed_to\": \"$1: read\", \"call\": \"GET /$2\","
     asked="$asked \"status\": $status},"
@@ -289,7 +289,7 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
         [ -z "$minting" ] || note "trial_reader_reads: $slug: $refused"
         echo "trial_reader_reads: $slug: $refused;" \
             "GitHub answered, redacted:" >&2
-        if shown=$(printf '%s\n' "$minted" | sed '$d' | (cd "$root" && python3 -m tools.redact_trial) 2>/dev/null); then
+        if shown=$(printf '%s\n' "$minted" | sed '$d' | (cd "$root" && python3 -I "$root/tools/redact_trial.py") 2>/dev/null); then
             printf '%s\n' "$shown" >&2
         else
             echo "(an answer the redaction could not read, so it is not shown)" >&2
