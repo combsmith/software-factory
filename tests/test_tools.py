@@ -16497,7 +16497,7 @@ class SignalTraps(unittest.TestCase):
                 'as --keep-raw asked; delete it once read\\n\' %s "$scratch" >&2' % name), name)
             self.assertIn("\ntrap finish EXIT\n", text, name)
             self.assertNotIn('rm -f "$scratch/raw', text, name)
-            redacted = [n for n, line in enumerate(lines) if re.search(r'redact_trial < "\$scratch/raw-', line)]
+            redacted = [n for n, line in enumerate(lines) if re.search(r'redact_trial\.py" < "\$scratch/raw-', line)]
             self.assertTrue(redacted, name)
             for n in redacted:
                 raw = re.search(r'< "(\$scratch/raw-[^"]*)"', lines[n]).group(1)
@@ -16601,15 +16601,14 @@ class SignalTraps(unittest.TestCase):
         # A PYTHONPATH entry, and the working directory under -m, come before the standard library on the path: a json.py
         # planted in either would run inside the redaction as it reads the raw answers, and a package in site-packages
         # named tools would stand in for the repo's. Every script that redacts runs the redaction as a file under -I and
-        # -S, by the root it found, on every call. A test that the file is there is no call. The token trials that mint
-        # come in part 3 of issue 1300.
-        scripts, later = [], SCRIPTS_1300_LATER
+        # -S, by the root it found, on every call. A test that the file is there is no call.
+        scripts = []
         for script in sorted((ROOT / "tools").glob("*.sh")):
             lines = [line.replace('-f "$root/tools/redact_trial.py"', "") for line in script.read_text().splitlines()]
             calls = [line for line in lines if "redact_trial" in line and not line.lstrip().startswith("#")]
             if calls:
                 scripts.append(script.name)
-            for line in calls if script.name not in later else ():
+            for line in calls:
                 self.assertEqual(re.findall(r"python3[^|;()<>]*redact_trial[^\s)]*", line), ['python3 -I -S "$root/tools/redact_trial.py"'],
                                  (script.name, line))
         self.assertEqual(len(scripts), 18)
@@ -16666,12 +16665,6 @@ def note_in(test: unittest.TestCase, out: pathlib.Path, told: str) -> str:
     test.assertIn("redacted: 0 removed", clean.stderr)
     test.assertFalse(check_trials.shaped(note), note)
     return note
-
-
-# The token trials whose redaction runs under -I and -S from part 3 of issue 1300.
-SCRIPTS_1300_LATER = ("trial_reader_reads.sh", "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh",
-                      "trial_p80_branch_reads.sh", "trial_p58_edits.sh", "trial_p81_review_order.sh", "trial_p39_reach.sh",
-                      "trial_p4_narrow.sh", "trial_p8_cost.sh", "trial_p52_pause.sh")
 
 
 # What gh reads from the environment to choose a configuration or a pager (issue 1300).
