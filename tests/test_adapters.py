@@ -9845,13 +9845,20 @@ class Opening(unittest.TestCase):
 
     def test_a_listed_pull_request_that_says_not_whether_a_person_or_an_app_opened_it_posts_nothing(self):
         # One that does not say it is a person's or an App's may be the App's own draft: none is opened (issue 1346).
-        for user in ({"login": OPENER}, {"login": OPENER, "type": None}, {"login": OPENER, "type": "Organization"},
-                     {"login": OPENER, "type": ["Bot"]}, {"login": "someone", "type": "bot"}):
-            back, sent = self.opened({self.LIST: {"status": 200, "body": [dict(self.pull(5), user=user)]},
+        for listed in ([dict(self.pull(5), user=user)] for user in (
+                {"login": OPENER}, {"login": OPENER, "type": None}, {"login": OPENER, "type": "Organization"},
+                {"login": OPENER, "type": ["Bot"]}, {"login": "someone", "type": "bot"})):
+            back, sent = self.opened({self.LIST: {"status": 200, "body": listed},
                                       self.OPEN: {"status": 201, "body": {"number": 7}},
                                       self.READ: {"status": 200, "body": self.pull()}})
-            self.assertEqual((back["state"], back["reason"]), ("failed", "pulls_unreadable"), user)
-            self.assertEqual([(r["method"], r["path"]) for r in sent], [self.LIST], user)
+            self.assertEqual((back["state"], back["reason"]), ("failed", "pulls_unreadable"), listed)
+            self.assertEqual([(r["method"], r["path"]) for r in sent], [self.LIST], listed)
+        # Nor is the App's own draft beside it recovered: the list is not read whole.
+        listed = [self.pull(), dict(self.pull(6), user={"login": OPENER})]
+        back, sent = self.opened({self.LIST: {"status": 200, "body": listed},
+                                  self.READ: {"status": 200, "body": self.pull()}})
+        self.assertEqual((back["state"], back["number"], back["reason"]), ("failed", None, "pulls_unreadable"))
+        self.assertEqual([(r["method"], r["path"]) for r in sent], [self.LIST])
         # One a person opened says so, and the draft is opened beside it.
         back, sent = self.opened({self.LIST: {"status": 200, "body": [
                                       dict(self.pull(5), user={"login": "someone", "type": "User"})]},
