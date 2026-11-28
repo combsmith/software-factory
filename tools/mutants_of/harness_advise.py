@@ -105,8 +105,6 @@ MUTANTS = [
     ('a Run that asks still says that no reader was asked', 'harness/advise.py',
      '            replace(made, unasked.COST, dict(cost_of(run, attempt, release, []), asks=2 * len(asking), cost_usd=None))\n',
      '            pass\n', ADVISE_UNSAID),
-    ('a reader refused before it is asked counts as one about to be asked', 'harness/advise.py',
-     'asks=2 * len(asking), cost_usd=None)', 'asks=2 * len(names), cost_usd=None)', ADVISE_UNSAID),
     ('a Run that asks one reader of two still says none was asked', 'harness/advise.py',
      'asking = [lens for lens in names if due(readers[lens], prompt, admitted, key)]',
      'asking = names if all(due(readers[lens], prompt, admitted, key) for lens in names) else []', ADVISE_UNSAID),
@@ -114,6 +112,8 @@ MUTANTS = [
      'asks=2 * len(asking), cost_usd=None)', 'asks=len(asking), cost_usd=None)', ADVISE_UNSAID),
     ('the cost file names the first attempt whatever GitHub names', 'harness/advise.py',
      'unasked.COST, cost_of(run, attempt, release, [', 'unasked.COST, cost_of(run, 1, release, [', ADVISE_UNSAID),
+    ('a reader refused before it is asked counts as one about to be asked', 'harness/advise.py',
+     'asks=2 * len(asking), cost_usd=None)', 'asks=2 * len(names), cost_usd=None)', ADVISE_UNSAID),
     # Trial P-78: each reader's turn ends where only the shares of the readers after it that are to be asked are left.
     ("a later reader's share is not left of the step", 'harness/advise.py',
      'return until - sum(share_of(reader) for reader in later)',
@@ -135,7 +135,7 @@ MUTANTS = [
      'share = reader.get("share")', 'share = reader["share"]', ADVISE_TURN),
     ('the readers share the step of two even halves, 1,080 seconds', 'harness/advise.py',
      'WHOLE = 1440\n', 'WHOLE = 1080\n', ADVISE_TURN),
-    # The Factory Builder, 2026-11-19: once more after the wait a rate limit names, and a cost true wherever it stops.
+    # The Factory Builder, 2026-11-19: once more after the wait a rate limit names, and a cancel wherever it stops.
     ('a rate limit is waited for again and again', 'harness/advise.py',
      'wait = waited(answer, until - clock()) if asks < 2 else None',
      'wait = waited(answer, until - clock())', ADVISE_LIMIT),
@@ -172,6 +172,7 @@ MUTANTS = [
     ('a wait named in digits that are not ASCII is waited for', 'harness/advise.py',
      'said.isascii() and ',
      '', ADVISE_LIMIT),
+    # The Factory Builder, 2026-11-19: a cost true wherever the step stops.
     ('a reader stopped while it is asked counts no asks', 'harness/advise.py',
      '{"asks": asks_of(sent), "cost_usd": None}',
      '{"asks": 0, "cost_usd": None}', ADVISE_COST),
