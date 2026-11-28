@@ -35,7 +35,14 @@ MUTANTS = [
      ('tests.test_controller.Feed.test_a_path_a_model_lens_reads_is_never_given_as_a_persons_alone',)),
     # Issue 305: each stored credential's age read, and one alert near its limit (L-37).
     ('credentials that are not JSON stop the pass', 'controller/configuration.py',
-     '    except (OSError, ValueError):\n        return None', '    except OSError:\n        return None', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+     '    except (OSError, ValueError, RecursionError):\n        return None', '    except (OSError, RecursionError):\n        return None', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
     ('a pass is told no credentials', 'controller/configuration.py',
      '            "credentials": _readable(root, "config", "credential-ages.json")}', '            "credentials": None}', ('tests.test_controller.Feed.test_a_credential_near_its_limit_raises_one_alert',)),
+    # Decision 0224: the run records read each review Run's advisory cost, and the pass tells each review whether the day admits it.
+    ("a Harness configuration that cannot be read ends the pass", 'controller/configuration.py', '"harness": _readable(root,', '"harness": _json(root,', ('tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it',)),
+    ("the pass is not handed the Harness's configuration", 'controller/configuration.py',
+     ', "harness": _readable(root, "config", "harness.json"),',
+     ',', ('tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it',)),
+    ('a configuration nested past the reader ends the pass', 'controller/configuration.py',
+     '    except (OSError, ValueError, RecursionError):\n', '    except (OSError, ValueError):\n', ('tests.test_controller.Entry.test_a_merged_pull_requests_unmatched_write_alarms_inside_the_window_and_not_past_it',)),
 ]

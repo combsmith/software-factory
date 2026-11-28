@@ -1,10 +1,12 @@
 """Take every credential out of a trial's raw capture, before anyone reads it.
 
-    python3 -m tools.redact_trial < RAW > CLEAN 2> REPORT
+    python3 -I -S "$root/tools/redact_trial.py" < RAW > CLEAN 2> REPORT    # $root: the checkout
 
 Run it on the capture where it was written, in a scratch directory outside the repo, and read only
-CLEAN. It takes the capture on standard input and writes what is left on standard output, so it
-opens no path it is given (SonarCloud's S2083 and S8707). The capture is JSON (a drafted fixture,
+CLEAN. Under `-I`, Python reads no PYTHONPATH and no module of the working directory, and under `-S` no site-packages,
+so nothing the shell or an installed package names stands in for a module while the capture is read; the script finds
+the repo's own modules by its own place. It takes
+the capture on standard input and writes what is left on standard output, so it opens no path it is given (SonarCloud's S2083 and S8707). The capture is JSON (a drafted fixture,
 or a body), or the text `gh api --include` prints: a status line, headers, a blank line and a body.
 It applies the rules of `tools/check_trials.py`, so what it writes passes them. A check run's details on another site
 keep their address and lose their query and fragment, which may hold what looks like a credential. What it takes out
@@ -22,10 +24,14 @@ and cannot be read as JSON is refused: nothing is written and the exit is 1.
 from __future__ import annotations
 
 import json
+import pathlib
 import re
 import sys
 import urllib.parse
 
+# Under -I neither the script's directory nor the working one is on the path, and under -S no site-packages: the repo's
+# root is added after the standard library, so a module of the repo's can stand in for none of it (issue 1300).
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))
 from tools.check_trials import HEADERS, KEY_SHAPED, refused_key, shaped
 
 STATUS = re.compile(r"HTTP/[0-9.]+ [0-9]{3}\b")
@@ -221,7 +227,7 @@ def main(argv: list, stdin=None, stdout=None, stderr=None) -> int:
     stdout = sys.stdout if stdout is None else stdout
     stderr = sys.stderr if stderr is None else stderr
     if argv:
-        print("usage: python3 -m tools.redact_trial < RAW > CLEAN 2> REPORT; it opens no path", file=stderr)
+        print("usage: python3 -I -S tools/redact_trial.py < RAW > CLEAN 2> REPORT; it opens no path", file=stderr)
         return 2
     # `gh api --include` ends its header lines with CR LF. Read as text from a file, they became LF; read as bytes they
     # stay, and a capture with no blank line between its headers and its body would be redacted as one body.
