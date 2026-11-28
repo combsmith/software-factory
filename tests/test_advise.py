@@ -209,12 +209,14 @@ class Advise(unittest.TestCase):
         # A prompt of exactly the characters a reader takes is asked, and one character more is not.
         limit = config()["readers"]["astra"]["prompt_characters"]
         _, azure_, _ = advised([response(), completion()], diff=b"")
-        fits = b"+" * (limit - len(azure_.sent[0]["body"]["input"]))
+        fits = b"+" * (limit - len(azure_.sent[0]["body"]["input"].encode("utf-8")))
         results, azure_, _ = advised([response(), completion()], diff=fits)
-        self.assertEqual((codes(results), len(azure_.sent[0]["body"]["input"])), (BOTH, limit))
-        results, azure_, _ = advised([], diff=fits + b"+")
-        self.assertEqual(codes(results), {"astra": ("incomplete", "too_large", 0, 0), "kimi": ("incomplete", "too_large", 0, 0)})
-        self.assertEqual(azure_.sent, [])
+        self.assertEqual((codes(results), len(azure_.sent[0]["body"]["input"].encode("utf-8"))), (BOTH, limit))
+        # The bound is in bytes of UTF-8, as the worst case prices it: as many characters, one of two bytes, is refused.
+        for past in (fits + b"+", fits[:-1] + "\u00e9".encode("utf-8")):
+            results, azure_, _ = advised([], diff=past)
+            self.assertEqual(codes(results), {"astra": ("incomplete", "too_large", 0, 0), "kimi": ("incomplete", "too_large", 0, 0)})
+            self.assertEqual(azure_.sent, [])
         # No reader reads a dependency's change, none reads for another Intent, and none for a Run the record does not
         # hold: nothing is written or asked.
         for made in ({"change": {"class": "dependency"}}, {"intent": "fix-findings"}, {"run": "r_01JA7X"}):
@@ -283,6 +285,10 @@ class Advise(unittest.TestCase):
         # A Run about to ask a reader takes away what its first step said, and the pass counts its worst case.
         results, azure_, _ = advised([response(), completion()], first=True)
         self.assertEqual((codes(results), azure_.before, azure_.cost), (BOTH, nothing, None))
+        # So does one that asks one reader of two.
+        results, azure_, _ = advised([completion()], first=True,
+                                     readers=lambda changed: changed["readers"]["astra"].update(prompt_characters=1))
+        self.assertEqual((codes(results)["kimi"][0], azure_.cost), ("completed", None))
         # A Run that asks nobody, refused before anything is sent or no review at all, leaves it as it was written.
         for made in ({"ask": False}, {"env": {}}, {"intent": "fix-findings"}, {"change": {"class": "dependency"}}):
             _, azure_, _ = advised([], first=True, **made)
