@@ -21,12 +21,12 @@ import urllib.parse
 import zipfile
 from unittest import mock
 
-from adapters import acceptance, applied, artifacts, branches, checks, draft_checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
-    passes, pull, push, records, pause, rules, texts, threads, timeline
+from adapters import acceptance, applied, artifacts, base, branches, checks, draft_checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
+    opening, passes, pull, push, records, pause, rules, texts, threads, timeline
 from controller import shared
 from guards import patch
 from guards import push as guard
-from harness import task
+from harness import apply, task
 from kernel import brakes, terms
 from tests.support import pending
 
@@ -1334,6 +1334,13 @@ def http_date(sent: str) -> str:
     return "%s-%02d-%02dT%sZ" % (year, months.index(month) + 1, int(day), clock)
 
 
+def shared_errors(run: dict) -> list:
+    """Where a run record breaks run-record/1."""
+    from controller import shared
+    from tools.jsonschema_lite import validate
+    return validate(run, shared.SCHEMAS["run-record"], schemas=shared.SCHEMAS)
+
+
 NAME = "sf combsmith/software-factory#264 review-change pr-review sha256:5d0c r_01JA6Z"
 
 
@@ -1405,7 +1412,7 @@ class Records(unittest.TestCase):
         slept = []
         got = records.runs(github.Replay(list(found)), canary(), "main", [WORKFLOW], kw.get("dispatcher", DISPATCHER),
                            per_page=kw.get("per_page", 10), sleep=slept.append, kept=kw.get("kept"),
-                           began=kw.get("began"), engines=kw.get("engines"))
+                           began=kw.get("began"), engines=kw.get("engines"), advised=kw.get("advised"), day=kw.get("day"))
         return got, slept
 
     def test_a_run_listed_under_its_workflows_name_is_unidentified_after_one_more_read(self):
@@ -1578,6 +1585,207 @@ class Records(unittest.TestCase):
             got, _ = self.read(failed, *stored(canary(), github_id, outcome_zip(outcome_of("r_01JA6Z", "item")),
                                                expired=None))
             self.assertEqual((got["runs"][0]["outcome"], got["complete"]), (None, False), conclusion)
+
+    def test_a_finished_review_runs_advisory_cost_is_read_once_for_the_day_and_never_guessed(self):  # decision 0224
+        # One file for each finished review Run of the pass's day, read once and kept by Run and attempt; one unread now
+        # is asked for again, and the list stays whole.
+        rows = listing("P-17", 3, rows={"status": "completed", "conclusion": "success"})
+        template = rows["response"]["body"]["workflow_runs"][0]
+        names = [NAME.replace("r_01JA6Z", "r_%06dZ" % n) for n in range(4)]
+        rows["response"]["body"].update(total_count=4, workflow_runs=[
+            dict(template, id=700 + n, name=names[n], run_started_at="2026-10-21T0%d:00:00Z" % n,
+                 updated_at="2026-10-21T0%d:30:00Z" % n) for n in range(4)])
+
+        def cost(n: int, zipped) -> list:
+            found = stored(canary(), 700 + n, zipped, name=artifacts.ADVICE_COST)
+            found[0]["request"]["call"] = found[0]["request"]["call"].replace("name=outcome", "name=advice-cost")
+            return found
+        good = {"schema": "advice-cost/1", "run": "r_000000Z", "attempt": 1, "release": "factory/v0.3.1", "asks": 2, "cost_usd": 1.42}
+        costs = [cost(0, outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER)), cost(1, None),
+                 cost(2, outcome_zip(dict(good, run="r_000002Z", cost_usd=-1), member=artifacts.ADVICE_COST_MEMBER)),
+                 cost(3, outcome_zip(dict(good, run="r_000003Z", asks=1, cost_usd=None), member=artifacts.ADVICE_COST_MEMBER))]
+
+        def said(got) -> list:
+            return [{k: r[k] for k in records.ADVISED if k in r} for r in got["runs"]]
+
+        def stamped(got) -> int:
+            return len([r for r in got["reads"] if r["read"] == "advice_cost"])
+        first, _ = self.read(rows, *costs[0], *costs[1], *costs[2], *costs[3], day="2026-10-21")
+        self.assertEqual(said(first), [{"advisory_asks": 2, "advisory_cost_usd": 1.42}, {"advisory_cost_usd": None},
+                                       {"advisory_cost_usd": None}, {"advisory_asks": 1, "advisory_cost_usd": None}])
+        self.assertEqual((stamped(first), first["complete"]), (4, True))
+        # Each stamp is the answer's own date and age, as a list's is.
+        self.assertEqual({tuple(sorted(r)) for r in first["reads"] if r["read"] == "advice_cost"}, {("age", "date", "read")})
+        for run in first["runs"]:
+            self.assertEqual(shared_errors(run), [], run)
+        # The pass after: a cost read is kept; no file, or one that is no cost, is asked for once more, since GitHub may
+        # list an artifact late, and is kept as none after two passes.
+        kept = records.advised([{"runs": first["runs"]}])
+        self.assertEqual(sorted(key[0] for key in kept), ["r_000000Z", "r_000003Z"])
+        second, _ = self.read(rows, *costs[1], *costs[2], day="2026-10-21", advised=kept)
+        self.assertEqual((said(second), stamped(second)), (said(first), 2))
+        kept = records.advised([{"runs": first["runs"]}, {"runs": second["runs"]}])
+        self.assertEqual(sorted(key[0] for key in kept), ["r_000000Z", "r_000001Z", "r_000002Z", "r_000003Z"])
+        third, _ = self.read(rows, day="2026-10-21", advised=kept)
+        self.assertEqual((said(third), stamped(third)), (said(first), 0))
+        # One GitHub does not answer for is left off the record, and asked for again by every pass until it answers.
+        down, _ = self.read(rows, *costs[1][:0], *cost(2, outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER))[:2],
+                            day="2026-10-21", advised={k: v for k, v in kept.items() if k[0] != "r_000002Z"})
+        self.assertEqual(said(down)[2], {})
+        # One that left none and then has one is read as it is, and its cost kept.
+        late = cost(1, outcome_zip(dict(good, run="r_000001Z", asks=1, cost_usd=0.4), member=artifacts.ADVICE_COST_MEMBER))
+        found, _ = self.read(rows, *late, *costs[2], day="2026-10-21", advised=records.advised([{"runs": first["runs"]}]))
+        self.assertEqual(said(found)[2], {"advisory_cost_usd": None})
+        self.assertEqual(said(found)[1], {"advisory_asks": 1, "advisory_cost_usd": 0.4})
+        # A Run that never ran asked no reader: nothing is read for it, and it counts nothing.
+        never = copy.deepcopy(rows)
+        never["response"]["body"].update(total_count=1, workflow_runs=[dict(template, id=700, name=names[0],
+                                                                           run_started_at="2026-10-21T00:00:00Z",
+                                                                           conclusion="startup_failure")])
+        got, _ = self.read(never, stored(canary(), 700, None)[0], day="2026-10-21")      # its outcome is asked for, as ever
+        self.assertEqual((said(got), stamped(got), "never_ran" in got["runs"][0]), ([{"advisory_asks": 0}], 0, True))
+        # A second attempt that never ran says nothing of the first, which may have asked: its own cost is read, and
+        # its record names its attempt, so that the first counts the worst case (the Solution Architect, 2026-11-27).
+        never["response"]["body"]["workflow_runs"][0]["run_attempt"] = 2
+        second_ = cost(0, outcome_zip(dict(good, attempt=2), member=artifacts.ADVICE_COST_MEMBER))
+        again, _ = self.read(never, stored(canary(), 700, None)[0], *second_, day="2026-10-21")
+        self.assertEqual((said(again), "never_ran" in again["runs"][0]), ([{"advisory_asks": 2, "advisory_cost_usd": 1.42}], True))
+        self.assertEqual(again["runs"][0][records.ATTEMPT], 2)
+        # The first attempt's file, which a re-run may list, is no cost of the second's.
+        got, _ = self.read(never, stored(canary(), 700, None)[0], *costs[0], day="2026-10-21")
+        self.assertEqual((said(got), got["runs"][0][records.ATTEMPT]), ([{"advisory_cost_usd": None}], 2))
+        # An attempt that is no integer from 1 to 100 is not known: nothing is read, and the record names it null.
+        for attempt in (True, 0, 101, "2"):
+            never["response"]["body"]["workflow_runs"][0]["run_attempt"] = attempt
+            got, _ = self.read(never, stored(canary(), 700, None)[0], *costs[0], day="2026-10-21")     # there, not asked for
+            self.assertEqual((said(got), got["runs"][0][records.ATTEMPT], stamped(got)), ([{}], None, 0), attempt)
+            self.assertEqual(shared_errors(got["runs"][0]), [], attempt)
+        # The last attempt a Run may have is read as any other.
+        never["response"]["body"]["workflow_runs"][0]["run_attempt"] = 100
+        last = cost(0, outcome_zip(dict(good, attempt=100), member=artifacts.ADVICE_COST_MEMBER))
+        got, _ = self.read(never, stored(canary(), 700, None)[0], *last, day="2026-10-21")
+        self.assertEqual((said(got), got["runs"][0][records.ATTEMPT]), ([{"advisory_asks": 2, "advisory_cost_usd": 1.42}], 100))
+        # A first attempt's record names none, and a re-run's in flight names its own, as does one queued, and one read
+        # with no day.
+        self.assertNotIn(records.ATTEMPT, first["runs"][0])
+        flying_ = copy.deepcopy(rows)
+        flying_["response"]["body"].update(total_count=1, workflow_runs=[dict(template, id=700, name=names[0], run_attempt=3,
+                                                                              run_started_at="2026-10-19T00:00:00Z",
+                                                                              status="in_progress", conclusion=None)])
+        got, _ = self.read(flying_, day="2026-10-21")
+        self.assertEqual((got["runs"][0][records.ATTEMPT], stamped(got)), (3, 0))
+        self.assertEqual(self.read(flying_)[0]["runs"][0][records.ATTEMPT], 3)
+        flying_["response"]["body"]["workflow_runs"][0].update(status="queued")
+        self.assertEqual(self.read(flying_, day="2026-10-21")[0]["runs"][0][records.ATTEMPT], 3)
+        # A finished Run counts on every day it touched: one across midnight is read on the day it ended, and on the day
+        # it started; one that ended the day before is not (the Solution Architect, 2026-11-27).
+        across = copy.deepcopy(rows)
+        across["response"]["body"].update(total_count=1, workflow_runs=[dict(template, id=700, name=names[0],
+                                                                             run_started_at="2026-10-20T23:00:00Z",
+                                                                             updated_at="2026-10-21T00:30:00Z")])
+        for day, asked in (("2026-10-21", 1), ("2026-10-20", 1), ("2026-10-22", 0), ("2026-10-19", 0)):
+            got, _ = self.read(across, *(costs[0] if asked else []), day=day)
+            self.assertEqual(stamped(got), asked, day)
+        # And on each day between: one that ran from the day before to the day after is read today.
+        across["response"]["body"]["workflow_runs"][0]["updated_at"] = "2026-10-22T00:30:00Z"
+        got, _ = self.read(across, *costs[0], day="2026-10-21")
+        self.assertEqual(stamped(got), 1)
+        # One whose end GitHub gives none of may have ended on any day since it started, as the ceiling counts it.
+        across["response"]["body"]["workflow_runs"][0]["updated_at"] = "2026-10-20T22:00:00Z"
+        for day, asked in (("2026-10-25", 1), ("2026-10-19", 0)):
+            got, _ = self.read(across, *(costs[0] if asked else []), day=day)
+            self.assertEqual(("ended_at" in got["runs"][0], stamped(got)), (False, asked), day)
+        # With no day, as from a caller that sums nothing, and on another day, nothing is read.
+        for day in (None, "2026-10-22", "2026-10-20"):
+            none, _ = self.read(rows, *costs[0], *costs[3], day=day)       # there to be read, and not asked for
+            self.assertEqual((said(none), stamped(none)), ([{}, {}, {}, {}], 0), day)
+        # Only a finished Run is asked, and only a review: one still running has no cost to read, and counts the worst case.
+        for change in ({"status": "in_progress", "conclusion": None}, {"name": NAME.replace("review-change", "fix-findings")}):
+            other = copy.deepcopy(rows)
+            other["response"]["body"].update(total_count=1, workflow_runs=[dict(template, id=700, **dict(
+                {"name": names[0], "run_started_at": "2026-10-21T00:00:00Z"}, **change))])
+            got, _ = self.read(other, *costs[0], day="2026-10-21")
+            self.assertEqual((said(got), stamped(got)), ([{}], 0), change)
+        # Another Intent's re-run names no attempt: the attempt is a review's, for the ceiling alone.
+        other["response"]["body"]["workflow_runs"][0]["run_attempt"] = 2
+        self.assertNotIn(records.ATTEMPT, self.read(other, day="2026-10-21")[0]["runs"][0])
+        # A cost GitHub does not answer for ends nothing: the record holds none, and the list is as whole as it was.
+        unanswered = cost(0, outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER))[:2]
+        one = copy.deepcopy(rows)
+        one["response"]["body"].update(total_count=1, workflow_runs=one["response"]["body"]["workflow_runs"][:1])
+        got, _ = self.read(one, *unanswered, day="2026-10-21")
+        self.assertEqual((said(got), got["complete"]), ([{}], True))
+        # And the last asked for in that read, so that no pass waits out fifty timeouts.
+        stopped, _ = self.read(rows, *unanswered, *costs[1], *costs[3], day="2026-10-21")
+        self.assertEqual((said(stopped), stamped(stopped), stopped["complete"]), ([{}, {}, {}, {}], 1, True))
+        # What was kept of the Runs after it is still theirs: the asking ends, the list does not.
+        after = {("r_000001Z", "2026-10-21T01:00:00Z", 1): {"advisory_cost_usd": None},
+                 ("r_000003Z", "2026-10-21T03:00:00Z", 1): {"advisory_asks": 1, "advisory_cost_usd": 0.4}}
+        stopped, _ = self.read(rows, *unanswered, day="2026-10-21", advised=after)
+        self.assertEqual(said(stopped), [{}, {"advisory_cost_usd": None}, {}, {"advisory_asks": 1, "advisory_cost_usd": 0.4}])
+        # A key the record lists twice, or a record that lists no runs, keeps nothing.
+        twice = {"runs": first["runs"][:1] * 2}
+        self.assertEqual((records.advised([twice]), records.advised([{"runs": None}]), records.advised([]), records.advised(None)),
+                         ({}, {}, {}, {}))
+        # The last two records are read: the later's word wins, the earlier's stands alone, a third says nothing.
+        bare = [{k: v for k, v in r.items() if k not in records.ADVISED} for r in first["runs"]]
+        both = records.advised([{"runs": first["runs"]}, {"runs": first["runs"][:1]}])
+        self.assertEqual(sorted(key[0] for key in both), ["r_000000Z", "r_000003Z"])
+        self.assertEqual(sorted(key[0] for key in records.advised([{"runs": first["runs"]}, {"runs": bare[:1]}])), ["r_000003Z"])
+        self.assertEqual(sorted(key[0] for key in records.advised([{"runs": bare}, {"runs": first["runs"]}])), ["r_000000Z", "r_000003Z"])
+        self.assertEqual(records.advised([{"runs": first["runs"]}, {"runs": bare}]), {})
+        self.assertEqual(records.advised([{"runs": first["runs"]}, {"runs": []}, {"runs": []}]), {})
+        # Two misses in a row are of the same attempt: one Run's miss and then another's keep neither, nor do two
+        # attempts' of one Run.
+        miss = [{"run": run_, "started_at": "2026-10-20T12:00:00Z", "advisory_cost_usd": None} for run_ in ("r_00000AZ", "r_00000BZ")]
+        self.assertEqual(records.advised([{"runs": miss[:1]}, {"runs": miss[1:]}]), {})
+        self.assertEqual(records.advised([{"runs": miss[:1]}, {"runs": [dict(miss[0], advisory_attempt=2)]}]), {})
+        self.assertEqual(list(records.advised([{"runs": miss[1:]}, {"runs": miss[1:]}])), [("r_00000BZ", "2026-10-20T12:00:00Z", 1)])
+        # A key holds the attempt the row names, a first where it names none, and a row whose attempt cannot be read
+        # keeps nothing.
+        rerun = [dict(first["runs"][0], advisory_attempt=4)]
+        self.assertEqual(list(records.advised([{"runs": rerun}])), [("r_000000Z", "2026-10-21T00:00:00Z", 4)])
+        for attempt in (None, 1.0, True, 101, 0):
+            self.assertEqual(records.advised([{"runs": [dict(rerun[0], advisory_attempt=attempt)]}]), {}, attempt)
+        changed = [dict(first["runs"][0], advisory_cost_usd=9)]
+        self.assertEqual(records.advised([{"runs": first["runs"]}, {"runs": changed}])[("r_000000Z", "2026-10-21T00:00:00Z", 1)],
+                         {"advisory_asks": 2, "advisory_cost_usd": 9})
+        # A cost kept of one Run is never another's that started when it did: the listed Run's own file is read.
+        other_run = {("r_00000XZ", "2026-10-21T00:00:00Z", 1): {"advisory_asks": 1, "advisory_cost_usd": 0.01}}
+        got, _ = self.read(one, *costs[0], day="2026-10-21", advised=other_run)
+        self.assertEqual((said(got), stamped(got)), ([{"advisory_asks": 2, "advisory_cost_usd": 1.42}], 1))
+        # One read asks for the costs of so many Runs and no more: the rest are left off, and asked for the pass after.
+        with mock.patch.object(records, "COSTS", 2):
+            capped, _ = self.read(rows, *costs[0], *costs[1], *costs[2], *costs[3], day="2026-10-21")
+        self.assertEqual((said(capped), stamped(capped), capped["complete"]),
+                         ([{"advisory_asks": 2, "advisory_cost_usd": 1.42}, {"advisory_cost_usd": None}, {}, {}], 2, True))
+        self.assertEqual(records.COSTS, 50)
+        # A Run kept and listed after the cap is reached still has what was kept: the cap ends the asking, not the list.
+        behind = {("r_000003Z", "2026-10-21T03:00:00Z", 1): {"advisory_asks": 1, "advisory_cost_usd": 0.4}}
+        with mock.patch.object(records, "COSTS", 1):
+            got, _ = self.read(rows, *costs[0], day="2026-10-21", advised=behind)
+        self.assertEqual((said(got), stamped(got)),
+                         ([{"advisory_asks": 2, "advisory_cost_usd": 1.42}, {}, {}, {"advisory_asks": 1, "advisory_cost_usd": 0.4}], 1))
+        # A Run listed twice by one key takes nothing kept: each row is asked for, none counted twice.
+        doubled = copy.deepcopy(rows)
+        row = doubled["response"]["body"]["workflow_runs"][0]
+        doubled["response"]["body"].update(total_count=2, workflow_runs=[row, dict(row, id=701)])
+        kept_ = {("r_000000Z", "2026-10-21T00:00:00Z", 1): {"advisory_asks": 2, "advisory_cost_usd": 1.42}}
+        got, _ = self.read(doubled, *costs[0], *cost(1, None), day="2026-10-21", advised=kept_)
+        self.assertEqual(stamped(got), 2)
+        with mock.patch.object(records, "COSTS", 1):
+            later, _ = self.read(rows, *costs[1], day="2026-10-21", advised=records.advised([{"runs": capped["runs"]}]))
+        self.assertEqual(stamped(later), 1)        # what is kept is not counted against the cap
+        # A cost kept is its attempt's alone: the Run's next attempt is asked for its own.
+        one["response"]["body"]["workflow_runs"][0]["run_started_at"] = "2026-10-21T01:00:00Z"
+        got, _ = self.read(one, *cost(0, outcome_zip(dict(good, cost_usd=4), member=artifacts.ADVICE_COST_MEMBER)),
+                           day="2026-10-21", advised=kept_)
+        self.assertEqual((said(got), stamped(got)), ([{"advisory_asks": 2, "advisory_cost_usd": 4}], 1))
+        # And so is one GitHub numbers another attempt, though it started when the kept one did.
+        one["response"]["body"]["workflow_runs"][0].update(run_started_at="2026-10-21T00:00:00Z", run_attempt=2)
+        got, _ = self.read(one, *cost(0, outcome_zip(dict(good, attempt=2, cost_usd=5), member=artifacts.ADVICE_COST_MEMBER)),
+                           day="2026-10-21", advised=kept_)
+        self.assertEqual((said(got), stamped(got)), ([{"advisory_asks": 2, "advisory_cost_usd": 5}], 1))
 
     def test_an_outcome_is_read_once_and_kept_by_its_run_and_attempt(self):
         # #285's ruling: an outcome is written once by its attempt's final step, so one a pass record read is kept by
@@ -2231,6 +2439,79 @@ class Artifacts(unittest.TestCase):
         self.assertEqual(artifacts.outcome(github.Replay(stored("o/r", 7, None)), "o/r", 7, self.RUN), (None, True))
         expired = stored("o/r", 7, zipped, expired=True)[:1]
         self.assertEqual(artifacts.outcome(github.Replay(expired), "o/r", 7, self.RUN), (None, True))
+
+    def test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed(self):  # decision 0224
+        # The same requests and the same bounds as an outcome's, with another name and another file inside: the list,
+        # the download's redirect, the storage's answer. Only the artifact's name and its file differ from the shapes
+        # trial P-68 recorded for an outcome; no trial has recorded a second name, or what a re-run lists, yet.
+        # The file is held to codes alone, as advice/1 is, by the examples check.
+        from tools import check_examples
+        self.assertIn("advice-cost", check_examples.CODES_ONLY)
+        good = {"schema": "advice-cost/1", "run": self.RUN, "attempt": 1, "release": "factory/v0.3.1", "asks": 2, "cost_usd": 1.42}
+
+        def kept(zipped, **listed) -> list:
+            found = stored("o/r", 7, zipped, **dict({"name": artifacts.ADVICE_COST}, **listed))
+            found[0]["request"]["call"] = found[0]["request"]["call"].replace("name=outcome", "name=advice-cost")
+            return found
+
+        def read(record, member: str = "advice-cost.json", attempt: int = 1, **listed) -> tuple:     # the file's name as the step writes it
+            zipped = record if isinstance(record, bytes) or record is None else outcome_zip(record, member=member)
+            return artifacts.advice_cost(github.Replay(kept(zipped, **listed)), "o/r", 7, self.RUN, attempt)
+        self.assertEqual(read(good), ({"asks": 2, "cost_usd": 1.42}, True))
+        # A re-run keeps its run's id, so a file is its attempt's alone: another attempt's, as a re-run may list, is
+        # none for this one, which then counts the worst case (the Solution Architect, 2026-11-27).
+        self.assertEqual(read(dict(good, attempt=3), attempt=3), ({"asks": 2, "cost_usd": 1.42}, True))
+        for written, asked in ((1, 2), (2, 1), (100, 1)):
+            self.assertEqual(read(dict(good, attempt=written), attempt=asked), (None, False), (written, asked))
+        self.assertEqual(read(dict(good, attempt=100), attempt=100), ({"asks": 2, "cost_usd": 1.42}, True))
+        for attempt in (0, 101, True, "1", 1.0, None):
+            self.assertEqual(read(dict(good, attempt=attempt)), (None, False), attempt)
+        # An attempt asked for that is no whole number matches none, though Python holds True and 1.0 equal to 1.
+        for attempt in (True, 1.0, "1", None):
+            self.assertEqual(read(good, attempt=attempt), (None, False), attempt)
+        self.assertEqual(read({k: v for k, v in good.items() if k != "attempt"}), (None, False))
+        self.assertEqual(read(dict(good, attempt=0), attempt=0), (None, False))
+        self.assertEqual(read(dict(good, attempt=101), attempt=101), (None, False))
+        self.assertEqual(read(dict(good, asks=1, cost_usd=None)), ({"asks": 1, "cost_usd": None}, True))
+        self.assertEqual(read(dict(good, asks=0, cost_usd=0)), ({"asks": 0, "cost_usd": 0}, True))
+        # A file nested past what the decoder parses is no cost, and never an error that ends the pass.
+        with mock.patch.object(artifacts.json, "loads", side_effect=RecursionError("too deep")):
+            self.assertEqual(read(good), (None, False))
+        # A Run that left none, or whose artifact is past its retention, has none: read whole, and still no cost.
+        self.assertEqual(read(None), (None, True))
+        self.assertEqual(read(good, expired=True), (None, True))
+        # What cannot be read whole, breaks advice-cost/1, or is another Run's is no cost, and never a part of one.
+        twice = json.dumps(good)[:-1] + ', "asks": 0, "cost_usd": 0}'
+        # Each key given twice on its own, and each figure just past its bound, at which it is still one.
+        self.assertEqual(read(dict(good, asks=100, cost_usd=100000)), ({"asks": 100, "cost_usd": 100000}, True))
+        for record in (dict(good, run="r_OTHER1"), dict(good, cost_usd=-1), dict(good, cost_usd="1.42"), dict(good, asks=-1),
+                       twice, json.dumps(good)[:-1] + ', "asks": 0}', json.dumps(good)[:-1] + ', "cost_usd": 0}',
+                       dict(good, asks=101), dict(good, cost_usd=100000.01), json.dumps(good).replace("1.42", "NaN"),
+                       dict(good, asks=1.5), dict(good, findings=0), dict(good, schema="advice-cost/2"),
+                       {k: v for k, v in good.items() if k != "asks"}, {k: v for k, v in good.items() if k != "cost_usd"},
+                       {k: v for k, v in good.items() if k != "release"}, {k: v for k, v in good.items() if k != "run"},
+                       json.dumps(dict(good, attempt=2))[:-1] + ', "attempt": 1}', json.dumps(good)[:-1] + ', "run": "%s"}' % self.RUN,
+                       "[]", "not json", b"PK\x03\x04 not a zip", outcome_zip(" " * (artifacts.HELD + 1), member=artifacts.ADVICE_COST_MEMBER),
+                       outcome_zip(good, member="advice.astra.json"), outcome_zip(good, member=artifacts.MEMBER),
+                       outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER, more=("advice.astra.json",))):
+            self.assertEqual(read(record), (None, False), str(record)[:60])
+        for listed in ({"digest": "sha256:" + "0" * 64}, {"name": artifacts.NAME}, {"name": "advice-astra"}):
+            self.assertEqual(read(good, **listed), (None, False), listed)
+        # The bounds are an outcome's own, and held: a file that is a cost and is over them is none, and a zip listed
+        # over them is not downloaded at all, which the replay would refuse as a request it does not hold.
+        text = json.dumps(good)
+        self.assertEqual(read(text + " " * (artifacts.HELD - len(text))), ({"asks": 2, "cost_usd": 1.42}, True))
+        self.assertEqual(read(text + " " * (artifacts.HELD + 1 - len(text))), (None, False))
+        over = kept(outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER), size_in_bytes=artifacts.ZIPPED + 1)[:1]
+        self.assertEqual(artifacts.advice_cost(github.Replay(over), "o/r", 7, self.RUN, 1), (None, False))
+        # What the list answered is handed to the caller, which stamps the read; a list not answered is raised, as an
+        # outcome's is, for the caller to catch.
+        answered = []
+        artifacts.advice_cost(github.Replay(kept(outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER))), "o/r", 7, self.RUN, 1,
+                              answered.append)
+        self.assertEqual([a["status"] for a in answered], [200])
+        with self.assertRaises(github.Unanswered):
+            artifacts.advice_cost(github.Replay([]), "o/r", 7, self.RUN, 1)
 
     def test_an_outcome_that_cannot_be_read_whole_is_not_whole(self):
         good = outcome_of(self.RUN, "item")
@@ -9622,6 +9903,261 @@ class Push(unittest.TestCase):
         self.assertEqual((push.READS_TOO_LARGE, push.TREE_UNFETCHED), ("push_reads_too_large", "push_tree_unfetched"))
         # A person's code is the Kernel's `person` fault, which holds the item for a person (decision 1224).
         self.assertEqual(push.PERSON, terms.ENDED_PERSON)
+
+
+OPENED_IN = "combsmith/widgets"
+OPENED_FROM = "factory-work/issue-12-1"
+OPENER = "combsmith-sf-qa-lead[bot]"
+LANDED = "a" * 40
+
+
+class Opening(unittest.TestCase):
+    """The opening port (issue 838, decision 0238): one draft opened from the work branch to the base, read back."""
+
+    class Scripted:
+        """A transport that answers each request by its method and path from a script, and keeps what was sent."""
+        def __init__(self, script):
+            self.script, self.sent = dict(script), []
+
+        def send(self, req):
+            self.sent.append(req)
+            answer = self.script.get((req["method"], req["path"]))
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+    LIST = ("GET", "/repos/%s/pulls?head=combsmith:%s&state=all&per_page=100" % (OPENED_IN, OPENED_FROM))
+    OPEN = ("POST", "/repos/%s/pulls" % OPENED_IN)
+    READ = ("GET", "/repos/%s/pulls/7" % OPENED_IN)
+
+    @staticmethod
+    def pull(number=7, login=OPENER, ref=OPENED_FROM, repo=OPENED_IN, base="main", draft=True):
+        return {"number": number, "state": "open", "user": {"login": login, "type": "Bot"},
+                "head": {"ref": ref, "sha": LANDED, "repo": {"full_name": repo}}, "base": {"ref": base}, "draft": draft}
+
+    def opened(self, script, title="docs: say it (#12)", body="Closes #12\n\nText.", base="main"):
+        """What the port read back, through the Role's token narrowed to the opening, and what it sent."""
+        scripted = self.Scripted(script)
+        sender = effects.Allowed(scripted, *opening.allowed(OPENED_IN, OPENED_FROM, base, title, body))
+        return opening.write(sender, OPENED_IN, OPENED_FROM, base, LANDED, title, body, OPENER), scripted.sent
+
+    def test_a_drafts_text_is_held_to_githubs_bounds_in_bytes_of_utf_8(self):
+        for title, body, code in (("t" * 256, "b", None), ("t" * 257, "b", opening.TITLE_BYTES),
+                                  ("\U0001f600" * 64, "b", None), ("\U0001f600" * 64 + "t", "b", opening.TITLE_BYTES),
+                                  ("é" * 128, "b", None), ("é" * 129, "b", opening.TITLE_BYTES),
+                                  ("t", "b" * 65536, None), ("t", "b" * 65537, opening.BODY_BYTES),
+                                  ("t", "€" * 21845 + "b", None), ("t", "€" * 21846, opening.BODY_BYTES),
+                                  ("t" * 257, "b" * 65537, opening.TITLE_BYTES),
+                                  ("t\ud800", "b", opening.UNREADABLE), ("t", "\udfffb", opening.UNREADABLE),
+                                  (None, "b", opening.UNREADABLE), ("t", b"b", opening.UNREADABLE),
+                                  (type("Text", (str,), {})("t"), "b", opening.UNREADABLE)):
+            self.assertEqual(opening.refusal(title, body), code, (title[:3] if isinstance(title, str) else title, code))
+
+    def test_a_roles_token_opens_one_draft_from_its_branch_to_its_base_and_reads_it_alone(self):
+        permits, patterns = opening.allowed(OPENED_IN, OPENED_FROM, "main", "t", "b")
+        allowed = effects.Allowed(self.Scripted({}), permits, patterns)
+        good = {"title": "t", "body": "b", "head": OPENED_FROM, "base": "main", "draft": True}
+        for req, sends in ((github.request(*self.LIST), True), (github.request(*self.READ), True),
+                           (github.request("POST", self.OPEN[1], body=good), True),
+                           (github.request("GET", "/repos/%s/pulls/07" % OPENED_IN), False),
+                           (github.request("GET", "/repos/%s/pulls/7/files" % OPENED_IN), False),
+                           (github.request("GET", "/repos/combsmith/other/pulls/7"), False),
+                           (github.request("POST", "/repos/combsmith/other/pulls", body=good), False),
+                           (github.request("PATCH", self.READ[1], body={"draft": False}), False),
+                           (github.request("GET", self.LIST[1].replace("state=all", "state=open")), False)) + tuple(
+                (github.request("POST", self.OPEN[1], body=dict(good, **{key: value})), False)
+                for key, value in (("draft", False), ("draft", 1), ("head", "factory-work/issue-13-1"),
+                                   ("base", "release"), ("title", "t" * 257), ("body", "b" * 65537),
+                                   ("title", "u"), ("body", "Closes #13"),
+                                   ("maintainer_can_modify", True))):
+            try:
+                allowed.send(req)
+                sent = True
+            except github.Unanswered:
+                sent = False
+            self.assertEqual(sent, sends, (req["method"], req["path"], req["body"]))
+        for repo, branch, base in (("combsmith/..", OPENED_FROM, "main"), (OPENED_IN, "main", "main"),
+                                   (OPENED_IN, OPENED_FROM + "x/y", "main"), (OPENED_IN, OPENED_FROM, "a..b"),
+                                   (OPENED_IN, OPENED_FROM, "-main"), (OPENED_IN, OPENED_FROM, "main.lock"),
+                                   (OPENED_IN, OPENED_FROM, "main/"), (OPENED_IN, OPENED_FROM, "a//b"),
+                                   (OPENED_IN, OPENED_FROM, "ma in"), (OPENED_IN, OPENED_FROM, None)):
+            self.assertEqual(opening.allowed(repo, branch, base, "t", "b"), ({}, []), (repo, branch, base))
+        self.assertEqual(opening.allowed(OPENED_IN, OPENED_FROM, "main", "t" * 257, "b"), ({}, []))
+        self.assertNotEqual(opening.allowed(OPENED_IN, OPENED_FROM, "release/v1.2", "t", "b"), ({}, []))
+
+    def test_a_draft_is_opened_once_and_claimed_only_when_read_back_by_its_number(self):
+        back, sent = self.opened({self.LIST: {"status": 200, "body": [self.pull(5, login="someone")]},
+                                  self.OPEN: {"status": 201, "body": {"number": 7}},
+                                  self.READ: {"status": 200, "body": self.pull()}})
+        self.assertEqual(back, {"state": "applied", "number": 7, "head": OPENED_FROM, "reason": None})
+        self.assertEqual([(r["method"], r["path"]) for r in sent], [self.LIST, self.OPEN, self.READ])
+        self.assertEqual(sent[1]["body"], {"title": "docs: say it (#12)", "body": "Closes #12\n\nText.",
+                                           "head": OPENED_FROM, "base": "main", "draft": True})
+        # What `apply` records of it: keyed by the number read back, on the branch the Run was admitted to open.
+        self.assertEqual(apply.opened("e1", 12, OPENED_FROM, back),
+                         {"id": "e1", "type": "open_pull_request", "state": "applied", "key": "7", "reason": None})
+
+    def test_a_draft_its_app_already_opened_from_the_branch_is_recovered_and_none_is_opened(self):
+        for listed in ([self.pull()], [self.pull(5, login="someone"), self.pull(draft=False)],
+                       [self.pull(5, ref="factory-work/issue-12-2"), self.pull()]):
+            back, sent = self.opened({self.LIST: {"status": 200, "body": listed},
+                                      self.READ: {"status": 200, "body": dict(listed[-1], number=7)}})
+            self.assertEqual(back, {"state": "already_applied", "number": 7, "head": OPENED_FROM, "reason": None})
+            self.assertNotIn(self.OPEN, [(r["method"], r["path"]) for r in sent])
+        # A recovered draft is claimed only as its read by number says: at another head, it is not this push's.
+        back, _ = self.opened({self.LIST: {"status": 200, "body": [self.pull()]},
+                               self.READ: {"status": 200, "body": dict(self.pull(), head={
+                                   "ref": OPENED_FROM, "sha": "b" * 40, "repo": {"full_name": OPENED_IN}})}})
+        self.assertEqual(back["state"], "sent")
+
+    def test_an_opening_not_read_back_whole_claims_nothing_and_says_why(self):
+        listed = {"status": 200, "body": []}
+        made = {"status": 201, "body": {"number": 7}}
+        for script, state, reason in (
+                ({self.LIST: {"status": 200, "body": {"total": 0}}}, "failed", "pulls_unreadable"),
+                ({self.LIST: {"status": 200, "body": [self.pull(n, login="x") for n in range(1, 101)]}}, "failed",
+                 "pulls_unreadable"),
+                ({self.LIST: {"status": 500, "body": None}}, "failed", "pulls_unreadable"),
+                ({self.LIST: {"status": 200, "body": [], "headers": {"Link": '<x?page=2>; rel="next"'}}}, "failed",
+                 "pulls_unreadable"),
+                ({self.LIST: {"status": 200, "body": [dict(self.pull(), user=None)]}}, "failed", "pulls_unreadable"),
+                ({self.LIST: {"status": 200, "body": ["#7"]}}, "failed", "pulls_unreadable"),
+                ({self.LIST: github.Unanswered("no answer")}, "failed", "pulls_unreadable"),
+                ({self.LIST: {"status": 200, "body": [self.pull(), self.pull(8)]}}, "failed", "opened_twice"),
+                ({self.LIST: {"status": 200, "body": [dict(self.pull(), state="closed")]}}, "failed", "opened_closed"),
+                ({self.LIST: listed, self.OPEN: {"status": 422, "body": {}}}, "failed", "write_refused"),
+                ({self.LIST: listed, self.OPEN: {"status": 502, "body": None}}, "failed", "write_unanswered"),
+                ({self.LIST: listed, self.OPEN: OSError("reset")}, "failed", "write_unanswered"),
+                ({self.LIST: listed, self.OPEN: ValueError("odd")}, "failed", "write_unanswered"),
+                ({self.LIST: listed, self.OPEN: {"status": "201", "body": {"number": 7}}}, "failed",
+                 "write_unanswered"),
+                ({self.LIST: {"status": 403, "body": {}}}, "refused", "token_refused"),
+                ({self.LIST: listed, self.OPEN: {"status": 401, "body": {}}}, "refused", "token_refused"),
+                ({self.LIST: listed, self.OPEN: made, self.READ: {"status": 403, "body": {}}}, "sent", None),
+                ({self.LIST: listed, self.OPEN: {"status": 201, "body": None}}, "sent", None)) + tuple(
+                ({self.LIST: listed, self.OPEN: made, self.READ: {"status": 200, "body": body}}, "sent", None)
+                for body in (self.pull(login="someone"), self.pull(ref="factory-work/issue-12-2"),
+                             self.pull(repo="someone/widgets"), self.pull(base="release"),
+                             self.pull(draft=False), self.pull(draft=None), self.pull(number=8),
+                             dict(self.pull(), state="closed"), dict(self.pull(), number=True),
+                             dict(self.pull(), user={"login": OPENER, "type": "User"}),
+                             dict(self.pull(), head={"ref": OPENED_FROM, "sha": "b" * 40,
+                                                     "repo": {"full_name": OPENED_IN}}),
+                             dict(self.pull(), base="main"), dict(self.pull(), head=None), None)) + (
+                ({self.LIST: listed, self.OPEN: made, self.READ: {"status": 404, "body": {}}}, "sent", None),
+                ({self.LIST: listed, self.OPEN: {"status": 201, "body": {"number": "7"}}}, "sent", None),
+                ({self.LIST: listed, self.OPEN: {"status": 201, "body": {"number": 0}}}, "sent", None)):
+            back, _ = self.opened(script)
+            self.assertEqual((back["state"], back["number"], back["reason"]), (state, None, reason), (script, state))
+            self.assertEqual(apply.opened("e1", 12, OPENED_FROM, back)["key"], None)
+
+    def test_an_opening_told_wrongly_sends_nothing(self):
+        for repo, branch, base, title, body, login, *commit in (
+                ("combsmith/..", OPENED_FROM, "main", "t", "b", OPENER), (OPENED_IN, "main", "main", "t", "b", OPENER),
+                (OPENED_IN, OPENED_FROM, "a..b", "t", "b", OPENER),
+                (OPENED_IN, OPENED_FROM, "main", "t" * 257, "b", OPENER),
+                (OPENED_IN, OPENED_FROM, "main", "t", "b" * 65537, OPENER),
+                (OPENED_IN, OPENED_FROM, "main", "t", "b", ""), (OPENED_IN, OPENED_FROM, "main", "t", "b", None),
+                (OPENED_IN, OPENED_FROM, "main", "t", "b", OPENER, "A" * 40)):
+            scripted = self.Scripted({})
+            back = opening.write(scripted, repo, branch, base, (commit or [LANDED])[0], title, body, login)
+            self.assertEqual((back, scripted.sent), ({"state": "refused", "number": None, "head": None,
+                                                      "reason": opening.TOLD_WRONGLY}, []), (repo, branch, base))
+
+
+class Base(unittest.TestCase):
+    """Where the commit an opening admission carries stands on the default branch at the push (decision 0242)."""
+    ADMITTED, HEAD = "a" * 40, "b" * 40
+    COMPARE = "/repos/o/r/compare/%s...%s?per_page=1" % ("a" * 40, "b" * 40)
+
+    class Kept:
+        """A transport that keeps what was asked, and answers it from `through`, or not at all."""
+        def __init__(self, through=None):
+            self.sent, self.through = [], through
+
+        def send(self, req):
+            self.sent.append(req)
+            if self.through is None:
+                raise github.Unanswered("nothing is answered here")
+            return self.through.send(req)
+
+    def on(self, head=None, compare=None, status=200, admitted=None):
+        """What the port tells of `admitted` on o/r's default branch, `main` at `head`, compared as `compare` says."""
+        ref = {"ref": "refs/heads/main", "object": {"type": "commit", "sha": head or self.HEAD}}
+        exchanges = [rest_answer("/repos/o/r", {"default_branch": "main"}), rest_answer("/repos/o/r/git/ref/heads/main", ref)]
+        if compare is not None:
+            exchanges.append(rest_answer(self.COMPARE, compare))
+            exchanges[-1]["response"]["status"] = status
+        return base.on_default(github.Replay(exchanges), "o/r", admitted or self.ADMITTED)
+
+    @staticmethod
+    def compared(status, merge_base="a" * 40, counts=None):
+        """GitHub's comparison: by default with the counts its status says, ahead, behind or both."""
+        ahead, behind = counts or {"ahead": (1, 0), "behind": (0, 1), "diverged": (1, 1)}.get(status, (0, 0))
+        return {"status": status, "merge_base_commit": {"sha": merge_base}, "ahead_by": ahead, "behind_by": behind}
+
+    def test_the_admitted_sha_is_the_head_an_ancestor_of_it_or_neither(self):
+        # The head itself asks nothing more than its two reads.
+        ref = {"ref": "refs/heads/main", "object": {"type": "commit", "sha": self.ADMITTED}}
+        kept = self.Kept(github.Replay([rest_answer("/repos/o/r", {"default_branch": "main"}),
+                                        rest_answer("/repos/o/r/git/ref/heads/main", ref)]))
+        self.assertEqual(base.on_default(kept, "o/r", self.ADMITTED), (base.HEAD, self.ADMITTED))
+        self.assertEqual([req["path"] for req in kept.sent], ["/repos/o/r", "/repos/o/r/git/ref/heads/main"])
+        # A head that shares only a prefix with the admitted sha is another commit, and is compared.
+        near, near_compare = "a" * 7 + "b" * 33, "/repos/o/r/compare/%s...%s?per_page=1" % ("a" * 40, "a" * 7 + "b" * 33)
+        kept = self.Kept(github.Replay([rest_answer("/repos/o/r", {"default_branch": "main"}),
+                                        rest_answer("/repos/o/r/git/ref/heads/main", dict(ref, object={"type": "commit", "sha": near})),
+                                        rest_answer(near_compare, self.compared("ahead"))]))
+        self.assertEqual(base.on_default(kept, "o/r", self.ADMITTED), (base.ANCESTOR, near))
+        # The three cases are three, and none is untold.
+        self.assertEqual(len({base.HEAD, base.ANCESTOR, base.NEITHER} - {None, ""}), 3)
+        # A head ahead of the admitted sha, whose merge base is that sha, holds it: an ancestor.
+        self.assertEqual(self.on(compare=self.compared("ahead")), (base.ANCESTOR, self.HEAD))
+        # Behind it, their merge base the head, or apart from it, their merge base a third commit, the admitted sha
+        # was rewritten away: neither.
+        self.assertEqual(self.on(compare=self.compared("behind", self.HEAD)), (base.NEITHER, self.HEAD))
+        self.assertEqual(self.on(compare=self.compared("diverged", "c" * 40)), (base.NEITHER, self.HEAD))
+        self.assertEqual(base.GOES_ON, (base.HEAD, base.ANCESTOR))
+
+    def test_a_comparison_that_cannot_be_read_is_none_of_the_three(self):
+        # What no history holds is untold, never a case: ahead of another merge base, or identical though the heads
+        # differ; and so is a comparison of another status, shape or word, or one GitHub does not answer.
+        for compare, status in ((self.compared("ahead", "c" * 40), 200), (self.compared("ahead", None), 200),
+                                (dict(self.compared("ahead"), merge_base_commit="a" * 40), 200),
+                                (self.compared("identical"), 200), (self.compared("Ahead"), 200),
+                                (self.compared("ahead"), 206), (self.compared("behind"), 404),
+                                ({"message": "No common ancestor"}, 404), ([self.compared("ahead")], 200),
+                                ({"merge_base_commit": {"sha": "a" * 40}}, 200),
+                                (self.compared("behind"), 200), (self.compared("behind", "c" * 40), 200),
+                                (self.compared("diverged"), 200), (self.compared("diverged", "b" * 40), 200),
+                                (self.compared("diverged", None), 200), (self.compared("diverged", "C" * 40), 200),
+                                (self.compared("ahead", counts=(0, 1)), 200), (self.compared("ahead", counts=(1, 1)), 200),
+                                (self.compared("ahead", counts=(0, 0)), 200), (self.compared("ahead", counts=(True, 0)), 200),
+                                (self.compared("ahead", counts=(1, None)), 200), (self.compared("ahead", counts=(-1, 0)), 200),
+                                (self.compared("behind", "b" * 40, (-1, 1)), 200),
+                                (self.compared("behind", "b" * 40, (1, 1)), 200), (self.compared("behind", "b" * 40, (0, 0)), 200),
+                                (self.compared("diverged", "c" * 40, (1, 0)), 200), (self.compared("diverged", "c" * 40, (0, 1)), 200)):
+            self.assertEqual(self.on(compare=compare, status=status), (None, self.HEAD), (compare, status))
+        self.assertEqual(self.on(), (None, self.HEAD))      # the comparison is asked, and not answered
+
+    def test_a_head_or_a_sha_that_cannot_be_read_is_none_of_the_three_and_nothing_is_compared(self):
+        # The default branch's head is read as the issues port reads it; unread, nothing is compared.
+        for ref in ({"ref": "refs/heads/main", "object": {"type": "commit", "sha": "b" * 39}}, {}):
+            exchanges = [rest_answer("/repos/o/r", {"default_branch": "main"}),
+                         rest_answer("/repos/o/r/git/ref/heads/main", ref)]
+            kept = self.Kept(github.Replay(exchanges))
+            self.assertEqual(base.on_default(kept, "o/r", self.ADMITTED), (None, None), ref)
+            self.assertEqual([req["path"] for req in kept.sent], ["/repos/o/r", "/repos/o/r/git/ref/heads/main"], ref)
+        self.assertEqual(base.on_default(github.Replay([]), "o/r", self.ADMITTED), (None, None))
+        # A sha or a repo told wrongly asks nothing at all.
+        for repo, admitted in (("o/r", "a" * 39), ("o/r", "A" * 40), ("o/r", None), ("o/r", Lying("a" * 40)),
+                               ("o/r", "a" * 40 + "\n"), ("o/r", "g" * 40), ("o", "a" * 40), ("o/..", "a" * 40),
+                               ("o/.", "a" * 40), (None, "a" * 40),
+                               (Lying("o/r"), "a" * 40)):
+            kept = self.Kept()
+            self.assertEqual(base.on_default(kept, repo, admitted), (None, None), (repo, admitted))
+            self.assertEqual(kept.sent, [], (repo, admitted))
+
 
 if __name__ == "__main__":
     unittest.main()

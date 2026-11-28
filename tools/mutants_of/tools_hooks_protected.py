@@ -22,6 +22,11 @@ MUTANTS = [
      " or not inputs or ", " or ", ("tests.test_hooks.RulesChanged",)),
     ("the Kernel is not given the Lenses' inputs", "tools/hooks/protected.py",
      ' + [p for _, p, _ in data["lens_inputs"]]', "", ("tests.test_tools.TheList",)),
+    # Decision 1351: a path that is only a deterministic Lens's input, pushed, still waits for every model Lens's review.
+    ("a deterministic Lens's input converges unreviewed", "tools/hooks/protected.py",
+     'return [p for p, _ in data["protected"]] + [p for _, p, _ in data["lens_inputs"]]\n',
+     'return [p for p, _ in data["protected"]] + [p for lens, p, _ in data["lens_inputs"] if lens == "pr-review"]\n',
+     ('tests.test_decide.TheFactorysOwnRules.test_a_lens_input_counts_like_a_protected_path',)),
     ("a Lens's input is not listed at a stop", "tools/hooks/protected.py",
      ' + [(p, what) for _, p, what in inputs]', "", ("tests.test_hooks.RulesChanged",)),
     # Issue 845: the scan's settings are read from a pull request's head beside SONAR_TOKEN.

@@ -121,6 +121,11 @@ unset SSLKEYLOGFILE token jwt signature minted minting
 # openssl, which signs with the App's key, load a configuration or a module the shell names (issue 1288).
 unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR CURL_SSL_BACKEND OPENSSL_CONF OPENSSL_CONF_INCLUDE OPENSSL_ENGINES OPENSSL_MODULES
 token=""
+# A token that may be live is noted in OUT's finish.log, for a terminal gone by then, and told on the terminal: the
+# script's own words alone, no fixture's, noted first and only once this run has made OUT (issue 1245).
+noted=""
+note() { [ -z "$noted" ] || printf '%s\n' "$*" >> "$out/finish.log" || true; }
+live() { note "$*"; echo "$*" >&2; }
 
 revoke() {
     printf 'Authorization: Bearer %s\n' "$token" | curl -q --max-time 30 -sS -o /dev/null -w '%{http_code}' -X DELETE -H @- \
@@ -128,8 +133,8 @@ revoke() {
 }
 
 unrevoked() {
-    echo "trial_reader_reads: $1: revoking its token returned $2, not 204. The token may be live for up to an hour;" \
-        "the Maintainer must revoke it by hand." >&2
+    live "trial_reader_reads: $1: its revocation returned $2, not 204. The token may be live for up to an hour;" \
+        "the Maintainer must revoke it by hand."
 }
 
 # A token in an answer that may be cut short: the first "token" field's value, found without parsing the whole.
@@ -157,8 +162,8 @@ finish() {
         token=""
     elif [ -n "${minting:-}" ]; then
         # Stopped while the mint was asked: its answer never came back here, and GitHub may have minted one (issue 1215).
-        echo "trial_reader_reads: stopped while a token was being minted; GitHub may have minted one, live for up to" \
-            "an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation." >&2
+        live "trial_reader_reads: stopped while a token was being minted; GitHub may have minted one, live for up to" \
+            "an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation."
     fi
     [ -n "$keep" ] || rm -rf "$scratch"
     [ -z "$keep" ] || printf '%s: the raw answers are kept in %s, as --keep-raw asked; delete it once read\n' trial_reader_reads "$scratch" >&2
@@ -191,6 +196,7 @@ if ! mkdir -m 700 "$out"; then
     echo "trial_reader_reads: $out could not be made new by this run (made since, or refused); name a new directory" >&2
     exit 2
 fi
+noted=1
 date -u +%Y-%m-%dT%H:%M:%SZ > "$out/ran_at"
 asked=""
 n=0
@@ -238,6 +244,8 @@ with_token() {   # PERMISSION
     minted_exit=$(printf '%s\n' "$minted" | tail -n 1)
     minted=$(printf '%s\n' "$minted" | sed '$d')
     minted_status=$(printf '%s\n' "$minted" | tail -n 1)
+    # Three whole digits, or none: a last line curl did not write is the answer's (issue 1245).
+    case "$minted_status" in [0-9][0-9][0-9]) ;; *) minted_status="" ;; esac
     token=$(printf '%s\n' "$minted" | sed '$d' | python3 -I -c '
 import json, sys
 answer = json.load(sys.stdin)
@@ -251,10 +259,10 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
         if [ -n "$token" ]; then
             revoked=$(revoke || true)
             token=""
-            [ "$revoked" = 204 ] || unrevoked "a token narrowed to $1 whose answer was cut short" "$revoked"
+            [ "$revoked" = 204 ] || unrevoked "a token, narrowed to $1, whose answer was cut short" "$revoked"
         else
-            echo "trial_reader_reads: $slug: GitHub minted a token narrowed to $1 and its answer was cut short; the" \
-                "token may be live for up to an hour, and the Maintainer must revoke it by hand." >&2
+            live "trial_reader_reads: $slug: GitHub minted a token, narrowed to $1, and its answer was cut short; the" \
+                "token may be live for up to an hour, and the Maintainer must revoke it by hand."
         fi
         minting=""
         echo "trial_reader_reads: $slug: nothing read, and nothing of the answer kept." >&2
@@ -278,6 +286,7 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
             4??) minting="" refused="no token narrowed to $1 was minted (status $minted_status)" ;;
             *) refused="the mint answered ${minted_status:-none} with no token, and GitHub may have minted one, live for up to an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation" ;;
         esac
+        [ -z "$minting" ] || note "trial_reader_reads: $slug: $refused"
         echo "trial_reader_reads: $slug: $refused;" \
             "GitHub answered, redacted:" >&2
         if shown=$(printf '%s\n' "$minted" | sed '$d' | (cd "$root" && python3 -m tools.redact_trial) 2>/dev/null); then
