@@ -79,6 +79,10 @@ def earlier(previous, now: str):
 # dispatched the pass, whose job began 5 and 6 seconds after: the margin was a few seconds, and nothing held it.
 SUCCESSOR_WAIT = 30
 
+# How long a review told yes for its advisory readers counts while no record lists its Run (issue 932). GitHub lists a
+# dispatched Run within seconds; one still unlisted an hour on was not dispatched, or is past the job's own limit.
+UNLISTED_SECONDS = 3600
+
 
 def started_by(started, accounts: dict) -> str:
     """What started the pass, read from its run and never from anything a dispatch carries (decision 0043).
@@ -391,6 +395,34 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     listed, whole, runs, pause, automatic, capacity, context = context_of(records, reads.get("pause"), repos, rules,
                                                                            now, before, previous)
 
+    # A review a pass before told yes whose Run no record lists yet, as for the seconds between a dispatch and GitHub's
+    # list, still asks: it counts as one in flight, at the worst case, and each record carries it to the next until its
+    # record is listed or UNLISTED_SECONDS pass, so that a lag longer than the records the pass reads loses none. A Run
+    # GitHub lists that no run-name names counts so too. With the records before unread, what they told is not known,
+    # and no review is told yes (issue 932).
+    listed_runs = {r["run"] for r in runs}
+    pending = {}
+    for r in before:
+        for e in r.get("advisory_unlisted", []):
+            pending.setdefault(e["run"], e["told_at"])
+        for e in r["pull_requests"]:
+            if e.get("advisory_ask") is True:
+                pending.setdefault(e["run"], r["now"])
+    # A yes with no Run, or told at no moment or after `now`, cannot be counted or let lapse: it is carried no further,
+    # and this pass, in doubt, tells no review yes, as with the records before unread.
+    doubt = any(type(run) is not str or seconds(now, at) is None or seconds(now, at) < 0 for run, at in pending.items())
+    # A pass in doubt cannot say what it carries, so it says until when none may be told yes, an hour on, and each pass
+    # that reads that carries it to the next: a chain of passes that could not read the records before loses no yes.
+    held_until = [r["advisory_doubt_until"] for r in before if "advisory_doubt_until" in r]
+    until = max([u for u in held_until if seconds(u, now) is not None and seconds(u, now) > 0], default=None)
+    if previous is None or doubt or any(seconds(u, now) is None for u in held_until):
+        until = max(filter(None, [until, text(moment(now) + datetime.timedelta(seconds=UNLISTED_SECONDS))]))
+    unlisted = {run: at for run, at in pending.items() if type(run) is str and run not in listed_runs
+                and seconds(now, at) is not None and 0 <= seconds(now, at) <= UNLISTED_SECONDS}
+    told = [{"intent": advisory_.REVIEWING, "started_at": at} for at in unlisted.values()] + [
+        {"intent": advisory_.REVIEWING, "started_at": u["created_at"], "status": u["status"]}
+        for u in context["unidentified_runs"] or []]
+
     def minting(d: dict) -> bool:
         """Whether the pass mints a Run for Decision `d`: an admission, an approval, or a queue act once its workflow is
         named, each a dispatch the records port counts active."""
@@ -428,11 +460,12 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     pull_requests, issues_ = made[:len(pulls)], made[len(pulls):]
     # Beside the Decision, never in it: whether the day's ceiling admits each admitted review's advisory reads (decision
     # 0224). Each review this pass admits counts the ones admitted before it, in the record's order, at the worst case.
-    asking = []
+    asking = list(told)
     for e in made:
         d = e["decision"]
         if d["outcome"] == t.ADMIT and d["admit"]["intent"] == advisory_.REVIEWING:
-            e["advisory_ask"] = advisory_.admits(runs + asking, whole, now, config.get("harness") or {})
+            e["advisory_ask"] = until is None \
+                and advisory_.admits(runs + asking, whole, now, config.get("harness") or {})
             asking.append({"intent": advisory_.REVIEWING, "started_at": now})
 
     # Every write a Factory identity made, matched to an Effect the Factory recorded; one alert for any that is not, and
@@ -455,6 +488,12 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
                                                reads.get("gone") or (), reads.get("unread_issues") or (),
                                                reads.get("gone_issues") or (), served, found["hand"], found["taken"],
                                                opened, config["controller"]["home"]["repo"])}
+    record["advisory_unlisted"] = sorted(
+        [{"run": run, "told_at": at} for run, at in unlisted.items()]
+        + [{"run": e["run"], "told_at": now} for e in record["pull_requests"] if e.get("advisory_ask") is True],
+        key=lambda e: e["run"])
+    if until is not None:
+        record["advisory_doubt_until"] = until
     checked(record, "pass")
     entries = record["pull_requests"] + record["issues"]
     ids = [record["pass"]] + [e["run"] for e in entries if e["run"] is not None]
