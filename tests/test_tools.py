@@ -16418,6 +16418,9 @@ class SignalTraps(unittest.TestCase):
                 self.assertIsNone(re.search(r"may be live|may have minted|by hand|expires within an hour", statement),
                                   (script.name, statement))
             self.assertEqual(len(re.findall(r'(?:^\s*|\|\| )live "', joined, re.M)), 4, script.name)
+            # A revocation in the clean-up is noted as made only when it returned 204 after one noted as failed (issue
+            # 1338). P-52 notes no first failure.
+            self.assertEqual(text.count(RETRIED), 0 if script.name == "trial_p52_pause.sh" else 1, script.name)
             refused = [n for n, line in enumerate(lines) if "note " in line and "$refused" in line]
             self.assertEqual([lines[n].strip() for n in refused], [] if script.name == "trial_p4_narrow.sh"
                              else ['[ -z "$minting" ] || note "%s: $slug: $refused"' % script.name[:-3]], script.name)
@@ -16510,6 +16513,7 @@ class SignalTraps(unittest.TestCase):
 
 # What a token trial tells of a token no one holds: a stop mid-mint, and a 201 cut before its token (issue 1338).
 SUSPEND = "no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation"
+RETRIED = '        if [ "$last" = 204 ] && [ -n "$failed" ]; then\n'
 
 # The helpers each token trial tells a token that may be live with, on the terminal and in OUT's finish.log (issue 1245).
 NOTED = """noted=""

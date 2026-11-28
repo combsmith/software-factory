@@ -91,6 +91,7 @@ def cut_live_1245(script):
 
 # Issue 1338: the tests that run `script`'s revocation to 500 and then 204, and the words a 201 cut before its token says.
 REVOKED_1338 = "test_a_revocation_that_fails_and_then_succeeds_is_noted_as_revoked"
+RETRIED_1338 = 'if [ "$last" = 204 ] && [ -n "$failed" ]; then'
 CUT_1338 = "token may be live for up to an hour; no one holds it to revoke, so to end it sooner"
 
 
@@ -1471,6 +1472,10 @@ MUTANTS = [
     # told the advice that works.
     *[("%s leaves a revocation made after a failure out of its note" % script, "tools/" + script, "    failed=1\n", "",
        revoked_1338(script)) for script in SCRIPTS_1215],
+    *[("%s notes a revocation as made %s" % (script, why), "tools/" + script, RETRIED_1338, RETRIED_1338.replace(cut, ""),
+       (NOTED,) + tests) for script in SCRIPTS_1215
+      for why, cut, tests in (("though it failed again", '[ "$last" = 204 ] && ', REVOKED_1245.get(script, ())),
+                              ("with no failure before it", ' && [ -n "$failed" ]', ()))],
     *[("%s tells a 201 cut before its token to revoke it by hand" % script, "tools/" + script, CUT_1338,
        "token may be live for up to an hour, and the Maintainer must revoke it by hand; to end it sooner", (MINT_REFUSED,)) for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
     ("P-4 tells a 201 cut before its token no advice", "tools/trial_p4_narrow.sh",
