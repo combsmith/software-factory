@@ -529,4 +529,7 @@ MUTANTS = [
     ("a doubt before its own record's now raises no doubt", 'controller/pass_.py',
      ' or seconds(u, at) > UNLISTED_SECONDS or seconds(u, at) < 0\n',
      ' or seconds(u, at) > UNLISTED_SECONDS\n', ('tests.test_controller.Record.test_a_review_told_yes_a_pass_before_counts_until_its_run_is_listed',)),
+    ('a yes told at no moment raises no doubt', 'controller/pass_.py',
+     'type(run) is not str or seconds(now, at) is None or seconds(now, at) < 0 for run, at in observed)',
+     'type(run) is not str or seconds(now, at) is not None and seconds(now, at) < 0 for run, at in observed)', ('tests.test_controller.Record.test_a_review_told_yes_a_pass_before_counts_until_its_run_is_listed',)),
 ]
