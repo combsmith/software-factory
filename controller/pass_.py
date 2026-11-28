@@ -422,11 +422,13 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
             pending[rid] = max(pending.get(rid, at), at)
     # A pass in doubt cannot say what it carries, so it says until when none may be told yes, an hour on, and each pass
     # that reads that carries it to the next: a chain of passes that could not read the records before loses no yes. A
-    # doubt no more than an hour past its own record's `now` is carried; one further on, or at no moment, is a new doubt.
+    # doubt no more than an hour past its own record's `now` is carried, to its last second; one further on, before that
+    # `now`, or at no moment, is a new doubt.
     held = [(r["advisory_doubt_until"], r["now"]) for r in before if "advisory_doubt_until" in r]
-    until = max([u for u, at in held if seconds(u, now) is not None and seconds(u, now) > 0
+    until = max([u for u, at in held if seconds(u, now) is not None and seconds(u, now) >= 0
                  and seconds(u, at) <= UNLISTED_SECONDS], default=None)
-    if previous is None or doubt or any(seconds(u, now) is None or seconds(u, at) > UNLISTED_SECONDS for u, at in held):
+    if previous is None or doubt or any(seconds(u, now) is None or seconds(u, at) > UNLISTED_SECONDS or seconds(u, at) < 0
+                                         for u, at in held):
         until = max(filter(None, [until, _hour_on(now)]))
     unlisted = {rid: at for rid, at in pending.items() if rid not in listed_runs and seconds(now, at) <= UNLISTED_SECONDS}
     # A Run listed with no run-name may be a review whose name is not read yet: it counts while it runs, and for an hour
