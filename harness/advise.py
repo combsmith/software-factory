@@ -16,14 +16,15 @@ before its first request it removes the file, so a Run that asks leaves no cost 
 the Run's worst case (decision 0224, Spend). The change that follows this one has the step write the Run's own cost in
 its place. A Run that asks nobody leaves the file as it was written.
 
-The step never fails its job. A reader that cannot be asked, or that Azure does not answer, has a Result that says why
-by a code, `transport` for the second, for that reader alone; the review then runs without that reader. It asks
-nothing unless the pass record says the day's ceiling admits it, beside the Run's Decision: with no such word the
-Result is `budget` (decision 0224, Spend). A diff too large for one prompt is not asked: `too_large`.
+The step never fails its job. A reader that cannot be asked, or does not answer, has a Result that says why by a code,
+and anything this file did not foresee is the code `transport`, for that reader alone; the review then runs without
+that reader. It asks nothing unless the pass record says the day's ceiling admits it, beside the Run's Decision: with
+no such word the Result is `budget` (decision 0224, Spend). A diff too large for one prompt is not asked: `too_large`.
 
 Time. The readers share WHOLE seconds from the step's start, asked one after another: a reader's turn ends where only
 the `share` of each reader after it that is to be asked is left, and the last runs to the step's end (trial P-78). A
-request waits the reader's `seconds`, or what is left of its turn where that is less. No workflow runs the step yet.
+share that cannot be read is none. A request waits the reader's `seconds`, or what is left of its turn where that is
+less. No workflow runs the step yet.
 
 What a reader is sent: a fixed instruction, `roles/pr-review/advisory-reader.md` of the Release, then the base's rules
 where the reader's folder holds them, then the whole diff, as data. It is given no tool.
@@ -73,10 +74,16 @@ def body_of(reader: dict, effort: str, prompt: str) -> dict:
                        "max_completion_tokens": reader["output_tokens"], "reasoning_effort": effort})
 
 
+def share_of(reader: dict) -> int:
+    """A reader's `share` of the step, or none where it is not a whole number above nought: a bool is not one."""
+    share = reader.get("share")
+    return share if isinstance(share, int) and not isinstance(share, bool) and share > 0 else 0
+
+
 def turn_of(later: list, until: float) -> float:
     """Where a reader's turn ends: where only the shares of `later`, the readers after it that are to be asked, are
     left of the step. With none, the step's end; never past it."""
-    return until - sum(reader["share"] for reader in later)
+    return until - sum(share_of(reader) for reader in later)
 
 
 def lasted(began: float, clock) -> float:
@@ -211,9 +218,10 @@ def job(task_folder: str, out: str, env: dict, root: pathlib.Path = ROOT, base=N
                         "deployment": reader["deployment"], "model": reader["model"],
                         "effort": effort_of(reader, paths), "characters": config["texts"]["characters"],
                         "usd_per_million": reader["usd_per_million"]}
+                advice.unasked(told, "transport", 0, 0, shared.SCHEMAS)     # no advice/1 can be built: it is not asked
                 turn = turn_of([readers[later] for later in names[n + 1:] if later in asking], until)
                 result = one(reader, told, prompt, admitted, key, turn, sent, transport, clock, sleep)
-            except azure.Unanswered:    # a reader Azure does not answer is that reader's Result, and no other's
+            except Exception:       # NOSONAR whatever one reader's read raises is that reader's Result, and no other's
                 try:
                     result = advice.unasked(told, "transport", asks_of(sent), lasted(began, clock), shared.SCHEMAS)
                 except Exception:   # NOSONAR nothing can be said for this Lens

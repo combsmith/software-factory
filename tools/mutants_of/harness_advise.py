@@ -6,6 +6,8 @@ ADVISE_PROMPT = ("tests.test_advise.Advise.test_the_rules_and_the_diff_follow_th
 ADVISE_NOTASKED = ("tests.test_advise.Advise.test_a_reader_is_not_asked_without_the_days_yes_a_key_or_a_prompt_that_fits",)
 ADVISE_RUNNING = ("tests.test_advise.Advise.test_a_response_still_running_when_its_readers_share_is_spent_is_cancelled",)
 ADVISE_UNSAID = ("tests.test_advise.Advise.test_a_run_that_asks_no_longer_says_that_no_reader_was_asked",)
+ADVISE_FAULT = ("tests.test_advise.Advise.test_a_fault_in_one_reader_is_that_readers_alone",)
+ADVISE_TURN = ("tests.test_advise.Advise.test_each_readers_turn_ends_where_only_the_shares_of_the_readers_after_it_are_left",)
 ADVISE_NEVER = ("tests.test_advise.Advise.test_the_step_never_fails_its_job",)
 MUTANTS = [
     # Decision 0224: the advise step asks each advisory reader once and writes its Result.
@@ -43,8 +45,11 @@ MUTANTS = [
      'min(2, sum(act in ("create", "chat") for act in sent))',
      'min(2, len(sent))', ADVISE_RUNNING),
     ('a reader Azure does not answer stops the step', 'harness/advise.py',
-     "            except azure.Unanswered:    # a reader Azure does not answer is that reader's Result, and no other's\n",
+     "            except Exception:       # NOSONAR whatever one reader's read raises is that reader's Result, and no other's\n",
      '            except KeyError:\n', ADVISE_RUNNING),
+    ('a fault no one foresaw in one reader stops the step', 'harness/advise.py',
+     "            except Exception:       # NOSONAR whatever one reader's read raises is that reader's Result, and no other's\n",
+     '            except azure.Unanswered:\n', ADVISE_FAULT),
     ('the first reader may take the whole step', 'harness/advise.py',
      'turn = turn_of([readers[later] for later in names[n + 1:] if later in asking], until)',
      'turn = until', ADVISE_RUNNING),
@@ -72,6 +77,15 @@ MUTANTS = [
     ('the step fails its job', 'harness/advise.py',
      '    except Exception as err:    # NOSONAR the step never fails its job: the review runs without the reader (decision 0224)\n        print("harness.advise: %s" % type(err).__name__, file=sys.stderr)\n    return 0\n',
      '    except steps.Stop as err:\n        print("harness.advise: %s" % type(err).__name__, file=sys.stderr)\n    return 0\n', ADVISE_NEVER),
+    ('the step takes a file or a link for its folder', 'harness/advise.py',
+     'os.path.islink(path) or not os.path.isdir(path) or ',
+     '', ADVISE_NEVER),
+    ('the step takes a folder that holds more than the cost', 'harness/advise.py',
+     ' or set(os.listdir(real)) - set(HELD)',
+     '', ADVISE_NEVER),
+    ('a reader whose Result cannot be built is asked', 'harness/advise.py',
+     '                advice.unasked(told, "transport", 0, 0, shared.SCHEMAS)     # no advice/1 can be built: it is not asked\n',
+     '', ADVISE_FAULT),
     ('a diff that is not UTF-8 is not sent', 'harness/advise.py',
      'decode("utf-8", errors="replace")',
      'decode("utf-8")', ADVISE_PROMPT),
@@ -86,6 +100,23 @@ MUTANTS = [
      '        if names:\n            # Before', ADVISE_UNSAID),
     # Trial P-78: each reader's turn ends where only the shares of the readers after it that are to be asked are left.
     ("a later reader's share is not left of the step", 'harness/advise.py',
-     'return until - sum(reader["share"] for reader in later)',
+     'return until - sum(share_of(reader) for reader in later)',
      'return until', ADVISE_RUNNING),
+    ('a reader not to be asked keeps its share of the step', 'harness/advise.py',
+     'for later in names[n + 1:] if later in asking]',
+     'for later in names[n + 1:]]', ADVISE_TURN),
+    ('the last reader is held to its own share', 'harness/advise.py',
+     'turn = turn_of([readers[later] for later in names[n + 1:] if later in asking], until)',
+     'turn = min(clock() + share_of(readers[lens]), turn_of([readers[later] for later in names[n + 1:] if later in asking], until))',
+     ADVISE_TURN),
+    ('a share that is a bool is a share', 'harness/advise.py',
+     ' and not isinstance(share, bool)', '', ADVISE_TURN),
+    ('a share below nought ends a turn past the step', 'harness/advise.py',
+     ' and not isinstance(share, bool) and share > 0 else 0', ' and not isinstance(share, bool) else 0', ADVISE_TURN),
+    ('a share that is no whole number is one', 'harness/advise.py',
+     'return share if isinstance(share, int) and not', 'return share if not', ADVISE_TURN),
+    ('a reader with no share breaks the turn before it', 'harness/advise.py',
+     'share = reader.get("share")', 'share = reader["share"]', ADVISE_TURN),
+    ('the readers share the step of two even halves, 1,080 seconds', 'harness/advise.py',
+     'WHOLE = 1440\n', 'WHOLE = 1080\n', ADVISE_TURN),
 ]

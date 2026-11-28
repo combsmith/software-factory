@@ -248,6 +248,36 @@ class Advise(unittest.TestCase):
         results, _, _ = advised([response(model="another-model"), completion("not json")])
         self.assertEqual(codes(results), {"astra": ("failed", "not_the_model", 0, 1), "kimi": ("failed", "unparsed", 0, 1)})
 
+    def test_each_readers_turn_ends_where_only_the_shares_of_the_readers_after_it_are_left(self):  # trial P-78
+        # The readers share the step's WHOLE seconds, each configured reader's share summed, asked one after another.
+        shares = {lens: reader["share"] for lens, reader in config()["readers"].items()}
+        self.assertEqual(advise.WHOLE, sum(shares.values()))
+        self.assertEqual(advise.turn_of([{"share": 540}], 1440.0), 900.0)
+        self.assertEqual(advise.turn_of([{"share": 300}, {"share": 200}], 1000.0), 500.0)
+        self.assertEqual(advise.turn_of([], 1440.0), 1440.0)       # the last runs to the step's end
+        # A share that cannot be read is none, so that no turn ends past the step's end and none breaks it.
+        for share in (None, True, -100, 0, 1.5, "540"):
+            self.assertEqual(advise.turn_of([{} if share is None else {"share": share}], 1440.0), 1440.0, share)
+
+        def running(request: dict):
+            return response("cancelled", "") if request["act"] == "cancel" else response("in_progress", "")
+        last = advise.WHOLE - advise.POLL       # the last read that leaves POLL of the step
+        # Kimi, asked after astra, takes its whole wait where astra ended early: the last is not held to its own share.
+        results, azure_, _ = advised([response(), completion()])
+        self.assertEqual((codes(results), azure_.made[-1][2]), (BOTH, config()["readers"]["kimi"]["seconds"]))
+        # A reader after it that is not to be asked leaves astra the whole step.
+        results, azure_, _ = advised(running, readers=lambda changed: changed["readers"]["kimi"].update(prompt_characters=1))
+        self.assertEqual(codes(results), {"astra": ("incomplete", "timed_out", 0, 1), "kimi": ("incomplete", "too_large", 0, 0)})
+        self.assertEqual(results["astra"]["usage"]["seconds"], last)
+        # And so does one whose share cannot be read.
+        for share in (None, True, "540"):
+            def odd(changed, share=share):
+                changed["readers"]["kimi"].pop("share")
+                if share is not None:
+                    changed["readers"]["kimi"]["share"] = share
+            results, azure_, _ = advised(running, readers=odd)
+            self.assertEqual(results["astra"]["usage"]["seconds"], last, share)
+
     def test_a_run_that_asks_no_longer_says_that_no_reader_was_asked(self):
         nothing = {"schema": "advice-cost/1", "run": RUN, "attempt": 1, "release": "factory/v0.3.1", "asks": 0, "cost_usd": 0}
         # A Run about to ask a reader takes away what its first step said, and the pass counts its worst case.
@@ -257,6 +287,23 @@ class Advise(unittest.TestCase):
         for made in ({"ask": False}, {"env": {}}, {"intent": "fix-findings"}, {"change": {"class": "dependency"}}):
             _, azure_, _ = advised([], first=True, **made)
             self.assertEqual((azure_.before, azure_.cost, azure_.sent), (nothing, nothing, []), made)
+
+    def test_a_fault_in_one_reader_is_that_readers_alone(self):
+        # A fault no one foresaw in one reader is that reader's Result, and the other is still asked.
+        results, azure_, _ = advised([RuntimeError("boom"), completion()])
+        self.assertEqual(codes(results), {"astra": ("failed", "transport", 0, 1), "kimi": ("completed", None, 0, 1)})
+        # A reader for whom not even that can be said has no Result; the other has.
+
+        def unpinned(changed: dict) -> None:
+            del changed["readers"]["astra"]["model"]
+        results, azure_, _ = advised([completion()], readers=unpinned)
+        self.assertEqual(codes(results), {"kimi": ("completed", None, 0, 1)})
+        # Nor has one whose name `advice/1` refuses, and it is not asked: nothing is paid for an answer no Result holds.
+
+        def renamed(changed: dict) -> None:
+            changed["advisory"], changed["readers"]["kimi-2"] = ["astra", "kimi-2"], changed["readers"].pop("kimi")
+        results, azure_, _ = advised([response()], readers=renamed)
+        self.assertEqual((codes(results), len(azure_.sent)), ({"astra": ("completed", None, 1, 1)}, 1))
 
     def test_the_step_never_fails_its_job(self):
         with tempfile.TemporaryDirectory() as where:
@@ -274,7 +321,33 @@ class Advise(unittest.TestCase):
                 os.chdir(where)
                 self.assertEqual(advise.main(["task", "advice"], {}), 0)
                 self.assertEqual(os.listdir(where), ["task"])
+                # Nor does it take for its folder a file, or a link to one elsewhere.
                 os.chdir(here)
+        with tempfile.TemporaryDirectory() as where:
+            base = pathlib.Path(where)
+            folder(base)
+            (base / "there").mkdir()
+            for make in (lambda: (base / "advice").write_text(""), lambda: os.symlink(base / "there", base / "advice")):
+                make()
+                with self.assertRaisesRegex(steps.Stop, "^out_exists$"):
+                    advise.job("task", "advice", {}, base=base)
+                self.assertEqual(os.listdir(base / "there"), [])
+                (base / "advice").unlink()
+            # Nor a folder that holds anything but the first step's file, a Result or a link planted there among them,
+            # nor the task's own folder; and nothing is asked.
+            stand_in = Azure([])
+            for plant in (lambda: [(base / "advice" / name).write_text("{}") for name in ("advice.astra.json", "advice.astra.sha256")],
+                          lambda: os.symlink(base / "there", base / "advice" / "advice.kimi.json")):
+                (base / "advice").mkdir()
+                (base / "advice" / "advice-cost.json").write_text("{}")
+                plant()
+                with self.assertRaisesRegex(steps.Stop, "^out_exists$"):
+                    advise.job("task", "advice", KEYED, base=base, transport=stand_in)
+                shutil.rmtree(base / "advice")
+            with self.assertRaisesRegex(steps.Stop, "^out_exists$"):
+                advise.job("task", "task", KEYED, base=base, transport=stand_in)
+            self.assertEqual(stand_in.made, [])
+
 
 class Unasked(unittest.TestCase):
     def test_the_first_step_says_no_reader_was_asked_and_never_fails_its_job(self):
