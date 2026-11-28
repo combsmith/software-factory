@@ -2719,7 +2719,7 @@ class Acceptance(unittest.TestCase):
         # before any list read short and whatever complete.acceptance claims, and calls a person; queued, it is taken out.
         short = dict(facts()["complete"], acceptance=False)
         for reviews in ([], APPROVED):
-            for others in ((), ("threads",), ("timeline",)):
+            for others in ((), ("reviews",), ("threads",), ("timeline",)):
                 d = go(facts(closes_another_issue=True, reviews=reviews,
                              complete=dict(short, **{s: False for s in others})), REVIEWED)
                 self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
