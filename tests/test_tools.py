@@ -14505,11 +14505,16 @@ class Verify(unittest.TestCase):
         finally:
             verify.failed, verify.tested, verify.suite = real
         # The tests' process is started isolated, told the leg verify read or none, and its failure is verify's.
-        started = []
+        started, run = [], subprocess.run
+
+        def child(argv, **kw):      # the tests' process is faked; any other command, git's, runs
+            if "--tests" not in argv:
+                return run(argv, **kw)
+            started.append((argv[1:3] + argv[4:], kw["env"].get("CHECKS_SHARD"), kw["env"].get("CHECKS_SHARDS")))
+            return subprocess.CompletedProcess(argv, 1)
         with mock.patch.object(verify, "failed", return_value=False), contextlib.redirect_stdout(io.StringIO()), \
-                mock.patch.object(verify.subprocess, "run", side_effect=lambda argv, **kw: started.append(
-                    (argv[1:3] + argv[4:], kw["env"].get("CHECKS_SHARD"), kw["env"].get("CHECKS_SHARDS")))
-                    or subprocess.CompletedProcess(argv, 1)), mock.patch.dict(os.environ, CHECKS_SHARD="0", CHECKS_SHARDS="2"):
+                mock.patch.object(verify.subprocess, "run", side_effect=child), \
+                mock.patch.dict(os.environ, CHECKS_SHARD="0", CHECKS_SHARDS="2"):
             self.assertEqual(verify.main([], {}), 1)
             self.assertEqual(verify.main(["--fast"], {}), 1)
             self.assertEqual(verify.main([], {"CHECKS_SHARD": "1", "CHECKS_SHARDS": "3"}), 1)
