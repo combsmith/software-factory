@@ -20,10 +20,11 @@ only what `allowed` lets through.
   read whole, `pulls_unreadable`: it is whole only with no next page and each entry saying who opened it from where;
   two by `login` from the branch, `opened_twice`; a write GitHub did not answer or did not take, `write_unanswered`
   or `write_refused`; a write taken whose read-back fails, a 401 or a 403 on it among them, is `sent`, and nothing is
-  claimed for it.
+  claimed for it. One told wrongly sends nothing, `TOLD_WRONGLY`; a pull request is the App's only as a `Bot`.
 
 Limits: the read-back holds the head, not the text, which `allowed` held as it was sent; a login or a repo is
-compared in the case given, so one GitHub reads back in another case claims nothing.
+compared in the case given, so one GitHub reads back in another case claims nothing; a rate limit's 403 is
+`token_refused`, as `adapters/effects.py`'s Role writes read it.
 
 P-41 grounds the write: an App's installation token opens a pull request in its repo, answered 201 with its number,
 head and author, and GitHub asks `pull_requests=write` of it.
@@ -40,6 +41,7 @@ BODY_MOST = 65536       # and on its body
 TITLE_BYTES = "opening_title_bytes"
 BODY_BYTES = "opening_body_bytes"
 UNREADABLE = "opening_unreadable"
+TOLD_WRONGLY = "opening_told_wrongly"   # a repo, a branch, a base, a commit or a login in no shape this sends
 # A branch the draft opens to: a ref's name as git allows it, read plainly.
 BASE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_./-]{0,254}")
 SHA = re.compile(r"[0-9a-f]{40}")
@@ -108,7 +110,7 @@ def _sent(sender, req: dict):
     """GitHub's answer, or None where it gave none; a 401 or a 403 ends the opening refused."""
     try:
         answer = sender.send(req)
-    except (Unanswered, OSError):
+    except (Unanswered, OSError, TypeError, ValueError, KeyError, AttributeError):
         return None
     if isinstance(answer, dict) and answer.get("status") in (401, 403):
         raise _Refused()
@@ -135,8 +137,9 @@ def _readable(pull) -> bool:
 def _ours(pull, repo: str, branch: str, login: str) -> bool:
     """Whether `pull` is one `login` opened from `branch` of `repo` itself."""
     user, head = (pull.get("user"), pull.get("head")) if isinstance(pull, dict) else (None, None)
-    return isinstance(user, dict) and user.get("login") == login and isinstance(head, dict) \
-        and head.get("ref") == branch and isinstance(head.get("repo"), dict) and head["repo"].get("full_name") == repo
+    return isinstance(user, dict) and user.get("login") == login and user.get("type") == "Bot" \
+        and isinstance(head, dict) and head.get("ref") == branch \
+        and isinstance(head.get("repo"), dict) and head["repo"].get("full_name") == repo
 
 
 def _more(answer) -> bool:
@@ -151,7 +154,7 @@ def write(sender, repo, branch, base, commit, title, body, login) -> dict:
     `branch`: a draft read back at another head is not the one `apply` opened."""
     if not _told(repo, branch, base) or refusal(title, body) is not None or type(login) is not str or not login \
             or type(commit) is not str or SHA.fullmatch(commit) is None:
-        return _back("refused", reason=UNREADABLE)
+        return _back("refused", reason=TOLD_WRONGLY)
     posted = []
     try:
         return _open(sender, repo, branch, base, commit, title, body, login, posted)

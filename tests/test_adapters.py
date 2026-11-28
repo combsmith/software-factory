@@ -9593,7 +9593,7 @@ class Opening(unittest.TestCase):
 
     @staticmethod
     def pull(number=7, login=OPENER, ref=OPENED_FROM, repo=OPENED_IN, base="main", draft=True):
-        return {"number": number, "state": "open", "user": {"login": login},
+        return {"number": number, "state": "open", "user": {"login": login, "type": "Bot"},
                 "head": {"ref": ref, "sha": LANDED, "repo": {"full_name": repo}}, "base": {"ref": base}, "draft": draft}
 
     def opened(self, script, title="docs: say it (#12)", body="Closes #12\n\nText.", base="main"):
@@ -9689,6 +9689,7 @@ class Opening(unittest.TestCase):
                 ({self.LIST: listed, self.OPEN: {"status": 422, "body": {}}}, "failed", "write_refused"),
                 ({self.LIST: listed, self.OPEN: {"status": 502, "body": None}}, "failed", "write_unanswered"),
                 ({self.LIST: listed, self.OPEN: OSError("reset")}, "failed", "write_unanswered"),
+                ({self.LIST: listed, self.OPEN: ValueError("odd")}, "failed", "write_unanswered"),
                 ({self.LIST: listed, self.OPEN: {"status": "201", "body": {"number": 7}}}, "failed",
                  "write_unanswered"),
                 ({self.LIST: {"status": 403, "body": {}}}, "refused", "token_refused"),
@@ -9700,6 +9701,7 @@ class Opening(unittest.TestCase):
                              self.pull(repo="someone/widgets"), self.pull(base="release"),
                              self.pull(draft=False), self.pull(draft=None), self.pull(number=8),
                              dict(self.pull(), state="closed"), dict(self.pull(), number=True),
+                             dict(self.pull(), user={"login": OPENER, "type": "User"}),
                              dict(self.pull(), head={"ref": OPENED_FROM, "sha": "b" * 40,
                                                      "repo": {"full_name": OPENED_IN}}),
                              dict(self.pull(), base="main"), dict(self.pull(), head=None), None)) + (
@@ -9721,7 +9723,7 @@ class Opening(unittest.TestCase):
             scripted = self.Scripted({})
             back = opening.write(scripted, repo, branch, base, (commit or [LANDED])[0], title, body, login)
             self.assertEqual((back, scripted.sent), ({"state": "refused", "number": None, "head": None,
-                                                      "reason": opening.UNREADABLE}, []), (repo, branch, base))
+                                                      "reason": opening.TOLD_WRONGLY}, []), (repo, branch, base))
 
 if __name__ == "__main__":
     unittest.main()
