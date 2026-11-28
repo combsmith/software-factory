@@ -2257,10 +2257,10 @@ class Judged(unittest.TestCase):
         self.assertEqual(len(patterns), len(set(patterns)))
         # A test the contract names but does not protect is refused, and so is the contract where it was read; a
         # criterion of another kind names no file. The file is the ref up to its first `::`, or the ref whole.
-        extra = said["criteria"] + [criterion("test", "spec/b_test.py::Case::test_b"), criterion("test", "spec/c_test.py"),
+        extra = said["criteria"] + [criterion("test", "spec/b_test.py::Case::test_b"), criterion("test", "spec/c_test.py::t"),
                                     criterion("static", "dependency-diff"), criterion("role", "pr-review")]
-        patterns, _ = judged.paths(contract(criteria=extra, protected_paths=["docs/a.md"]), "acceptance/9.json")
-        self.assertEqual(patterns, ["acceptance/9.json", "docs/a.md"] + tests + ["spec/b_test.py", "spec/c_test.py"])
+        patterns, _ = judged.paths(contract(criteria=extra, protected_paths=["docs/a.md", "fixtures/"]), "acceptance/9.json")
+        self.assertEqual(patterns, ["acceptance/9.json", "docs/a.md", "fixtures/"] + tests + ["spec/b_test.py", "spec/c_test.py"])
         # Added to the base's list, push_refusal matches them as it matches the list: a test or the contract the work is
         # judged by is refused, in another case too, and a file beside it lands.
         listed = ["guards/", "config/hooks.json"]
@@ -2270,9 +2270,7 @@ class Judged(unittest.TestCase):
             self.assertIsNone(apply.push_refusal([path], [None], listed), path)
         for path in ("spec/a_test.py", "spec/b_test.py.orig", "dependency-diff", "pr-review"):
             self.assertIsNone(apply.push_refusal([path], [None], listed + patterns), path)
-        # A ref that is no path is a pattern the list's reader refuses, so every push is refused.
-        patterns, _ = judged.paths(contract(criteria=[criterion("test", "npm\ttest")]), CONTRACT_AT)
-        self.assertEqual(apply.push_refusal(["docs/b.md"], [None], listed + patterns), "push_list_unreadable")
+        self.assertEqual(apply.push_refusal(["fixtures/x.json"], [None], listed + patterns), "push_protected")
 
     def test_a_contract_of_no_shape_read_here_is_unreadable(self):
         unreadable = (None, judged.UNREADABLE)
@@ -2293,10 +2291,30 @@ class Judged(unittest.TestCase):
                          (contract(criteria=[good, criterion("", "t.py")]), CONTRACT_AT),
                          (contract(criteria=[good, criterion(Odd("test"), "t.py")]), CONTRACT_AT),
                          (contract(criteria=[good, criterion("test", Odd("t.py"))]), CONTRACT_AT),
-                         (contract(criteria=[good, criterion("test", "::test_a")]), CONTRACT_AT)):
+                         (contract(criteria=[good, criterion("test", "::test_a")]), CONTRACT_AT),
+                         # A test's ref in any form but path::test names no file this can refuse.
+                         (contract(criteria=[good, criterion("test", "tests.test_guards.Judged.test_x")]), CONTRACT_AT),
+                         (contract(criteria=[good, criterion("test", "spec/foo_spec.rb:42")]), CONTRACT_AT),
+                         (contract(criteria=[good, criterion("test", "src/foo.test.ts > suite > it")]), CONTRACT_AT),
+                         (contract(criteria=[good, criterion("test", "tests/a.py ::t")]), CONTRACT_AT),
+                         (contract(criteria=[good, criterion("test", "npm test")]), CONTRACT_AT),
+                         (contract(criteria=[good, criterion("test", "t.py::")]), CONTRACT_AT),
+                         (contract(criteria=[good, criterion("test", "tests/::t")]), CONTRACT_AT),
+                         (contract(criteria=[good, criterion("test", "../t.py::t")]), CONTRACT_AT),
+                         # A kind the schema does not name.
+                         (contract(criteria=[good, criterion("Test", "t.py::t")]), CONTRACT_AT),
+                         (contract(criteria=[good, criterion(" test", "t.py::t")]), CONTRACT_AT),
+                         (contract(criteria=[good, criterion("tests", "t.py::t")]), CONTRACT_AT),
+                         # A path, the contract's own or a protected one, that is no pattern of the list's syntax.
+                         (contract(), "issue 512"), (contract(), "acceptance/"), (contract(), "a/../b.json"), (contract(), "./a.json"),
+                         (contract(protected_paths=["a/../b.py"]), CONTRACT_AT), (contract(protected_paths=["a b.py"]), CONTRACT_AT),
+                         (contract(protected_paths=["a\\b.py"]), CONTRACT_AT), (contract(protected_paths=["/a.py"]), CONTRACT_AT),
+                         (contract(protected_paths=["a//b.py"]), CONTRACT_AT), (contract(protected_paths=["a/."]), CONTRACT_AT)):
             self.assertEqual(judged.paths(said, at), unreadable, (said, at))
-        # A static criterion's ref that starts with `::` names no file to refuse, and is read.
-        self.assertIsNone(judged.paths(contract(criteria=[good, criterion("static", "::x")]), CONTRACT_AT)[1])
+        # Another kind's ref names no file to refuse, whatever its form, and is read; so is a name of three dots.
+        for ref in ("::x", "npm test", "spec/foo_spec.rb:42"):
+            self.assertIsNone(judged.paths(contract(criteria=[good, criterion("static", ref)]), CONTRACT_AT)[1], ref)
+        self.assertEqual(judged.paths(contract(protected_paths=[".../a*.py"]), "a/...")[0][:2], ["a/...", ".../a*.py"])
 
     def test_a_push_to_any_repo_but_the_factorys_own_is_refused_until_a_consumers_manifest_is_read(self):
         own = "combsmith/software-factory"
