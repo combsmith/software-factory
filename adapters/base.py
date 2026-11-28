@@ -5,10 +5,10 @@ the repo names the branch, and its ref, never a name a tag could share, gives a 
 three cases apart, `(case, head)`:
 
 - `HEAD`: the admitted sha is that head. Nothing more is asked.
-- `ANCESTOR`: GitHub's comparison of the admitted sha with that head says the head is ahead of it, and their merge
-  base is the admitted sha itself.
+- `ANCESTOR`: GitHub's comparison of the admitted sha with that head says the head is ahead of it, by commits only
+  the head holds, and their merge base is the admitted sha itself.
 - `NEITHER`: the comparison says the head is behind it, their merge base the head, or apart from it, their merge
-  base a third commit: the admitted sha was rewritten away.
+  base a third commit, each with the counts that say so: the admitted sha was rewritten away.
 
 `(None, head)` where the comparison cannot be read, or says what no history holds, such as a head ahead of another
 merge base, and `(None, None)` where the head cannot, or where the repo or the sha is told wrongly: then nothing is
@@ -42,6 +42,11 @@ def _sha(said) -> bool:
     return type(said) is str and SHA.fullmatch(said) is not None
 
 
+def _count(said):
+    """True for a count of commits above none, False for none, and None for what is no count."""
+    return said > 0 if type(said) is int and said >= 0 else None
+
+
 def _repo(said) -> bool:
     return type(said) is str and REPO.fullmatch(said) is not None and said.split("/")[1] not in (".", "..")
 
@@ -64,9 +69,11 @@ def on_default(transport, repo, admitted) -> tuple:
     body = answer.get("body") if isinstance(answer, dict) and answer.get("status") == 200 else None
     body = body if isinstance(body, dict) else {}
     base = body.get("merge_base_commit") if isinstance(body.get("merge_base_commit"), dict) else {}
-    if body.get("status") == AHEAD and base.get("sha") == admitted:
+    status, counts = body.get("status"), (_count(body.get("ahead_by")), _count(body.get("behind_by")))
+    if status == AHEAD and base.get("sha") == admitted and counts == (True, False):
         return ANCESTOR, head
-    if body.get("status") == BEHIND and base.get("sha") == head \
-            or body.get("status") == APART and _sha(base.get("sha")) and base.get("sha") not in (admitted, head):
+    if status == BEHIND and base.get("sha") == head and counts == (False, True) \
+            or status == APART and _sha(base.get("sha")) and base.get("sha") not in (admitted, head) \
+            and counts == (True, True):
         return NEITHER, head
     return None, head

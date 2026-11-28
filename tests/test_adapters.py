@@ -9810,12 +9810,26 @@ class Base(unittest.TestCase):
         return base.on_default(github.Replay(exchanges), "o/r", admitted or self.ADMITTED)
 
     @staticmethod
-    def compared(status, merge_base="a" * 40):
-        return {"status": status, "merge_base_commit": {"sha": merge_base}, "ahead_by": 1, "behind_by": 0}
+    def compared(status, merge_base="a" * 40, counts=None):
+        """GitHub's comparison: by default with the counts its status says, ahead, behind or both."""
+        ahead, behind = counts or {"ahead": (1, 0), "behind": (0, 1), "diverged": (1, 1)}.get(status, (0, 0))
+        return {"status": status, "merge_base_commit": {"sha": merge_base}, "ahead_by": ahead, "behind_by": behind}
 
     def test_the_admitted_sha_is_the_head_an_ancestor_of_it_or_neither(self):
-        # The head itself asks nothing more: a comparison asked would find no answer, and be none of the three.
-        self.assertEqual(self.on(head=self.ADMITTED), (base.HEAD, self.ADMITTED))
+        # The head itself asks nothing more than its two reads.
+        ref = {"ref": "refs/heads/main", "object": {"type": "commit", "sha": self.ADMITTED}}
+        kept = self.Kept(github.Replay([rest_answer("/repos/o/r", {"default_branch": "main"}),
+                                        rest_answer("/repos/o/r/git/ref/heads/main", ref)]))
+        self.assertEqual(base.on_default(kept, "o/r", self.ADMITTED), (base.HEAD, self.ADMITTED))
+        self.assertEqual([req["path"] for req in kept.sent], ["/repos/o/r", "/repos/o/r/git/ref/heads/main"])
+        # A head that shares only a prefix with the admitted sha is another commit, and is compared.
+        near, near_compare = "a" * 7 + "b" * 33, "/repos/o/r/compare/%s...%s?per_page=1" % ("a" * 40, "a" * 7 + "b" * 33)
+        kept = self.Kept(github.Replay([rest_answer("/repos/o/r", {"default_branch": "main"}),
+                                        rest_answer("/repos/o/r/git/ref/heads/main", dict(ref, object={"type": "commit", "sha": near})),
+                                        rest_answer(near_compare, self.compared("ahead"))]))
+        self.assertEqual(base.on_default(kept, "o/r", self.ADMITTED), (base.ANCESTOR, near))
+        # The three cases are three, and none is untold.
+        self.assertEqual(len({base.HEAD, base.ANCESTOR, base.NEITHER} - {None, ""}), 3)
         # A head ahead of the admitted sha, whose merge base is that sha, holds it: an ancestor.
         self.assertEqual(self.on(compare=self.compared("ahead")), (base.ANCESTOR, self.HEAD))
         # Behind it, their merge base the head, or apart from it, their merge base a third commit, the admitted sha
@@ -9835,7 +9849,13 @@ class Base(unittest.TestCase):
                                 ({"merge_base_commit": {"sha": "a" * 40}}, 200),
                                 (self.compared("behind"), 200), (self.compared("behind", "c" * 40), 200),
                                 (self.compared("diverged"), 200), (self.compared("diverged", "b" * 40), 200),
-                                (self.compared("diverged", None), 200), (self.compared("diverged", "C" * 40), 200)):
+                                (self.compared("diverged", None), 200), (self.compared("diverged", "C" * 40), 200),
+                                (self.compared("ahead", counts=(0, 1)), 200), (self.compared("ahead", counts=(1, 1)), 200),
+                                (self.compared("ahead", counts=(0, 0)), 200), (self.compared("ahead", counts=(True, 0)), 200),
+                                (self.compared("ahead", counts=(1, None)), 200), (self.compared("ahead", counts=(-1, 0)), 200),
+                                (self.compared("behind", "b" * 40, (-1, 1)), 200),
+                                (self.compared("behind", "b" * 40, (1, 1)), 200), (self.compared("behind", "b" * 40, (0, 0)), 200),
+                                (self.compared("diverged", "c" * 40, (1, 0)), 200), (self.compared("diverged", "c" * 40, (0, 1)), 200)):
             self.assertEqual(self.on(compare=compare, status=status), (None, self.HEAD), (compare, status))
         self.assertEqual(self.on(), (None, self.HEAD))      # the comparison is asked, and not answered
 
@@ -9850,7 +9870,8 @@ class Base(unittest.TestCase):
         self.assertEqual(base.on_default(github.Replay([]), "o/r", self.ADMITTED), (None, None))
         # A sha or a repo told wrongly asks nothing at all.
         for repo, admitted in (("o/r", "a" * 39), ("o/r", "A" * 40), ("o/r", None), ("o/r", Lying("a" * 40)),
-                               ("o/r", "a" * 40 + "\n"), ("o", "a" * 40), ("o/..", "a" * 40), (None, "a" * 40),
+                               ("o/r", "a" * 40 + "\n"), ("o/r", "g" * 40), ("o", "a" * 40), ("o/..", "a" * 40),
+                               ("o/.", "a" * 40), (None, "a" * 40),
                                (Lying("o/r"), "a" * 40)):
             kept = self.Kept()
             self.assertEqual(base.on_default(kept, repo, admitted), (None, None), (repo, admitted))
