@@ -9790,13 +9790,15 @@ class Base(unittest.TestCase):
     COMPARE = "/repos/o/r/compare/%s...%s?per_page=1" % ("a" * 40, "b" * 40)
 
     class Kept:
-        """A transport that keeps what was asked and answers nothing."""
-        def __init__(self):
-            self.sent = []
+        """A transport that keeps what was asked, and answers it from `through`, or not at all."""
+        def __init__(self, through=None):
+            self.sent, self.through = [], through
 
         def send(self, req):
             self.sent.append(req)
-            raise github.Unanswered("nothing is answered here")
+            if self.through is None:
+                raise github.Unanswered("nothing is answered here")
+            return self.through.send(req)
 
     def on(self, head=None, compare=None, status=200, admitted=None):
         """What the port tells of `admitted` on o/r's default branch, `main` at `head`, compared as `compare` says."""
@@ -9816,10 +9818,11 @@ class Base(unittest.TestCase):
         self.assertEqual(self.on(head=self.ADMITTED), (base.HEAD, self.ADMITTED))
         # A head ahead of the admitted sha, whose merge base is that sha, holds it: an ancestor.
         self.assertEqual(self.on(compare=self.compared("ahead")), (base.ANCESTOR, self.HEAD))
-        # Behind it or apart from it, the admitted sha was rewritten away: neither.
-        for status in ("behind", "diverged"):
-            self.assertEqual(self.on(compare=self.compared(status, "c" * 40)), (base.NEITHER, self.HEAD), status)
-            self.assertEqual(self.on(compare=self.compared(status)), (base.NEITHER, self.HEAD), status)
+        # Behind it, their merge base the head, or apart from it, their merge base a third commit, the admitted sha
+        # was rewritten away: neither.
+        self.assertEqual(self.on(compare=self.compared("behind", self.HEAD)), (base.NEITHER, self.HEAD))
+        self.assertEqual(self.on(compare=self.compared("diverged", "c" * 40)), (base.NEITHER, self.HEAD))
+        self.assertEqual(base.GOES_ON, (base.HEAD, base.ANCESTOR))
 
     def test_a_comparison_that_cannot_be_read_is_none_of_the_three(self):
         # What no history holds is untold, never a case: ahead of another merge base, or identical though the heads
@@ -9829,14 +9832,21 @@ class Base(unittest.TestCase):
                                 (self.compared("identical"), 200), (self.compared("Ahead"), 200),
                                 (self.compared("ahead"), 206), (self.compared("behind"), 404),
                                 ({"message": "No common ancestor"}, 404), ([self.compared("ahead")], 200),
-                                ({"merge_base_commit": {"sha": "a" * 40}}, 200)):
+                                ({"merge_base_commit": {"sha": "a" * 40}}, 200),
+                                (self.compared("behind"), 200), (self.compared("behind", "c" * 40), 200),
+                                (self.compared("diverged"), 200), (self.compared("diverged", "b" * 40), 200),
+                                (self.compared("diverged", None), 200), (self.compared("diverged", "C" * 40), 200)):
             self.assertEqual(self.on(compare=compare, status=status), (None, self.HEAD), (compare, status))
         self.assertEqual(self.on(), (None, self.HEAD))      # the comparison is asked, and not answered
 
     def test_a_head_or_a_sha_that_cannot_be_read_is_none_of_the_three_and_nothing_is_compared(self):
         # The default branch's head is read as the issues port reads it; unread, nothing is compared.
-        self.assertEqual(base.on_default(github.Replay([rest_answer("/repos/o/r", {})]), "o/r", self.ADMITTED),
-                         (None, None))
+        for ref in ({"ref": "refs/heads/main", "object": {"type": "commit", "sha": "b" * 39}}, {}):
+            exchanges = [rest_answer("/repos/o/r", {"default_branch": "main"}),
+                         rest_answer("/repos/o/r/git/ref/heads/main", ref)]
+            kept = self.Kept(github.Replay(exchanges))
+            self.assertEqual(base.on_default(kept, "o/r", self.ADMITTED), (None, None), ref)
+            self.assertEqual([req["path"] for req in kept.sent], ["/repos/o/r", "/repos/o/r/git/ref/heads/main"], ref)
         self.assertEqual(base.on_default(github.Replay([]), "o/r", self.ADMITTED), (None, None))
         # A sha or a repo told wrongly asks nothing at all.
         for repo, admitted in (("o/r", "a" * 39), ("o/r", "A" * 40), ("o/r", None), ("o/r", Lying("a" * 40)),

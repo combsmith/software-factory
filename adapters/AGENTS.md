@@ -1,7 +1,7 @@
 # adapters/
 All the Factory's I/O; `github.py`, `azure.py` reach the network. `items.py` open Work items, `pull.py` one, `timeline.py` reviews, labels, actors, `checks.py` checks, queue, `threads.py`, `edits.py`, `applied.py` Lenses' records, `facts.py`, `records.py`,
 `artifacts.py`, `seen.py` writes, `passes.py`, `acceptance.py`, `heldout.py`, `rules.py`, `texts.py` texts, `issues.py`, `linked.py`, `keyword_spans.py`; `effects.py` writes, `pause.py`, `tags.py`, `candidate.py`, `deployments.py`, `identity.py`, `queue.py`.
-`draft_checks.py` reads a draft's checks, `branches.py` the work branch's head, `base.py` where an admitted commit is on the default branch; `push.py` sends a push by its own token and reads its tree whole, in a bound; `opening.py` opens a draft, read back.
+`draft_checks.py` reads a linked draft's checks, `branches.py` the work branch's head, `base.py` where an admitted base stands, and `push.py` sends a push by its own token alone and reads the tree a patch lands on whole, in a bound; `opening.py` opens a draft.
 Not built yet, by their stories: contract.py, binding.py, settings.py and usage.py. A port decides nothing and hands the Kernel no text.
 
 | Rule | Held by |

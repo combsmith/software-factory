@@ -7,15 +7,17 @@ three cases apart, `(case, head)`:
 - `HEAD`: the admitted sha is that head. Nothing more is asked.
 - `ANCESTOR`: GitHub's comparison of the admitted sha with that head says the head is ahead of it, and their merge
   base is the admitted sha itself.
-- `NEITHER`: the comparison says otherwise, behind or diverged: the admitted sha was rewritten away.
+- `NEITHER`: the comparison says the head is behind it, their merge base the head, or apart from it, their merge
+  base a third commit: the admitted sha was rewritten away.
 
 `(None, head)` where the comparison cannot be read, or says what no history holds, such as a head ahead of another
-merge base, and `(None, None)` where the head cannot, or where the repo or the
-sha is told wrongly, with nothing asked. Neither is one of the three: an unread fact is never a case.
+merge base, and `(None, None)` where the head cannot, or where the repo or the sha is told wrongly: then nothing is
+compared, or nothing at all is asked. Neither is one of the three: an unread fact is never a case.
 
-The port decides nothing. `harness/push.py`, by hand, asks it before the write and once after it: it goes on in the
-first two cases and refuses in the third and where nothing was told; and it makes the work branch only while the head
-is the one its checks read. A later record names the refusal's code and its fault.
+The port decides nothing. `harness/push.py`, not yet built, asks it before the write and once after it. It goes on
+only where the case is in `GOES_ON`, and refuses in the third case and where nothing was told, whatever head is given
+beside it; and it makes the work branch only while the head is the one its checks read. A later record names the
+refusal's code and its fault.
 
 Limit: GitHub answers a comparison with no common history, or a sha it does not hold, with a refusal, not a status;
 that is read as untold, not as `NEITHER`. Both push nothing.
@@ -30,10 +32,10 @@ from adapters.github import Unanswered, request
 HEAD = "head"                   # the admitted sha is the default branch's head
 ANCESTOR = "ancestor"           # it is an ancestor of that head
 NEITHER = "neither"             # it is no commit of that head's history
+GOES_ON = (HEAD, ANCESTOR)      # the two cases a push goes on in; nothing else is one
 SHA = re.compile(r"[0-9a-f]{40}")
 REPO = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?/[A-Za-z0-9_.-]{1,100}")
-AHEAD = "ahead"                 # GitHub's word for a head that holds the base and more
-APART = ("behind", "diverged")  # its words for a head that does not hold the base
+AHEAD, BEHIND, APART = "ahead", "behind", "diverged"    # GitHub's words for a head after, before or beside the base
 
 
 def _sha(said) -> bool:
@@ -64,6 +66,7 @@ def on_default(transport, repo, admitted) -> tuple:
     base = body.get("merge_base_commit") if isinstance(body.get("merge_base_commit"), dict) else {}
     if body.get("status") == AHEAD and base.get("sha") == admitted:
         return ANCESTOR, head
-    if body.get("status") in APART:
+    if body.get("status") == BEHIND and base.get("sha") == head \
+            or body.get("status") == APART and _sha(base.get("sha")) and base.get("sha") not in (admitted, head):
         return NEITHER, head
     return None, head

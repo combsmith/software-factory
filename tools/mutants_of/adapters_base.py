@@ -10,14 +10,20 @@ TARGETS = (BASE_PY,)
 MUTANTS = [
     # The three cases, told apart by the default branch's head and GitHub's comparison of the admitted sha with it.
     ("the default head is read as an ancestor", BASE_PY, '        return HEAD, head\n', '        return ANCESTOR, head\n', BASE_CASES),
-    ("a head behind the admitted sha is an ancestor", BASE_PY, 'if body.get("status") == AHEAD and', 'if body.get("status") in (AHEAD,) + APART and', BASE_CASES),
-    ("a head apart from the admitted sha is untold", BASE_PY, '    if body.get("status") in APART:\n        return NEITHER, head\n', '', BASE_CASES),
+    ("a head behind the admitted sha is an ancestor", BASE_PY, 'if body.get("status") == AHEAD and', 'if body.get("status") in (AHEAD, BEHIND) and', BASE_UNREAD),
+    ("a head behind the admitted sha is untold", BASE_PY, 'body.get("status") == BEHIND and base.get("sha") == head', 'False', BASE_CASES),
+    ("a head apart from the admitted sha is untold", BASE_PY, 'body.get("status") == APART and _sha(base.get("sha"))', 'False', BASE_CASES),
+    ("a third case goes on", BASE_PY, 'GOES_ON = (HEAD, ANCESTOR)', 'GOES_ON = (HEAD, ANCESTOR, NEITHER)', BASE_CASES),
     ("the comparison is asked the other way round", BASE_PY, '% (repo, admitted, head)', '% (repo, head, admitted)', BASE_CASES),
     # What cannot be read is none of the three.
     ("a head ahead of another merge base is an ancestor", BASE_PY, ' and base.get("sha") == admitted', '', BASE_UNREAD),
     ("a comparison of another status than 200 is read", BASE_PY, ' and answer.get("status") == 200', '', BASE_UNREAD),
     ("a comparison not read is neither", BASE_PY, '        return NEITHER, head\n    return None, head\n', '        return NEITHER, head\n    return NEITHER, head\n', BASE_UNREAD),
     ("a comparison not answered is neither", BASE_PY, '    except Unanswered:\n        return None, head\n', '    except Unanswered:\n        return NEITHER, head\n', BASE_UNREAD),
+    ("a head behind another merge base is neither", BASE_PY, ' and base.get("sha") == head \\\n', ' \\\n', BASE_UNREAD),
+    ("a head apart from the admitted sha's own history is neither", BASE_PY, ' and base.get("sha") not in (admitted, head):', ':', BASE_UNREAD),
+    ("a merge base of no sha beside a head apart is neither", BASE_PY, ' and _sha(base.get("sha")) and base', ' and base', BASE_UNREAD),
+    ("an unread head is compared", BASE_PY, '    if not _sha(head):\n        return None, None\n', '', BASE_TOLD),
     ("a merge base of another shape is read", BASE_PY, ' if isinstance(body.get("merge_base_commit"), dict) else {}', ' or {}', BASE_UNREAD),
     # A sha or a repo told wrongly asks nothing.
     ("an admitted sha told wrongly is asked", BASE_PY, 'if not (_repo(repo) and _sha(admitted)):', 'if not _repo(repo):', BASE_TOLD),
