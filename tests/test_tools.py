@@ -13847,6 +13847,8 @@ class Writes(unittest.TestCase):
                  "keyword": "globals().update(__path__=['a'])\n", "key": "globals()['__path__'] = ['a']\n",
                  "text": "import harness\n\np = getattr(harness, f'__path__')\n", "renamed": "from os import sep as __path__\n",
                  "module renamed": "import os as __path__\n", "dotted": "import __path__.child\n",
+                 "dotted below": "import harness.__path__\n", "from below": "from harness.__path__ import x\n",
+                 "parameter": "def f(*, __package__=None): pass\n",
                  "def": "def __path__(): return ['a']\n", "async def": "async def __path__(): return ['a']\n",
                  "class": "class __path__: pass\n", "handler": "try:\n    pass\nexcept OSError as __path__:\n    pass",
                  "package": "__package__ = 'adapters'\n"}
@@ -13861,24 +13863,29 @@ class Writes(unittest.TestCase):
                       "harness/plain.py": "import json.decoder, harness.not_held\n",
                       "harness/leaf.py": "import tools.hooks.missing\n",
                       "harness/taken.py": "from harness import github\n",
+                      "harness/second.py": "from harness import steps, not_held\n",
                       "harness/reltaken.py": "from . import github\n",
                       "harness/foo.py": "def __getattr__(name):\n    return ['adapters']\n",
                       "harness/foo/effects.py": "def approve(*a):\n    return None\n",
+                      "harness/task__init__.py": "value = 1\n", "harness/task__init__/leaf.py": "value = 1\n",
                       "harness/held.py": "import harness.steps as github\nimport json.decoder\nfrom . import steps\nimport tools.hooks.shell\n"
                                          "from harness import steps\nfrom tools.hooks import shell\nfrom tools import walk\n"})
         # This check's own table names the path, and nothing else in it may: not its code, nor another table.
-        own = (ROOT / "tools/check_writes.py").read_text() + "\n\nPACKAGE_PATHS = PACKAGE_PATHS + ('__path__',)\n"
-        files["tools/check_writes.py"] = own + "\n\ndef roots(pkg):\n    return pkg.__path__\n"
+        own = [(ROOT / "tools/check_writes.py").read_text() + "\n\nPACKAGE_PATHS = PACKAGE_PATHS + ('__path__',)\n"]
+        own.append(own[-1] + "PACKAGE_PATHS = ('__path__',)\n")
+        own.append(own[-1] + "\n\ndef roots(pkg):\n    return pkg.__path__\n")
+        files["tools/check_writes.py"] = own[-1]
         problems = check_writes.run(clone(files))
         self.assertEqual([p.partition(" ")[0] for p in problems if p.startswith("tools/check_writes.py")],
-                         ["tools/check_writes.py:%d" % own.count("\n"), "tools/check_writes.py:%d" % files["tools/check_writes.py"].count("\n")])
+                         ["tools/check_writes.py:%d" % text.count("\n") for text in own])
         self.assertTrue(caught(problems, "harness/__init__.py:1 names where a package finds its modules"), problems)
         for why in named:
             line = named[why].count("\n")
             self.assertTrue(caught(problems, "harness/path%s.py:%d names where" % (why.replace(" ", ""), line)), (why, problems))
-        for rel in ("viapath", "frompath", "relpath", "plain", "leaf", "taken", "reltaken"):
+        for rel in ("viapath", "frompath", "relpath", "plain", "leaf", "taken", "reltaken", "second"):
             self.assertTrue(caught(problems, "harness/%s.py:1 imports a module that no file of the repo is" % rel), (rel, problems))
-        self.assertTrue(caught(problems, "harness/foo.py and the folder harness/foo/ are one name, harness.foo"), problems)
+        for rel in ("foo", "task__init__"):
+            self.assertTrue(caught(problems, "harness/%s.py and the folder harness/%s/ are one name" % (rel, rel)), problems)
         # A module the repo holds, one outside it, and a module or a name taken from a package, are read as before.
         self.assertFalse([p for p in problems if p.startswith("harness/held.py")], problems)
 

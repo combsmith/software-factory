@@ -651,22 +651,24 @@ def _unheld(mods: dict, mod: Module) -> list:
 
 def _paths(mod: Module) -> list:
     """Each line that names a package's `__path__`, its spec's `submodule_search_locations` or a module's `__package__`,
-    as a name, an attribute, an import, anything else that binds a name (a def, a class, a handler, a pattern's
-    capture), a keyword or a literal text: a package whose path is changed loads a file of another folder under its own
+    as a name, an attribute, any part of an import, anything else that binds a name (a def, a class, a parameter, a
+    handler, a pattern's capture), a keyword or a literal text: a package whose path is changed loads a file of another folder under its own
     name, and a module whose package is changed imports another's modules by its relative names, so a write through
-    either is read under a name the syntax does not know (issue 1323). The texts of this file's own table aside. Its
+    either is read under a name the syntax does not know (issue 1323). The texts of this file's first table aside. Its
     limits: a name built at run time, a pattern's attribute, and a change to `sys.path`, `sys.meta_path` or
     `sys.path_hooks`."""
-    table = {id(e) for node in mod.tree.body if mod.rel == "tools/check_writes.py" and isinstance(node, ast.Assign)
-             and [getattr(t, "id", None) for t in node.targets] == ["PACKAGE_PATHS"] and isinstance(node.value, ast.Tuple)
-             for e in node.value.elts if isinstance(e, ast.Constant)}
+    first = next((node for node in mod.tree.body if isinstance(node, ast.Assign)
+                  and [getattr(t, "id", None) for t in node.targets] == ["PACKAGE_PATHS"]), None)
+    table = {id(e) for e in first.value.elts if isinstance(e, ast.Constant)} \
+        if mod.rel == "tools/check_writes.py" and first is not None and isinstance(first.value, ast.Tuple) else set()
     return sorted({n.lineno for n in mod.nodes if id(n) not in table and (
                    isinstance(n, ast.Name) and n.id in PACKAGE_PATHS
                    or isinstance(n, ast.Attribute) and n.attr in PACKAGE_PATHS
-                   or isinstance(n, (ast.Import, ast.ImportFrom)) and any(a.name.split(".")[0] in PACKAGE_PATHS
-                                                                         or a.asname in PACKAGE_PATHS for a in n.names)
+                   or isinstance(n, (ast.Import, ast.ImportFrom)) and any(part in PACKAGE_PATHS for a in n.names
+                                                                         for part in a.name.split(".") + [a.asname])
+                   or isinstance(n, ast.ImportFrom) and any(part in PACKAGE_PATHS for part in (n.module or "").split("."))
                    or not isinstance(n, ast.alias) and any(getattr(n, field, None) in PACKAGE_PATHS for field in ("name", "rest"))
-                   or isinstance(n, ast.keyword) and n.arg in PACKAGE_PATHS
+                   or isinstance(n, (ast.keyword, ast.arg)) and n.arg in PACKAGE_PATHS
                    or _literal(n) in PACKAGE_PATHS)})
 
 
@@ -1137,7 +1139,7 @@ def run(root: pathlib.Path = ROOT) -> list:
     # path, so what the folder holds is read under a name that may load another file (issue 1323).
     problems += ["%s and the folder %s/ are one name, %s, which Python imports as the file, so what the folder holds "
                  "cannot be read; keep one" % (mod.rel, mod.rel[:-len(".py")], name) for name, mod in sorted(mods.items())
-                 if not mod.rel.endswith("__init__.py") and any(other.startswith(name + ".") for other in mods)]
+                 if mod.rel.rpartition("/")[2] != "__init__.py" and any(other.startswith(name + ".") for other in mods)]
     reading = Reading(mods)
     problems += reading.problems
     inert = {}      # each file of the mutants read once in a run, whichever file names from it
