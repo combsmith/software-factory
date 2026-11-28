@@ -8,8 +8,23 @@ ENDS = ("tests.test_tools.Verify.test_a_test_module_that_ends_its_process_cannot
 ISOLATED = ("tests.test_tools.Verify.test_a_file_at_the_top_named_as_a_standard_module_is_not_imported_by_the_checks",)
 LEG_TESTS = ("tests.test_tools.Verify.test_the_legs_of_make_verify_run_every_test_once",)
 
+# Issue 1377: each check answers from a process of its own.
+NO_ANSWER = ("tests.test_tools.Verify.test_a_check_whose_process_gives_no_answer_fails_verify",)
+ALONE = ("tests.test_tools.Verify.test_a_check_that_ends_its_process_fails_alone",)
+
 TARGETS = ("tools/verify.py",)
 MUTANTS = [
+    ("a check that ends its process without its answer passes", "tools/verify.py",
+     "    if code != 0 or not whole:\n", "    if code != 0:\n", NO_ANSWER + ALONE),
+    ("a check's failed exit is read as its answer", "tools/verify.py",
+     "    if code != 0 or not whole:\n", "    if not whole:\n", NO_ANSWER),
+    ("an answer for another check is taken", "tools/verify.py",
+     ' and given["check"] == name \\\n', " \\\n", NO_ANSWER),
+    ("a check that gave no answer passes", "tools/verify.py",
+     '        return ["the check gave no answer"]\n', "        return []\n", NO_ANSWER),
+    ("the checks run in verify's own process", "tools/verify.py",
+     '        problems = problems_of(name, said.get(name))\n',
+     '        problems = check((name,) + next(e[1:] for e in CHECKS if e[0] == name))()\n', ALONE),
     # Issue 1109: make checks prints the desk's size note, and nothing the note does fails it.
     ('a closed pipe ends make checks', 'tools/verify.py',
      '        try:\n            print("%-22s %s" % ("diff size", desk_note()), flush=True)\n        except BaseException:       # NOSONAR: a closed pipe too; the note never decides make checks\' answer\n            quiet(sys.stdout)\n', '        print("%-22s %s" % ("diff size", desk_note()), flush=True)\n', DESK_NOTE),
