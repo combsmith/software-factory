@@ -34,7 +34,8 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
       # `make verify` in three steps (issues 1050 and 1377): the checks that run no Role code answer first, then every
-      # check, then the tests. A failed step ends the leg before any Role code, or any test code, runs.
+      # check, then the tests. A failed first step ends the leg before any Role code runs; a failed second, before any
+      # test code runs.
       - run: make checks-first
         timeout-minutes: 2
       - run: make checks
