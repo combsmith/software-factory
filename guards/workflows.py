@@ -16,10 +16,21 @@ says is refused, never passed.
     stands); a key the table does not name, at the top, in a job or in a step; a job that calls another workflow or
     runs in a container; a step that runs a command (`run:`) or uses an action, at its pin, that `ACTIONS` does not
     name; an input of an action its row does not name, or one whose value holds an expression, `${{`, which may read
-    a file; a job whose steps are no list of items, or none; an `env:` name outside `ENV`; a double-quoted value that
+    a file; a job whose steps are no list of items, or none; an `env:` name outside `ENV`; a quoted `{}`; a double-quoted value that
     holds an escape.
   - `UNLISTED`: a file the job takes its settings from, its own workflow among them, that the list holds neither word
     for word nor under a directory it names.
+- `refusal_at(files, listed)`: the same answer for every workflow a commit holds, `files` mapping each one's path to
+  its text, but of the jobs that hold a secret alone: the first reason, the workflows in their paths' order, or None.
+  A job holds a secret unless all of these are so (record 0239's first row): neither it nor its workflow outside its
+  jobs names `secrets`, in any case, as a key or in a value, `secrets: inherit` and `${{ secrets.X }}` among them; it
+  calls no other workflow; and its own `permissions:`, or its workflow's where it has none, let its token write
+  nothing, `read-all`, `{}`, or each scope `read` or `none`. With neither, the repo's default permission for
+  `GITHUB_TOKEN` applies, which `adapters/settings.py` will read: until it does, it is taken as write, so such a job
+  holds a secret. A key with a capital, at the job or at the top, is taken to hold one too, as Actions may read a
+  key in any case. A workflow's lines are still read whole in the narrow form, a job that holds no secret among them, so
+  that what a job names is never hidden: lines this does not read are `UNREADABLE`, and so is no mapping of path to
+  text. Its keys at the top and its `env:` are held to the table only where one of its jobs holds a secret.
 
 Every route that points SonarCloud's scan at another settings file is refused: the scan's `args` and `projectBaseDir`
 are inputs its row does not name, and `SONAR_SCANNER_OPTS`, `SONAR_SCANNER_JSON_PARAMS` and `SONARQUBE_SCANNER_PARAMS`
@@ -29,9 +40,13 @@ too, so the file is the commit the run is for, and the scanner's other variables
 `SONAR_ROOT_CERT` among them, are names outside `ENV`.
 
 Its stated limits:
-- Every job read is taken to hold a secret: which jobs do is the rest of record 0239's first row, which waits on
-  `adapters/settings.py`. So a job with no secret beside one that has is refused with it. It costs a grant, never
-  passes one.
+- `refusal` takes every job to hold a secret, so a job with no secret beside one that has is refused with it.
+  `refusal_at` reads which jobs hold one, but takes the repo's default permission as write: it costs a push, never
+  passes one. A job that holds a secret and runs a command is refused, though the command is the Release's own: so,
+  at this repo's own workflows, every push is refused until a row reads such a job.
+- A block scalar anywhere, a job's `run: |` among them, makes a workflow `UNREADABLE`, at a commit too: this cannot
+  tell what such a job names.
+- The Actions cache a job may write is not read: no action the table names restores one.
 - What an action reads at its pin is read from its source by a person when its row is written: the rows hold the pins
   `.github/workflows/sonarcloud.yml` holds, which decision 0225's row was written from. A new pin is refused until a
   row names it.
@@ -44,7 +59,7 @@ Its stated limits:
 - What an analyser reads as source to analyse is not settings, as decision 0239 says: a `tsconfig.json` among them.
 - That `listed` is the base's list, never the head's, is the caller's: `adapters/rules.py` reads it at the base commit.
 
-The caller gives all three arguments; this reads nothing itself.
+The caller gives every argument; this reads nothing itself.
 """
 from __future__ import annotations
 
@@ -70,6 +85,10 @@ JOB = ("name", "runs-on", "timeout-minutes", "permissions", "if", "needs", "conc
 STEP = ("name", "id", "if", "continue-on-error", "timeout-minutes")
 # The names an `env:` may give: the scan's token, and the job's own. Any other may point a tool at another file.
 ENV = ("SONAR_TOKEN", "GITHUB_TOKEN")
+# What a `permissions:` may give a scope, or the whole token, that lets it write nothing. Anything else, a scope's
+# `write` or `write-all` among it, or no `permissions:` at the job or its workflow, lets the token write.
+QUIET = ("read", "none")
+QUIET_ALL = ("read-all", "{}")
 # Each action a job may use, at its pin: the inputs it may be given, and the files of the repo it takes settings from.
 ACTIONS = (
     ("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", ("fetch-depth", "persist-credentials"), ()),
@@ -94,7 +113,8 @@ def _value(said: str):
     if first in ("'", '"'):
         inner = plain[1:-1]
         whole = len(plain) > 1 and plain[-1:] == first and first not in inner
-        return inner if whole and not (first == '"' and "\\" in inner) else None
+        # A quoted `{}` is the text, not the empty mapping: it is read nowhere, so never as quiet permissions.
+        return inner if whole and not (first == '"' and "\\" in inner) and inner != "{}" else None
     return None if first and first in MARKS else plain
 
 
@@ -192,23 +212,87 @@ def _listed(name: str, listed: list) -> bool:
     return name in listed or any(entry.endswith("/") and name.startswith(entry) for entry in listed)
 
 
-def refusal(path, text, listed):
-    """None where every job of the workflow at `path`, of `text`, takes its settings only from files on `listed`, the
-    base's protected list, or the one reason why not."""
+def _named(nodes: list) -> bool:
+    """Whether `secrets` is named, in any case, by the key or the value of any of `nodes` or of a node under one."""
+    left = list(nodes)
+    while left:
+        node = left.pop()
+        if "secrets" in ((node["key"] or "") + " " + node["value"]).casefold():
+            return True
+        left += node["kids"]
+    return False
+
+
+def _capital(nodes: list) -> bool:
+    """Whether a key of `nodes` has a capital: Actions may read a key in any case, so `Permissions:` is never passed over."""
+    return any(node["key"] is not None and node["key"] != node["key"].casefold() for node in nodes)
+
+
+def _quiet(node: dict) -> bool:
+    """Whether a `permissions:` node lets the token write nothing: `read-all`, `{}`, or scopes each `read` or `none`."""
+    if node["kids"]:
+        return all(kid["key"] is not None and kid["value"] in QUIET for kid in node["kids"])
+    return node["value"] in QUIET_ALL
+
+
+def _holds(job: dict, outer: bool, given: list) -> bool:
+    """Whether a job holds a secret, as record 0239 says: it names `secrets`, or `outer` says its workflow does outside
+    the jobs; it calls another workflow, which this does not read; or its token may write, by its own `permissions:`,
+    else its workflow's, `given`, else the repo's default, taken as write until `adapters/settings.py` reads it. A key
+    with a capital, at the job or, by `outer`, at the top, is taken to hold one too."""
+    own = [kid for kid in job["kids"] if kid["key"] == "permissions"]
+    given = own or given
+    return outer or _capital(job["kids"]) or _named([job]) or any(kid["key"] == "uses" for kid in job["kids"]) \
+        or not given or not _quiet(given[0])
+
+
+def _read(path, text, listed, narrow: bool):
+    """`refusal`'s answer, of every job where `narrow` is false, or of each job that holds a secret where it is true."""
     name = path[len(FOLDER):] if type(path) is str and path.startswith(FOLDER) else ""
     if "/" in name or name in ("", ".", "..") or type(text) is not str or type(listed) is not list \
             or not all(type(entry) is str for entry in listed):
         return UNREADABLE
     lines = _lines(text)
     root = _tree(lines) if lines is not None else None
-    top = _keys(root, TOP + ("env", "jobs")) if root is not None else None
-    jobs = top.get("jobs") if top else None
-    if jobs is None or jobs["value"] or not jobs["kids"] or not _env(top.get("env")):
+    named = [kid for kid in root["kids"] if kid["key"] == "jobs"] if root is not None else []
+    jobs = named[0] if named and all(kid["key"] is not None for kid in root["kids"]) else None
+    if jobs is None or jobs["value"] or not jobs["kids"] \
+            or any(job["key"] is None or job["value"] or not job["kids"] for job in jobs["kids"]):
+        return UNREADABLE
+    # What the workflow says outside its jobs is read once, for every job.
+    outside = [kid for kid in root["kids"] if kid["key"] != "jobs"]
+    outer = _named(outside) or _capital(root["kids"])
+    given = [kid for kid in outside if kid["key"] == "permissions"]
+    held = [job for job in jobs["kids"] if not narrow or _holds(job, outer, given)]
+    if not held:
+        return None
+    top = _keys(root, TOP + ("env", "jobs"))
+    if top is None or not _env(top.get("env")):
         return UNREADABLE
     files = [path]
-    for job in jobs["kids"]:
-        found = _job(job) if job["key"] is not None and not job["value"] else None
+    for job in held:
+        found = _job(job)
         if found is None:
             return UNREADABLE
         files += found
     return None if all(_listed(name, listed) for name in files) else UNLISTED
+
+
+def refusal(path, text, listed):
+    """None where every job of the workflow at `path`, of `text`, takes its settings only from files on `listed`, the
+    base's protected list, or the one reason why not."""
+    return _read(path, text, listed, False)
+
+
+def refusal_at(files, listed):
+    """None where, in every workflow a commit holds, each job that holds a secret takes its settings only from files on
+    `listed`, the base's protected list; or the first reason why not, the workflows taken in their paths' order.
+    `files` maps each workflow's path to its text, every one the folder holds, as a port read them whole."""
+    kinds = type(files) is dict and type(listed) is list and all(type(entry) is str for entry in listed)
+    if not kinds or not all(type(path) is str for path in files):
+        return UNREADABLE
+    for path in sorted(files):
+        why = _read(path, files[path], listed, True)
+        if why is not None:
+            return why
+    return None

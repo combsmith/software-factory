@@ -1,5 +1,9 @@
 """The mutants of `adapters/rules.py`: tools/mutants.py runs them."""
 
+# The tests of adapters/rules.py's read of a commit's workflows.
+READ = ('tests.test_adapters.Workflows.test_every_workflow_a_commit_holds_is_read_whole',)
+WHOLE = ('tests.test_adapters.Workflows.test_a_folder_or_a_workflow_that_cannot_be_read_whole_is_unreadable',)
+
 TARGETS = ("adapters/rules.py",)
 MUTANTS = [
     # Issue 139, its push wired (the Factory Builder's rulings of 2026-11-10): a push is held to the base's list of
@@ -23,7 +27,7 @@ MUTANTS = [
     ("an unanswered read is let through", 'adapters/rules.py',
      '    except Unanswered:\n        return None\n', '    except ZeroDivisionError:\n        return None\n', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
     ("a commit that is no sha is asked", 'adapters/rules.py',
-     '            or not isinstance(sha, str) or not SHA.fullmatch(sha):\n', ':\n', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
+     '            or not isinstance(sha, str) or not SHA.fullmatch(sha)\n', '\n', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
     ("a repo that climbs is asked", 'adapters/rules.py',
      " or repo.split(\"/\")[1] in (\".\", \"..\") \\\n", ' \\\n', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
     ("a directory's answer is the list", 'adapters/rules.py',
@@ -41,4 +45,51 @@ MUTANTS = [
      ' or type(size) is not int \\\n', ' \\\n', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
     ("a repo named . is asked", 'adapters/rules.py',
      'repo.split("/")[1] in (".", "..")', 'repo.split("/")[1] == ".."', ('tests.test_adapters.Rules.test_a_list_that_cannot_be_read_is_unreadable_never_empty',)),
+    # Every workflow a commit holds, read whole for the push's re-read of record 0239's workflows (the Solution
+    # Architect's ruling of 2026-11-28 on the push's split, relayed by the Factory Builder).
+    ("a workflow folder answered with no 200 is read", 'adapters/rules.py',
+     '    if answer["status"] != 200 or not isinstance(listing, list) or ',
+     '    if not isinstance(listing, list) or ', WHOLE),
+    ("a folder's listing GitHub may have cut is read whole", 'adapters/rules.py',
+     ' or len(listing) >= ENTRIES:\n',
+     ':\n', WHOLE),
+    ("a listed entry of another path is read", 'adapters/rules.py',
+     ' or entry.get("path") != path or ',
+     ' or ', WHOLE),
+    ("a listed entry named twice is read once", 'adapters/rules.py',
+     ' or path in seen:\n',
+     ':\n', WHOLE),
+    ("a workflow named in capitals is not read", 'adapters/rules.py',
+     'if path.lower().endswith((".yml", ".yaml"))]',
+     'if path.endswith((".yml", ".yaml"))]', READ),
+    ("a workflow named .yaml is not read", 'adapters/rules.py',
+     'if path.lower().endswith((".yml", ".yaml"))]',
+     'if path.lower().endswith(".yml")]', READ),
+    ("a folder of more workflows than the bound is read", 'adapters/rules.py',
+     '    if len(paths) > MOST:\n        return None, WORKFLOWS_UNREADABLE\n',
+     '', WHOLE),
+    ("a workflow that cannot be read is passed over", 'adapters/rules.py',
+     '        if files[path] is None:\n            return None, WORKFLOWS_UNREADABLE\n',
+     '', WHOLE),
+    ("an unanswered workflow folder is let through", 'adapters/rules.py',
+     '    except Unanswered:\n        return None, WORKFLOWS_UNREADABLE\n',
+     '    except ZeroDivisionError:\n        return None, WORKFLOWS_UNREADABLE\n', WHOLE),
+    ("a workflow folder at coordinates of no commit is asked", 'adapters/rules.py',
+     '    if _unaskable(repo, sha):\n        return None, WORKFLOWS_UNREADABLE\n',
+     '', WHOLE),
+    ("a workflow folder answered with no listing is read", 'adapters/rules.py',
+     ' or not isinstance(listing, list) or len(listing)',
+     ' or len(listing)', WHOLE),
+    ("a listed entry of no name is read", 'adapters/rules.py',
+     '        if not isinstance(name, str) or not name or ',
+     '        if ', WHOLE),
+    ("a link listed under a workflow's name is read", 'adapters/rules.py',
+     ' and (entry.get("type") != "file" or not WORKFLOW_NAME.fullmatch(name)):\n',
+     ' and not WORKFLOW_NAME.fullmatch(name):\n', WHOLE),
+    ("a workflow named in any characters is read", 'adapters/rules.py',
+     ' and (entry.get("type") != "file" or not WORKFLOW_NAME.fullmatch(name)):\n',
+     ' and entry.get("type") != "file":\n', WHOLE),
+    ("a link not named as a workflow is refused", 'adapters/rules.py',
+     '        if name.lower().endswith((".yml", ".yaml")) and (entry',
+     '        if (entry', READ),
 ]

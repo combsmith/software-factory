@@ -9987,6 +9987,11 @@ exit 0
         calls = (folder / "calls").read_text().splitlines()
         self.assertEqual([c.split(" ", 1)[0] for c in calls], ["GET", "POST"], "a read was made with no token")
         self.assertIn("Bad credentials", (folder / "out" / "clean-2").read_text())
+        # P-4 tells every mint it read no token from as one that may have left a token live, in OUT too (issue 1245).
+        note = note_in(self, folder / "out", done.stderr)
+        self.assertEqual(note.count("\n"), 1, note)
+        self.assertIn("no token was read from the mint (status 401)", note)
+        self.assertNotIn("Bad credentials", note)
 
     def test_a_revocation_that_is_not_204_is_told_and_fails(self):
         folder = self.stand_in(revoke_status="500")
@@ -9995,6 +10000,7 @@ exit 0
         self.assertIn("returned 500, not 204", done.stderr)
         self.assertIn("revoke it by hand", done.stderr)
         self.assertNotIn(self.TOKEN, done.stdout + done.stderr)
+        self.assertEqual(note_in(self, folder / "out", done.stderr).count("returned 500, not 204. The token may be live"), 2)
 
     def test_a_reads_status_is_the_answer_whatever_it_is(self):
         # A read of the other repo answered 200 is not refused by the script: the fixture's verdict judges it.
@@ -10530,7 +10536,9 @@ else:
                 self.assertEqual(self.revoked(calls), self.minted(calls) if found else [])
                 if not found:
                     self.assertIn("the token may be live for up to an hour, and the Maintainer must revoke it by hand", told)
-                self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["ran_at"])
+                # Nothing of the answer is written: only the note of a token that may be live (issue 1245).
+                self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["ran_at"] if found else ["finish.log", "ran_at"])
+                self.assertEqual(note_in(self, self.out, told).count("must revoke it by hand"), 0 if found else 1)
 
     def test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused(self):
         # The other trials that mint with curl stop at the mint as this one does (issue 406). P-4 is not among them: it
@@ -10549,7 +10557,9 @@ else:
                     ({"status": 503, "body": "<html>unavailable</html>"}, False, "GitHub may have minted one"),
                     ({"status": 429, "body": '{"message": "API rate limit exceeded"}'}, False, "429"),
                     # No status curl wrote: the last line is the answer's, and is no status (issue 1245).
-                    ({"status": '{"message": "Server Error from GitHub"}', "body": ""}, False, "GitHub may have minted one")):
+                    ({"status": '{"message": "Server Error from GitHub"}', "body": ""}, False, "GitHub may have minted one"),
+                    # Nor is a last line that only begins with three digits (Carbon).
+                    ({"status": "500 Server Error", "body": ""}, False, "GitHub may have minted one")):
                 with self.subTest(script=name, plan=plan):
                     self.setUp()
                     argv = [a.replace("KEY", self.key_file) for a in args]
@@ -10567,7 +10577,7 @@ else:
                     self.assertFalse((self.out / "requests.json").exists())
                     # A token that may be live is noted in OUT as well, for a terminal that is gone, and nothing else is;
                     # the note holds no word of GitHub's answer (issue 1245).
-                    live = told in ("the Maintainer must revoke it by hand", "GitHub may have minted one") and name in NOTING
+                    live = told in ("the Maintainer must revoke it by hand", "GitHub may have minted one")
                     note = note_in(self, self.out, told_)
                     self.assertEqual(note.count("\n"), 1 if live else 0, note)
                     self.assertIn(told if live else "", note)
@@ -10613,7 +10623,9 @@ else:
         self.assertEqual(code, 1, told)
         self.assertEqual(self.revoked(calls), self.minted(calls) * 2)
         self.assertIn("the Maintainer must revoke it by hand", told)
-        self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["ran_at"])
+        # Each failed revocation is noted in OUT too, and nothing of a reach is kept (issue 1245).
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()), ["finish.log", "ran_at"])
+        self.assertEqual(note_in(self, self.out, told).count("returned 500, not 204. The token may be live"), 2)
 
     # A stand-in python3 that holds the first read of an answer with a token in it, for a stop to arrive there.
     PYTHON = """#!%s
@@ -12846,6 +12858,8 @@ esac
         self.assertIn("revoking the token returned 500", ran.stderr)
         self.assertIn("revoke it by hand", ran.stderr)
         self.assertFalse((out / "requests.json").exists())
+        self.assertEqual(note_in(self, out, ran.stderr),     # in OUT too, for a terminal that is gone (issue 1245)
+                         "trial_p52_pause: the token may be live for up to an hour; the Maintainer must revoke it by hand.\n")
 
     def test_each_refusal_stops_before_anything_is_asked(self):
         folder = self.stand_in()
@@ -13463,6 +13477,9 @@ class Writes(unittest.TestCase):
             "harness/impload.py": "import imp\n\n\ndef go():\n    return imp.load_source('e', 'adapters/effects.py')\n",
             "harness/zipload.py": "from zipimport import zipimporter\n\n\ndef go(p):\n    return zipimporter(p).load_module('effects')\n",
             "harness/loaderkey.py": "def go(ns, m):\n    a = ns['imp']\n    b = getattr(m, 'zipimport')\n    return a, b, ns.get('imp')\n",
+            # issue 1348: pydoc loads a module by a dotted name, as pkgutil does
+            "harness/pydocload.py": "import pydoc\n\n\ndef go(x):\n    return pydoc.locate('adapters.effects.approve')(x)\n",
+            "harness/pydockey.py": "def go(ns):\n    return ns.get('pydoc')\n",
             "harness/syskey.py": "import os\n\n\ndef go():\n    return vars(os)['sys']\n",
             "harness/anymodules.py": "def go(x):\n    return x.modules\n",
             "harness/innerok.py": "from harness import portinst\n\n\ndef go(m):\n    def inner():\n        m = portinst\n"
@@ -13605,6 +13622,8 @@ class Writes(unittest.TestCase):
                           ("harness/loaderkey.py:2", "loads a module by its name"),
                           ("harness/loaderkey.py:3", "loads a module by its name"),
                           ("harness/loaderkey.py:4", "loads a module by its name"),
+                          ("harness/pydocload.py:1", "loads a module by its name"),
+                          ("harness/pydockey.py:2", "loads a module by its name"),
                           ("harness/syskey.py:5", "loads a module by its name"),
                           ("harness/anymodules.py:2", "loads a module by its name"),
                           ("harness/ifgh.py:5", "names gh or git as a command"),
@@ -13899,6 +13918,61 @@ class Writes(unittest.TestCase):
         self.assertTrue(caught(problems, "harness/nsother.py:5 names no_such, which adapters does not define"), problems)
         # Nor can what an import of all of such a package binds (issue 640).
         self.assertTrue(caught(problems, "harness/nsstar.py:2 imports * from adapters"), problems)
+
+    def test_a_package_path_named_or_a_module_no_file_is_fails(self):  # issue 1323
+        # A package's __init__.py that adds a folder to its __path__ makes `import harness.github` load adapters/github.py,
+        # whose writes this check reads under its own name alone. So naming the path, or a module's __package__, any way
+        # the syntax shows it, fails; so does an import of a module below a package of the repo's that no file of the repo
+        # is, a name taken from such a package that it neither defines nor holds, and a file beside a folder of its name.
+        # Each case's line is its last.
+        write = "\n\ndef go(t):\n    return github.request('POST', '/repos/x/y/issues')\n"
+        named = {"name": "__path__.append('adapters')\n", "attribute": "import harness\n\nharness.__path__.append('a')\n",
+                 "spec": "__spec__.submodule_search_locations.append('a')\n", "imported": "from harness import __path__ as p\n",
+                 "keyword": "globals().update(__path__=['a'])\n", "key": "globals()['__path__'] = ['a']\n",
+                 "text": "import harness\n\np = getattr(harness, f'__path__')\n", "renamed": "from os import sep as __path__\n",
+                 "module renamed": "import os as __path__\n", "dotted": "import __path__.child\n",
+                 "dotted below": "import harness.__path__\n", "from below": "from harness.__path__ import x\n",
+                 "parameter": "def f(*, __package__=None): pass\n",
+                 "def": "def __path__(): return ['a']\n", "async def": "async def __path__(): return ['a']\n",
+                 "class": "class __path__: pass\n", "handler": "try:\n    pass\nexcept OSError as __path__:\n    pass",
+                 "package": "__package__ = 'adapters'\n"}
+        if sys.version_info >= (3, 10):     # the floor, 3.9, cannot parse a match, and reads such a file as no Python
+            named.update({"capture": "match []:\n    case __path__:\n        pass", "star": "match []:\n    case [*__path__]:\n        pass",
+                          "rest": "match {}:\n    case {**__path__}:\n        pass"})
+        files = {"harness/path%s.py" % why.replace(" ", ""): text for why, text in named.items()}
+        files.update({"harness/__init__.py": "__path__.append('adapters')\n",
+                      "harness/viapath.py": "import harness.github as github" + write,
+                      "harness/frompath.py": "from harness.github import request" + write.replace("github.request", "request"),
+                      "harness/relpath.py": "from .github import request" + write.replace("github.request", "request"),
+                      "harness/plain.py": "import json.decoder, harness.not_held\n",
+                      "harness/leaf.py": "import tools.hooks.missing\n",
+                      "harness/taken.py": "from harness import github\n",
+                      "harness/second.py": "from harness import steps, not_held\n",
+                      "harness/reltaken.py": "from . import github\n",
+                      "harness/foo.py": "def __getattr__(name):\n    return ['adapters']\n",
+                      "harness/foo/effects.py": "def approve(*a):\n    return None\n",
+                      "harness/task__init__.py": "value = 1\n", "harness/task__init__/leaf.py": "value = 1\n",
+                      "harness/held.py": "import harness.steps as github\nimport json.decoder\nfrom . import steps\nimport tools.hooks.shell\n"
+                                         "from harness import steps\nfrom tools.hooks import shell\nfrom tools import walk\nfrom tools.walk import not_there\n"})
+        # This check's own table names the path, and nothing else in it may: not its code, nor another table.
+        own = [(ROOT / "tools/check_writes.py").read_text() + "\n\nPACKAGE_PATHS = PACKAGE_PATHS + ('__path__',)\n"]
+        own.append(own[-1] + "PACKAGE_PATHS = ('__path__',)\n")
+        own.append(own[-1] + "\n\ndef roots(pkg):\n    return pkg.__path__\n")
+        files["tools/check_writes.py"] = own[-1]
+        problems = check_writes.run(clone(files))
+        self.assertEqual([p.partition(" ")[0] for p in problems if p.startswith("tools/check_writes.py")],
+                         ["tools/check_writes.py:%d" % text.count("\n") for text in own])
+        self.assertTrue(caught(problems, "harness/__init__.py:1 names where a package finds its modules"), problems)
+        for why in named:
+            line = named[why].count("\n")
+            self.assertTrue(caught(problems, "harness/path%s.py:%d names where" % (why.replace(" ", ""), line)), (why, problems))
+        for rel in ("viapath", "frompath", "relpath", "plain", "leaf", "taken", "reltaken", "second"):
+            self.assertTrue(caught(problems, "harness/%s.py:1 imports a module that no file of the repo is" % rel), (rel, problems))
+        for rel in ("foo", "task__init__"):
+            self.assertTrue(caught(problems, "harness/%s.py and the folder harness/%s/ are one name" % (rel, rel)), problems)
+        # A module the repo holds, one outside it, a module or a name taken from a package, and a name a module lacks,
+        # which Python never looks for as a module, are read as before.
+        self.assertFalse([p for p in problems if p.startswith("harness/held.py")], problems)
 
     def test_a_file_of_mutants_may_name_a_command_as_text_and_import_nothing_that_runs_one(self):
         # Issue 1101: the mutants of a file outside kernel/ live in tools/mutants_of/, and a mutant of a script or a
@@ -16153,17 +16227,17 @@ class SignalTraps(unittest.TestCase):
             finish = lines.index("finish() {")
             told = lines.index('elif [ -n "${minting:-}" ]; then', finish)
             said = [line for line in lines[told + 1:lines.index("}", finish)] if not line.startswith("#")][:2]
-            said_by = "live" if script.name in NOTING else "echo"
-            self.assertTrue(said[0].startswith('%s "%s: stopped while a token was being minted;' % (said_by, script.name[:-3])), script.name)
-            self.assertTrue(said[1].endswith('suspends the App\'s installation."' + ("" if script.name in NOTING else " >&2")), script.name)
+            self.assertTrue(said[0].startswith('live "%s: stopped while a token was being minted;' % script.name[:-3]), script.name)
+            self.assertTrue(said[1].endswith('suspends the App\'s installation."'), script.name)
 
     def test_every_token_script_tells_a_token_that_may_be_live_in_out_too(self):  # issue 1245
         # The terminal may be gone when a token is told that may be live: each sh script that mints writes the same words
         # to OUT's finish.log as well, once OUT is its own, by one helper of the same words everywhere. No echo of its own
         # says a token may be live, so none is told to the terminal alone; and a refusal with no token is noted only
         # while the mark stands, so a 4xx, which cleared it, is not.
-        scripts = [ROOT / "tools" / name for name in sorted(NOTING)]
-        self.assertEqual(len(scripts), 7)
+        scripts = [s for s in sorted((ROOT / "tools").glob("trial_*.sh"))
+                   if "access_tokens" in s.read_text() and s.read_text().startswith("#!/bin/sh\n")]
+        self.assertEqual(len(scripts), 11)
         for script in scripts:
             text = script.read_text()
             self.assertEqual(text.count(NOTED), 1, script.name)
@@ -16175,9 +16249,14 @@ class SignalTraps(unittest.TestCase):
             for statement in re.findall(r"(?:^\s*|\|\| )echo [^\n]*", joined, re.M):
                 self.assertIsNone(re.search(r"may be live|may have minted|by hand|expires within an hour", statement),
                                   (script.name, statement))
-            self.assertEqual(len(re.findall(r'(?:^\s*|\|\| )live "', joined, re.M)), 3, script.name)
-            refused = [line.strip() for line in lines if "note " in line and "$refused" in line]
-            self.assertEqual(refused, ['[ -z "$minting" ] || note "%s: $slug: $refused"' % script.name[:-3]], script.name)
+            self.assertEqual(len(re.findall(r'(?:^\s*|\|\| )live "', joined, re.M)), 4 if script.name == "trial_p52_pause.sh" else 3,
+                             script.name)
+            refused = [n for n, line in enumerate(lines) if "note " in line and "$refused" in line]
+            self.assertEqual([lines[n].strip() for n in refused], [] if script.name == "trial_p4_narrow.sh"
+                             else ['[ -z "$minting" ] || note "%s: $slug: $refused"' % script.name[:-3]], script.name)
+            # Noted before the terminal is told, as live() does, so a terminal gone loses nothing.
+            for n in refused:
+                self.assertTrue(lines[n + 1].strip().startswith('echo "%s: $slug: $refused;"' % script.name[:-3]), script.name)
 
     def test_every_trial_takes_nothing_of_the_maintainers_environment(self):  # issue 1215
         # A name a script holds a credential in, exported, reaches every child; SSLKEYLOGFILE has curl write the TLS keys
@@ -16250,9 +16329,6 @@ NOTED = """noted=""
 note() { [ -z "$noted" ] || printf '%s\\n' "$*" >> "$out/finish.log" || true; }
 live() { note "$*"; echo "$*" >&2; }
 """
-# The scripts that note so: the reader trial's family. P-39, P-4, P-8 and P-52 follow in part 3 of issue 1245.
-NOTING = ("trial_reader_reads.sh", "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh",
-          "trial_p80_branch_reads.sh", "trial_p58_edits.sh", "trial_p81_review_order.sh")
 
 
 def note_in(test: unittest.TestCase, out: pathlib.Path, told: str) -> str:
