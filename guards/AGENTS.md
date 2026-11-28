@@ -1,6 +1,6 @@
 # guards/
 
-Pure guards on a Role's own writes: each says what a write may land, or a code why not. `patch.py` applies a patch byte for byte, `push.py` holds a push to the branch read anew, `opening.py` keeps a draft from linking, `workflows.py` a job to the base's list.
+Pure guards on a Role's own writes: what each may land, or a code why not. `patch.py` lands a patch byte for byte, `push.py` a push on its branch, `opening.py` keeps a draft from linking, `workflows.py` a job to the base's list, `judged.py` what judges a Role.
 A guard binds the Role that writes this repo's code. So it lives here, never in `kernel/` or `adapters/`, where that Role may push; a port hands a guard what it read, and the Harness calls it. A guard reads nothing itself.
 
 | Rule | Held by |

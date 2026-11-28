@@ -13,7 +13,7 @@ import tempfile
 import unicodedata
 import unittest
 
-from guards import opening, patch, push, workflows
+from guards import judged, opening, patch, push, workflows
 
 FILE = "100644"
 OLD = b"a\nb\nc\nd\ne\nf\ng\nh\n"
@@ -2227,6 +2227,83 @@ class Settings(unittest.TestCase):
         self.assertIsNone(settings(changed("permissions: {}\n", "permissions: {}\nenv:\n  GITHUB_TOKEN: x\n")))
         self.assertIsNone(settings(changed(SCAN_STEP, SCAN_STEP + "        env:\n          SONAR_TOKEN: x\n")))
 
+
+CONTRACT_AT = "acceptance/512.json"
+
+
+def contract(**over) -> dict:
+    """The example acceptance contract, as a person approved it, with `over` in place of its fields."""
+    root = pathlib.Path(__file__).resolve().parents[1]
+    said = json.loads((root / "examples" / "acceptance.json").read_text())
+    said.update(over)
+    return said
+
+
+def criterion(kind: str, ref) -> dict:
+    return {"id": "AC-9", "statement": "A criterion of its own kind.", "priority": "P1", "check": {"kind": kind, "ref": ref}}
+
+
+class Judged(unittest.TestCase):
+    def test_what_judges_the_implementing_role_is_added_to_the_list_its_push_may_not_touch(self):
+        from harness import apply
+        self.assertEqual((judged.UNREADABLE, judged.CONSUMER), ("contract_unreadable", "consumer_manifest_unread"))
+        said = contract()
+        patterns, why = judged.paths(said, CONTRACT_AT)
+        self.assertIsNone(why)
+        # The contract's own file, each protected path, and each test's file, once each and in that order.
+        tests = [c["check"]["ref"].partition("::")[0] for c in said["criteria"] if c["check"]["kind"] == "test"]
+        self.assertEqual(patterns[0], CONTRACT_AT)
+        self.assertEqual(set(patterns), {CONTRACT_AT} | set(said["protected_paths"]) | set(tests))
+        self.assertEqual(len(patterns), len(set(patterns)))
+        # A test the contract names but does not protect is refused, and so is the contract where it was read; a
+        # criterion of another kind names no file. The file is the ref up to its first `::`, or the ref whole.
+        extra = said["criteria"] + [criterion("test", "spec/b_test.py::Case::test_b"), criterion("test", "spec/c_test.py"),
+                                    criterion("static", "dependency-diff"), criterion("role", "pr-review")]
+        patterns, _ = judged.paths(contract(criteria=extra, protected_paths=["docs/a.md"]), "acceptance/9.json")
+        self.assertEqual(patterns, ["acceptance/9.json", "docs/a.md"] + tests + ["spec/b_test.py", "spec/c_test.py"])
+        # Added to the base's list, push_refusal matches them as it matches the list: a test or the contract the work is
+        # judged by is refused, in another case too, and a file beside it lands.
+        listed = ["guards/", "config/hooks.json"]
+        for path in ("spec/b_test.py", "SPEC/b_test.py", "acceptance/9.json", "docs/a.md", "guards/x.py"):
+            self.assertEqual(apply.push_refusal([path], [None], listed + patterns), "push_protected", path)
+        for path in ("spec/b_test.py", "acceptance/9.json", "docs/a.md"):
+            self.assertIsNone(apply.push_refusal([path], [None], listed), path)
+        for path in ("spec/a_test.py", "spec/b_test.py.orig", "dependency-diff", "pr-review"):
+            self.assertIsNone(apply.push_refusal([path], [None], listed + patterns), path)
+        # A ref that is no path is a pattern the list's reader refuses, so every push is refused.
+        patterns, _ = judged.paths(contract(criteria=[criterion("test", "npm\ttest")]), CONTRACT_AT)
+        self.assertEqual(apply.push_refusal(["docs/b.md"], [None], listed + patterns), "push_list_unreadable")
+
+    def test_a_contract_of_no_shape_read_here_is_unreadable(self):
+        unreadable = (None, judged.UNREADABLE)
+        good = criterion("test", "t.py::test_a")
+        for said, at in ((None, CONTRACT_AT), ([], CONTRACT_AT), (contract(), None), (contract(), ""), (contract(), Odd(CONTRACT_AT)),
+                         (contract(schema="acceptance/2"), CONTRACT_AT), (contract(schema=Odd("acceptance/1")), CONTRACT_AT),
+                         ({k: v for k, v in contract().items() if k != "schema"}, CONTRACT_AT),
+                         (contract(protected_paths=[]), CONTRACT_AT), (contract(protected_paths=None), CONTRACT_AT),
+                         (contract(protected_paths="a.py"), CONTRACT_AT), (contract(protected_paths=["a.py", ""]), CONTRACT_AT),
+                         (contract(protected_paths=["a.py", Odd("b.py")]), CONTRACT_AT),
+                         ({k: v for k, v in contract().items() if k != "protected_paths"}, CONTRACT_AT),
+                         (contract(criteria=[]), CONTRACT_AT), (contract(criteria=None), CONTRACT_AT),
+                         (contract(criteria=good), CONTRACT_AT), (contract(criteria=[good, "AC-2"]), CONTRACT_AT),
+                         (contract(criteria=[good, dict(good, check=None)]), CONTRACT_AT),
+                         (contract(criteria=[good, dict(good, check={"kind": "test"})]), CONTRACT_AT),
+                         (contract(criteria=[good, dict(good, check={"ref": "t.py"})]), CONTRACT_AT),
+                         (contract(criteria=[good, criterion("test", "")]), CONTRACT_AT),
+                         (contract(criteria=[good, criterion("", "t.py")]), CONTRACT_AT),
+                         (contract(criteria=[good, criterion(Odd("test"), "t.py")]), CONTRACT_AT),
+                         (contract(criteria=[good, criterion("test", Odd("t.py"))]), CONTRACT_AT),
+                         (contract(criteria=[good, criterion("test", "::test_a")]), CONTRACT_AT)):
+            self.assertEqual(judged.paths(said, at), unreadable, (said, at))
+        # A static criterion's ref that starts with `::` names no file to refuse, and is read.
+        self.assertIsNone(judged.paths(contract(criteria=[good, criterion("static", "::x")]), CONTRACT_AT)[1])
+
+    def test_a_push_to_any_repo_but_the_factorys_own_is_refused_until_a_consumers_manifest_is_read(self):
+        own = "combsmith/software-factory"
+        self.assertIsNone(judged.consumer(own, own))
+        for repo, ours in (("combsmith/markets", own), ("Combsmith/Software-Factory", own), (own + "-canary", own),
+                           ("", ""), (None, None), (own, None), (None, own), (Odd(own), own), (own, Odd(own)), ([own], own)):
+            self.assertEqual(judged.consumer(repo, ours), judged.CONSUMER, (repo, ours))
 
 if __name__ == "__main__":
     unittest.main()
