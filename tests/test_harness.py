@@ -2100,7 +2100,8 @@ class PushLoop(unittest.TestCase):
         branch = port.read_branch(PUSH_REPO, PUSH_BRANCH)
         absent = {"status": 404, "headers": {}, "body": {"message": "Not Found"}}
         # The first read is the branch, as the guard holds it: the commit asked first leaves nothing.
-        for req in (push_request(PUSH_A[0]), None, {}, dict(branch, method=None), {k: v for k, v in branch.items() if k != "body"}):
+        for req in (push_request(PUSH_A[0]), None, {}, dict(branch, method=None), dict(branch, path=None),
+                    {k: v for k, v in branch.items() if k != "body"}):
             transport = self.Recording(absent)
             sender = port.transport(transport, PUSH_REPO, PUSH_BRANCH)
             self.assertEqual(push_loop.step(guard.began(push_a())[0], sender, PUSH_REPO, PUSH_BRANCH, req),
