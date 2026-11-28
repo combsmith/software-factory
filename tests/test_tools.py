@@ -12936,11 +12936,11 @@ class Redaction(unittest.TestCase):
         self.assertNotIn("hunter2", out)
         self.assertIn('"ok": 1', out)
         # Bytes that are not UTF-8 stop it, with nothing written; and what it writes is UTF-8 whatever the locale.
-        bad = subprocess.run([sys.executable, "-m", "tools.redact_trial"], cwd=ROOT, capture_output=True,
+        bad = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "tools" / "redact_trial.py")], cwd=ROOT, capture_output=True,
                              input=b"\xff\xfe", timeout=60)
         self.assertNotEqual(bad.returncode, 0)
         self.assertEqual(bad.stdout, b"")
-        wide = subprocess.run([sys.executable, "-m", "tools.redact_trial"], cwd=ROOT, capture_output=True,
+        wide = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "tools" / "redact_trial.py")], cwd=ROOT, capture_output=True,
                               input="HTTP/2.0 200 OK\n\nfine \u2713\n".encode(), timeout=60,
                               env=dict(os.environ, LC_ALL="C", LANG="C", PYTHONIOENCODING="ascii"))
         self.assertEqual((wide.returncode, wide.stdout), (0, "HTTP/2.0 200 OK\n\nfine \u2713\n".encode()))
@@ -16386,7 +16386,7 @@ def note_in(test: unittest.TestCase, out: pathlib.Path, told: str) -> str:
     for line in note.splitlines():
         test.assertTrue(any(s in (line, line + "; GitHub answered, redacted:", line + "; nothing read. GitHub answered, redacted:",
                                   line + "; nothing read") for s in said), (line, told))
-    clean = subprocess.run([sys.executable, "-m", "tools.redact_trial"], input=note, capture_output=True, text=True,
+    clean = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "tools" / "redact_trial.py")], input=note, capture_output=True, text=True,
                            cwd=str(ROOT), timeout=60)
     test.assertEqual((clean.returncode, clean.stdout), (0, note), clean.stderr)
     test.assertIn("redacted: 0 removed", clean.stderr)
@@ -16654,7 +16654,7 @@ esac
             self.assertEqual([p.name for p in out.iterdir() if p.name.startswith("raw-")], [])
             for name in clean:
                 raw = (kept[0] / name.replace("clean-", "raw-")).read_bytes()
-                again = subprocess.run([sys.executable, "-m", "tools.redact_trial"], cwd=str(ROOT), input=raw, capture_output=True)
+                again = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "tools" / "redact_trial.py")], cwd=str(ROOT), input=raw, capture_output=True)
                 self.assertEqual(again.stdout, (out / name).read_bytes(), name)
                 self.assertNotIn(self.TOKEN.encode(), raw, name)
 
