@@ -1,7 +1,7 @@
 """The mutants of `tools/trial_p52_pause.sh`: tools/mutants.py runs them."""
 
 TARGETS = ("tools/trial_p52_pause.sh",)
-from tools.mutants_of.common import FIRST_NEW, FIRST_OLD, KEEP_1215, UNPROXIED  # noqa: E402
+from tools.mutants_of.common import FIRST_NEW, FIRST_OLD, ISOLATED, ISOLATED_TEST, KEEP_1215, UNISOLATED, UNPROXIED, WITH_SITE  # noqa: E402
 MINT_REFUSED = "tests.test_tools.ReachScript.test_every_script_that_mints_writes_nothing_of_a_mint_it_cannot_read_or_that_is_refused"
 KEEP = "tests.test_tools.SignalTraps.test_every_token_script_keeps_its_raw_answers_in_a_private_directory_it_deletes"
 NOTED = "tests.test_tools.SignalTraps.test_every_token_script_tells_a_token_that_may_be_live_in_out_too"
@@ -161,4 +161,9 @@ MUTANTS = [
      'case "$minted_status" in [0-9][0-9][0-9]) ;;', 'case "$minted_status" in [0-9][0-9][0-9]*) ;;', (MINT_REFUSED,)),
     ("P-52 tells the terminal before it notes", "tools/trial_p52_pause.sh", 'live() { note "$*"; echo "$*" >&2; }',
      'live() { echo "$*" >&2; note "$*"; }', (NOTED,)),
+    # Issue 1300: its redaction runs as a file under -I and -S.
+    ("trial_p52_pause.sh runs a redaction the shell's modules can steer", "tools/trial_p52_pause.sh", ISOLATED + ' < "$scratch/raw-$n"', UNISOLATED + ' < "$scratch/raw-$n"',
+     ISOLATED_TEST),
+    ("trial_p52_pause.sh runs a redaction that reads site-packages", "tools/trial_p52_pause.sh", ISOLATED + ' < "$scratch/raw-$n"', WITH_SITE + ' < "$scratch/raw-$n"',
+     ISOLATED_TEST),
 ]

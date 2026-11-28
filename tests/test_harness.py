@@ -2197,5 +2197,237 @@ class PushLoop(unittest.TestCase):
             self.assertEqual(asked, names[:3])
 
 
+
+class Recorded:
+    """A replay that also records the method of each request it was asked."""
+    def __init__(self, exchanges):
+        from adapters import github
+        self.replay, self.asked = github.Replay(copy.deepcopy(exchanges)), []
+
+    def send(self, req):
+        self.asked.append(req["method"])
+        return self.replay.send(req)
+
+
+class Push(unittest.TestCase):
+    """`harness/push_steps.py`, the push whole (issue 838; the Solution Architect's ruling 2 of 2026-11-28): each check before
+    the first write refuses it, the push of P-71's push A lands exactly its patch, and nothing calls it yet."""
+    DEFAULT, MOVED = "d" * 40, "e" * 40
+    GONE = b"A file the first push removes.\n"
+    # P-71's push A as a patch: two files written, one of them executable, and `gone.txt` removed.
+    PATCH = (b"diff --git a/docs/written.md b/docs/written.md\nnew file mode 100644\nindex 0000000..8b488c2\n"
+             b"--- /dev/null\n+++ b/docs/written.md\n@@ -0,0 +1 @@\n+A file the first push writes.\n"
+             b"diff --git a/bin/tool.sh b/bin/tool.sh\nnew file mode 100755\nindex 0000000..8488269\n"
+             b"--- /dev/null\n+++ b/bin/tool.sh\n@@ -0,0 +1,2 @@\n+#!/bin/sh\n+echo tool\n"
+             b"diff --git a/gone.txt b/gone.txt\ndeleted file mode 100644\nindex d39a234..0000000\n"
+             b"--- a/gone.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-A file the first push removes.\n")
+
+    def told(self, **over) -> dict:
+        return dict({"repo": PUSH_REPO, "branch": PUSH_BRANCH, "parent": PUSH_A[0]["response"]["body"]["sha"], "head": None,
+                     "message": PUSH_A[9]["request"]["body"]["message"], "patch": self.PATCH, "judged": None}, **over)
+
+    def exchanges(self) -> list:
+        """What push A asks of GitHub: the reads of a push that writes nothing, with `gone.txt`'s blob, which P-71 did
+        not read, made here by its name; then the push of the changes, as P-71 recorded it."""
+        sha = hashlib.sha1(b"blob %d\0" % len(self.GONE) + self.GONE).hexdigest()
+        gone = {"request": {"via": "rest", "call": "GET /repos/%s/git/blobs/%s" % (PUSH_REPO, sha), "headers": {}, "body": None},
+                "response": {"status": 200, "headers": {}, "body": {"sha": sha, "size": len(self.GONE), "encoding": "base64",
+                                                                    "content": base64.b64encode(self.GONE).decode() + "\n"}}}
+        return [PUSH_A[4], PUSH_A[0], PUSH_A[1], gone] + [PUSH_A[i] for i in (4, 0, 1, 5, 6, 7, 8, 9, 10, 11, 13)]
+
+    def pushed(self, told=None, bases=None, lists=None, files=None, exchanges=None, home=None):
+        """`push`'s answer on push A's replay, with the reads `apply` makes by its own token answered as given: where
+        the admitted commit stands, `bases` in turn; the list at a sha, `lists(sha)`; the workflows, `files(sha)`; the
+        Factory's own repo, `home`, P-71's canary unless told."""
+        from adapters import push as port
+        from harness import push_steps as push
+        from tests.test_apply import own_list
+        asked, bases = {"base": [], "list": [], "workflows": []}, list(bases or [("ancestor", self.DEFAULT)] * 3)
+
+        def on_default(transport, repo, admitted):
+            asked["base"].append((transport, repo, admitted))
+            return bases.pop(0)
+
+        def listed_at(transport, repo, sha):
+            self.assertEqual((transport, repo), ("the read token", PUSH_REPO))
+            asked["list"].append(sha)
+            return lists(sha) if lists else (own_list(), None)
+
+        def workflows_at(transport, repo, sha):
+            self.assertEqual((transport, repo), ("the read token", PUSH_REPO))
+            asked["workflows"].append(sha)
+            return files(sha) if files else ({}, None)
+        live = Recorded(self.exchanges() if exchanges is None else exchanges)
+        home = home or {"repo": PUSH_REPO, "branch": "main"}
+        with unittest.mock.patch.object(push, "_home", lambda: home), \
+                unittest.mock.patch.object(push.base, "on_default", on_default), \
+                unittest.mock.patch.object(push.rules, "listed_at", listed_at), \
+                unittest.mock.patch.object(push.rules, "workflows_at", workflows_at):
+            said = push.push("the read token", port.transport(live, PUSH_REPO, PUSH_BRANCH), self.told() if told is None else told)
+        return said, live, asked
+
+    def test_a_push_lands_exactly_its_patch_through_every_check(self):
+        from tests.test_guards import CONTRACT_AT, contract
+        parent = self.told()["parent"]
+        for judged in (None, (contract(protected_paths=["spec/"]), CONTRACT_AT)):
+            said, live, asked = self.pushed(self.told(judged=judged))
+            # The commit P-71 made, on the branch told: the tree read back is the admitted one with exactly the patch.
+            self.assertEqual(said, ((PUSH_A[10]["response"]["body"]["sha"], PUSH_BRANCH), None))
+            self.assertEqual(live.replay._left, [])
+            self.assertEqual(live.asked, ["GET"] * 7 + ["POST"] * 3 + ["GET", "POST", "GET", "POST", "GET"])
+            # The list and the workflows at the default branch's head and at the admitted commit; where it stands, read
+            # before the checks, right before the branch's write and once after it, by the read token alone.
+            self.assertEqual(asked["list"], [self.DEFAULT, parent])
+            self.assertEqual(asked["workflows"], [self.DEFAULT, parent])
+            self.assertEqual(asked["base"], [("the read token", PUSH_REPO, parent)] * 3)
+        # Where the admitted commit is the default branch's head, each is read there once.
+        said, _, asked = self.pushed(bases=[("head", parent)] * 3)
+        self.assertEqual((said[1], asked["list"], asked["workflows"]), (None, [parent], [parent]))
+        # The workflows are held to the default head's list: this repo's own pass on it, whatever the admitted
+        # commit's list leaves out.
+        from guards import workflows
+        from tests.test_apply import own_list
+        ours = {".github/workflows/release.yml": (ROOT / ".github" / "workflows" / "release.yml").read_text()}
+        self.assertEqual([workflows.refusal_at(ours, listed, "main", PUSH_REPO) is None for listed in (own_list(), ["docs/x.md"])],
+                         [True, False])
+        said, _, _ = self.pushed(lists=lambda sha: (own_list() if sha == self.DEFAULT else ["docs/x.md"], None),
+                                 files=lambda sha: (ours, None), home={"repo": PUSH_REPO, "branch": "main"})
+        self.assertIsNone(said[1])
+
+    def test_a_later_push_moves_the_branch_from_the_head_its_decision_named(self):
+        from harness import push_steps as push
+        # P-71's push B, as a patch on push A's commit: the branch read at the head admitted, moved to the commit made
+        # without force, and landed there; where the admitted commit stands on the default branch is not held.
+        old, new = b"Notes the second push changes.\n", b"Notes the second push changed.\n"
+        sha = hashlib.sha1(b"blob %d\0" % len(old) + old).hexdigest()
+        notes = {"request": {"via": "rest", "call": "GET /repos/%s/git/blobs/%s" % (PUSH_REPO, sha), "headers": {}, "body": None},
+                 "response": {"status": 200, "headers": {}, "body": {"sha": sha, "size": len(old), "encoding": "base64",
+                                                                     "content": base64.b64encode(old).decode()}}}
+        at = PUSH_A[10]["response"]["body"]["sha"]
+        patch = (b"diff --git a/docs/notes.md b/docs/notes.md\nindex 5786211..0000001 100644\n--- a/docs/notes.md\n"
+                 b"+++ b/docs/notes.md\n@@ -1 +1 @@\n-" + old + b"+" + new)
+        reads = [PUSH_A[13], PUSH_A[10], PUSH_A[8]]
+        said, live, asked = self.pushed(self.told(parent=at, head=at, patch=patch, message=PUSH_B[3]["request"]["body"]["message"]),
+                                        bases=[("neither", self.DEFAULT)] * 2,
+                                        exchanges=reads + [notes] + reads + PUSH_B[0:6] + PUSH_B[9:10])
+        self.assertEqual(said, ((PUSH_B[4]["response"]["body"]["sha"], PUSH_BRANCH), None))
+        self.assertEqual((live.replay._left, live.asked[-2:], len(asked["base"])), ([], ["PATCH", "GET"], 2))
+        # The default branch's head moved before the branch's move: refused, the branch not written.
+        said, live, _ = self.pushed(self.told(parent=at, head=at, patch=patch, message=PUSH_B[3]["request"]["body"]["message"]),
+                                    bases=[("neither", self.DEFAULT), ("neither", self.MOVED)],
+                                    exchanges=reads + [notes] + reads + PUSH_B[0:6] + PUSH_B[9:10])
+        self.assertEqual((said, "PATCH" in live.asked), ((None, push.BASE_MOVED), False))
+
+    def shared(self) -> list:
+        """A commit whose tree holds two files of one blob, read by a push that removes both: the blob is read once."""
+        from adapters import push as port
+        data, parent = b"same\n", "c" * 40
+        blob = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+        tree = port._tree_name([("100644", "a.txt", blob), ("100644", "b.txt", blob)])
+        git = "GET /repos/%s/git/" % PUSH_REPO
+
+        def exchange(call, status, body):
+            return {"request": {"via": "rest", "call": git + call, "headers": {}, "body": None},
+                    "response": {"status": status, "headers": {}, "body": body}}
+        files = [{"path": path, "mode": "100644", "type": "blob", "sha": blob, "size": len(data)} for path in ("a.txt", "b.txt")]
+        patch = b"".join(b"diff --git a/%s b/%s\ndeleted file mode 100644\nindex 1111111..0000000\n--- a/%s\n+++ /dev/null\n"
+                         b"@@ -1 +0,0 @@\n-same\n" % (name, name, name) for name in (b"a.txt", b"b.txt"))
+        return [exchange("ref/heads/" + PUSH_BRANCH, 404, {"message": "Not Found"}),
+                exchange("commits/" + parent, 200, {"sha": parent, "tree": {"sha": tree}}),
+                exchange("trees/%s?recursive=1" % tree, 200, {"sha": tree, "truncated": False, "tree": files}),
+                exchange("blobs/" + blob, 200, {"sha": blob, "size": len(data), "encoding": "base64",
+                                                "content": base64.b64encode(data).decode()})], dict(parent=parent, patch=patch)
+
+    def test_the_loop_refuses_on_each_check(self):
+        from adapters import rules
+        from guards import judged, patch, push as guard, workflows
+        from harness import push_steps as push
+        from tests.test_apply import own_list
+        from tests.test_guards import CONTRACT_AT, contract
+        parent, ancestor, shared = self.told()["parent"], ("ancestor", self.DEFAULT), self.shared()
+        unread = (None, rules.UNREADABLE)
+        started = {".github/workflows/x.yml": "name: x\non: pull_request\njobs:\n  a:\n    runs-on: ubuntu-24.04\n"
+                                              "    steps:\n      - run: make\n        env:\n          T: ${{ secrets.T }}\n"}
+        refused = workflows.refusal_at(started, own_list(), "main", PUSH_REPO)
+        self.assertIsNotNone(refused)
+        first_reads = ["GET"] * 4
+        # (what is told or read, the code, what was sent by the push's own token): nothing is written before the
+        # branch's write but at the last two, which stop before it and after it.
+        for said, given, code, sent in (
+                ("a key missing", dict(told={k: v for k, v in self.told().items() if k != "judged"}), guard.NOT_PERMITTED, []),
+                ("a key more", dict(told=self.told(force=True)), guard.NOT_PERMITTED, []),
+                ("a push told wrongly", dict(told=self.told(branch="main")), guard.NOT_PERMITTED, []),
+                ("another repo", dict(home={"repo": "combsmith/software-factory", "branch": "main"}), judged.CONSUMER, []),
+                ("no default head", dict(bases=[(None, None)]), push.BASE_UNREAD, []),
+                ("the default head's list unread", dict(lists=lambda sha: unread if sha == self.DEFAULT else (own_list(), None)),
+                 rules.UNREADABLE, []),
+                ("the admitted commit's list unread", dict(lists=lambda sha: unread if sha == parent else (own_list(), None)),
+                 rules.UNREADABLE, []),
+                ("a path on the default head's list", dict(lists=lambda sha: (own_list() + ["gone.txt"] * (sha == self.DEFAULT), None)),
+                 "push_protected", first_reads),
+                ("a path on the admitted commit's list", dict(lists=lambda sha: (own_list() + ["bin/"] * (sha == parent), None)),
+                 "push_protected", first_reads),
+                ("a copy from a path on the list", dict(told=self.told(patch=b"diff --git a/bin/run.sh b/docs/run.sh\nsimilarity index 100%\n"
+                                                                        b"copy from bin/run.sh\ncopy to docs/run.sh\n"),
+                                                        lists=lambda sha: (own_list() + ["bin/run.sh"] * (sha == parent), None),
+                                                        exchanges=[PUSH_A[i] for i in (4, 0, 1, 2)]), "push_protected", first_reads),
+                ("two files of one blob, read once, off the default head", dict(told=self.told(**shared[1]), exchanges=shared[0],
+                                                                               bases=[("neither", self.DEFAULT)]), push.OFF_DEFAULT, first_reads),
+                ("a contract unread", dict(told=self.told(judged=(contract(schema="acceptance/2"), CONTRACT_AT))), judged.UNREADABLE, []),
+                ("a contract in no pair", dict(told=self.told(judged=contract())), judged.UNREADABLE, []),
+                ("a path the contract judges", dict(told=self.told(judged=(contract(protected_paths=["bin/"]), CONTRACT_AT))),
+                 "push_protected", first_reads),
+                ("a patch that does not apply", dict(told=self.told(patch=self.PATCH.replace(b"-A file the first", b"-A line the first"))),
+                 patch.NOT_APPLIED, first_reads),
+                ("the admitted commit off the default head", dict(bases=[("neither", self.DEFAULT)]), push.OFF_DEFAULT, first_reads),
+                ("where it stands unread", dict(bases=[(None, self.DEFAULT)]), push.BASE_UNREAD, first_reads),
+                ("the default head's workflows unread", dict(files=lambda sha: (None, rules.WORKFLOWS_UNREADABLE) if sha == self.DEFAULT
+                 else ({}, None)), rules.WORKFLOWS_UNREADABLE, first_reads),
+                ("the admitted commit's workflows unread", dict(files=lambda sha: (None, rules.WORKFLOWS_UNREADABLE) if sha == parent
+                 else ({}, None)), rules.WORKFLOWS_UNREADABLE, first_reads),
+                ("a command beside a secret at the admitted commit", dict(files=lambda sha: (started if sha == parent else {}, None)),
+                 refused, first_reads),
+                ("a command beside a secret at the default head", dict(files=lambda sha: (started if sha == self.DEFAULT else {}, None)),
+                 refused, first_reads),
+                ("the branch made by someone else first", dict(exchanges=self.exchanges()[:-2] + [PUSH_A[12], PUSH_A[13]]),
+                 guard.BRANCH_MOVED, first_reads + ["GET"] * 3 + ["POST"] * 3 + ["GET", "POST", "GET", "POST", "GET"]),
+                ("the default head moved by the branch's write", dict(bases=[ancestor, ancestor, ("ancestor", self.MOVED)]),
+                 push.BASE_MOVED, first_reads + ["GET"] * 3 + ["POST"] * 3 + ["GET", "POST", "GET", "POST", "GET"]),
+                ("the default head moved before the branch's write", dict(bases=[ancestor, ("ancestor", self.MOVED)]),
+                 push.BASE_MOVED, first_reads + ["GET"] * 3 + ["POST"] * 3 + ["GET", "POST", "GET"]),
+                ("its head unread before the branch's write", dict(bases=[ancestor, (None, None)]),
+                 push.BASE_UNREAD, first_reads + ["GET"] * 3 + ["POST"] * 3 + ["GET", "POST", "GET"]),
+                ("the admitted commit off the default head after the write", dict(bases=[ancestor, ancestor, ("neither", self.MOVED)]),
+                 push.OFF_DEFAULT, first_reads + ["GET"] * 3 + ["POST"] * 3 + ["GET", "POST", "GET", "POST", "GET"]),
+                ("where it stands unread after the write", dict(bases=[ancestor, ancestor, (None, self.MOVED)]),
+                 push.BASE_UNREAD, first_reads + ["GET"] * 3 + ["POST"] * 3 + ["GET", "POST", "GET", "POST", "GET"]),
+                # A later push leases against the branch's head its Decision named: a branch elsewhere, someone
+                # else's write, is the Run overtaken (lesson L-55), and nothing is written.
+                ("the branch not at the head admitted", dict(told=self.told(head=parent)), guard.BRANCH_MOVED, ["GET"])):
+            got, live, _ = self.pushed(**given)
+            self.assertEqual(got, (None, code), said)
+            self.assertEqual(live.asked, sent, said)
+
+    def test_nothing_calls_the_push_until_apply_dispatches_it(self):
+        # The dispatch, wiring only, lands last (the Solution Architect, 2026-11-28): until it does, no module but the
+        # tests imports the push, so no push leaves by it.
+        import ast
+        callers = []
+        for path in walk.files(ROOT):
+            rel = path.relative_to(ROOT).as_posix()
+            if path.suffix != ".py" or rel.startswith("tests/"):
+                continue
+            for node in ast.walk(ast.parse(path.read_text(), rel)):
+                names = [alias.name for alias in node.names] if isinstance(node, (ast.Import, ast.ImportFrom)) else []
+                module = node.module if isinstance(node, ast.ImportFrom) else None
+                if isinstance(node, ast.ImportFrom) and node.level:
+                    # A relative import, read from the file's own package: `from . import push_steps` in harness/.
+                    package = path.relative_to(ROOT).parent.parts[:len(path.relative_to(ROOT).parent.parts) - node.level + 1]
+                    module = ".".join(package + ((node.module,) if node.module else ()))
+                if "harness.push_steps" in names or module == "harness.push_steps" or module == "harness" and "push_steps" in names:
+                    callers.append(rel)
+        self.assertEqual(callers, [])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -154,7 +154,7 @@ class Shape(unittest.TestCase):
             for named in ("RELEASE_TOKEN: ${{ secrets.X }}", "KEY: ${{ secrets.RELEASE_APP_KEY }}",
                           "WHERE: factory-release", "STEP: python3 -m release.move"):
                 with self.subTest(named=named):
-                    planted = verify.replace("      - run: make verify\n", "      - run: make verify\n        env:\n"
+                    planted = verify.replace("      - run: make tests\n", "      - run: make tests\n        env:\n"
                                              "          %s\n" % named, 1)
                     (root / ".github" / "workflows" / "verify.yml").write_text(planted)
                     found = [p for p in check_workflows.run(root) if "release.yml's alone" in p]
