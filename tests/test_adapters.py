@@ -2412,8 +2412,11 @@ class Artifacts(unittest.TestCase):
 
     def test_a_review_runs_advisory_cost_is_read_as_an_outcome_is_and_never_guessed(self):  # decision 0224
         # The same requests and the same bounds as an outcome's, with another name and another file inside: the list,
-        # the download's redirect, the storage's answer. Only what the file holds differs, so this rests on the form
-        # `stored` gives an outcome's exchange, which is GitHub's reference's until a trial records one.
+        # the download's redirect, the storage's answer. Only the artifact's name and its file differ from the shapes
+        # trial P-68 recorded for an outcome; no trial has recorded a second name, or what a re-run lists, yet.
+        # The file is held to codes alone, as advice/1 is, by the examples check.
+        from tools import check_examples
+        self.assertIn("advice-cost", check_examples.CODES_ONLY)
         good = {"schema": "advice-cost/1", "run": self.RUN, "attempt": 1, "release": "factory/v0.3.1", "asks": 2, "cost_usd": 1.42}
 
         def kept(zipped, **listed) -> list:
@@ -2430,8 +2433,12 @@ class Artifacts(unittest.TestCase):
         self.assertEqual(read(dict(good, attempt=3), attempt=3), ({"asks": 2, "cost_usd": 1.42}, True))
         for written, asked in ((1, 2), (2, 1), (100, 1)):
             self.assertEqual(read(dict(good, attempt=written), attempt=asked), (None, False), (written, asked))
+        self.assertEqual(read(dict(good, attempt=100), attempt=100), ({"asks": 2, "cost_usd": 1.42}, True))
         for attempt in (0, 101, True, "1", 1.0, None):
             self.assertEqual(read(dict(good, attempt=attempt)), (None, False), attempt)
+        # An attempt asked for that is no whole number matches none, though Python holds True and 1.0 equal to 1.
+        for attempt in (True, 1.0, "1", None):
+            self.assertEqual(read(good, attempt=attempt), (None, False), attempt)
         self.assertEqual(read({k: v for k, v in good.items() if k != "attempt"}), (None, False))
         self.assertEqual(read(dict(good, attempt=0), attempt=0), (None, False))
         self.assertEqual(read(dict(good, attempt=101), attempt=101), (None, False))
@@ -2452,6 +2459,8 @@ class Artifacts(unittest.TestCase):
                        dict(good, asks=101), dict(good, cost_usd=100000.01), json.dumps(good).replace("1.42", "NaN"),
                        dict(good, asks=1.5), dict(good, findings=0), dict(good, schema="advice-cost/2"),
                        {k: v for k, v in good.items() if k != "asks"}, {k: v for k, v in good.items() if k != "cost_usd"},
+                       {k: v for k, v in good.items() if k != "release"}, {k: v for k, v in good.items() if k != "run"},
+                       json.dumps(dict(good, attempt=2))[:-1] + ', "attempt": 1}', json.dumps(good)[:-1] + ', "run": "%s"}' % self.RUN,
                        "[]", "not json", b"PK\x03\x04 not a zip", outcome_zip(" " * (artifacts.HELD + 1), member=artifacts.ADVICE_COST_MEMBER),
                        outcome_zip(good, member="advice.astra.json"), outcome_zip(good, member=artifacts.MEMBER),
                        outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER, more=("advice.astra.json",))):
@@ -2460,9 +2469,9 @@ class Artifacts(unittest.TestCase):
             self.assertEqual(read(good, **listed), (None, False), listed)
         # The bounds are an outcome's own, and held: a file that is a cost and is over them is none, and a zip listed
         # over them is not downloaded at all, which the replay would refuse as a request it does not hold.
-        padded = json.dumps(good) + " " * artifacts.HELD
-        self.assertEqual(read(json.dumps(good) + " " * 100), ({"asks": 2, "cost_usd": 1.42}, True))
-        self.assertEqual(read(padded), (None, False))
+        text = json.dumps(good)
+        self.assertEqual(read(text + " " * (artifacts.HELD - len(text))), ({"asks": 2, "cost_usd": 1.42}, True))
+        self.assertEqual(read(text + " " * (artifacts.HELD + 1 - len(text))), (None, False))
         over = kept(outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER), size_in_bytes=artifacts.ZIPPED + 1)[:1]
         self.assertEqual(artifacts.advice_cost(github.Replay(over), "o/r", 7, self.RUN, 1), (None, False))
         # What the list answered is handed to the caller, which stamps the read; a list not answered is raised, as an
