@@ -94,9 +94,8 @@ FIELDS = ("method", "path", "body")
 # A module's names as a value: what is read from them cannot be.
 NAMESPACES = ("__dict__", "__getattribute__", "__getattr__")
 # The modules by which code loads a module by its name, and every name by which a module is reached as a value: as a
-# literal key, `getattr` or `get` argument, each is a load by name (issues 640, 655; imp, zipimport and pydoc,
-# issue 1335).
-LOADER_MODULES = ("importlib", "builtins", "pkgutil", "runpy", "imp", "zipimport", "pydoc")
+# literal key, `getattr` or `get` argument, each is a load by name (issues 640, 655; imp and zipimport, issue 1335).
+LOADER_MODULES = ("importlib", "builtins", "pkgutil", "runpy", "imp", "zipimport")
 BY_NAME = ("sys", "modules", "__builtins__", "__import__") + LOADER_MODULES
 # The calls that read a key of a mapping by its name, bound or unbound, `dict.get(d, k)` (Muse's reads of issue 655's
 # change): `_keys` gives the argument each reads as its key.

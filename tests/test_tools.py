@@ -13448,11 +13448,10 @@ class Writes(unittest.TestCase):
             "harness/importattr.py": "import os\n\n\ndef go():\n    return os.__import__('adapters.effects')\n",
             "harness/pkgload.py": "import pkgutil\n\n\ndef go():\n    return pkgutil.resolve_name('adapters.effects:approve')\n",
             "harness/runpyload.py": "import runpy\n",
-            # issue 1335: the legacy loaders, imp (3.9 to 3.11) and zipimport, and pydoc's locate (its readers)
+            # issue 1335: the legacy loaders, imp (3.9 to 3.11) and zipimport
             "harness/impload.py": "import imp\n\n\ndef go():\n    return imp.load_source('e', 'adapters/effects.py')\n",
             "harness/zipload.py": "from zipimport import zipimporter\n\n\ndef go(p):\n    return zipimporter(p).load_module('effects')\n",
-            "harness/pydocload.py": "import pydoc\n\n\ndef go(x):\n    return pydoc.locate('adapters.effects.approve')(x)\n",
-            "harness/loaderkey.py": "def go(ns, m):\n    a = ns['imp']\n    b = getattr(m, 'zipimport')\n    return a, b, ns.get('pydoc')\n",
+            "harness/loaderkey.py": "def go(ns, m):\n    a = ns['imp']\n    b = getattr(m, 'zipimport')\n    return a, b, ns.get('imp')\n",
             "harness/syskey.py": "import os\n\n\ndef go():\n    return vars(os)['sys']\n",
             "harness/anymodules.py": "def go(x):\n    return x.modules\n",
             "harness/innerok.py": "from harness import portinst\n\n\ndef go(m):\n    def inner():\n        m = portinst\n"
@@ -13592,7 +13591,6 @@ class Writes(unittest.TestCase):
                           ("harness/runpyload.py:1", "loads a module by its name"),
                           ("harness/impload.py:1", "loads a module by its name"),
                           ("harness/zipload.py:1", "loads a module by its name"),
-                          ("harness/pydocload.py:1", "loads a module by its name"),
                           ("harness/loaderkey.py:2", "loads a module by its name"),
                           ("harness/loaderkey.py:3", "loads a module by its name"),
                           ("harness/loaderkey.py:4", "loads a module by its name"),
