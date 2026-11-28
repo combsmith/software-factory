@@ -29,6 +29,12 @@ MUTANTS = [
     ("make tests puts the repo's top ahead of the standard library", "Makefile",
      "\ntests:\n\t$(PY) -I -S tools/verify.py --tests\n", "\ntests:\n\t$(PY) -m tools.verify --tests\n",
      ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
+    # Issue 1377: CI's step before make checks runs the checks that run no Role code, alone, isolated.
+    ("make checks-first runs every check", "Makefile",
+     "\t$(PY) -I -S tools/verify.py --checks-first\n", "\t$(PY) -I -S tools/verify.py --checks\n",
+     ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
+    ("make checks-first is up to date while a file checks-first stands", "Makefile", ".PHONY: checks-first\n", "",
+     ("tests.test_tools.Verify.test_make_reads_the_makefile_as_committed_and_remakes_it_from_nothing",)),
     ("make tests runs the checks too", "Makefile",
      "\ntests:\n\t$(PY) -I -S tools/verify.py --tests\n", "\ntests:\n\t$(PY) -I -S tools/verify.py\n",
      ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),

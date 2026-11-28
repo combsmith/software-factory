@@ -4161,7 +4161,7 @@ class Workflows(unittest.TestCase):
         self.assertEqual(len(problems), len(check_workflows.RULES))
 
     def test_a_counter_example_must_break_its_rule_and_no_other(self):
-        both = GOOD.replace("ubuntu-24.04", "ubuntu-latest").replace("    timeout-minutes: 28\n", "")
+        both = GOOD.replace("ubuntu-24.04", "ubuntu-latest").replace("    timeout-minutes: 30\n", "", 1)
         root = clone({"examples/workflows/invalid/runner.two-faults.yml": both,
                       "examples/workflows/invalid/soft.no-fault.yml": GOOD.replace(SUPERSEDED, "")})
         problems = check_workflows.run(root)
@@ -4174,7 +4174,7 @@ class Workflows(unittest.TestCase):
         # (trials/P-42.step-timeout.json). So each run: step sets its own timeout-minutes, and a job's run: steps are
         # given fewer minutes together than the job is, so that a step past its limit fails the job before GitHub stops it.
         # Each run: step of the example, its own limit and its job's, less the limits of the job's other run: steps.
-        limits = {"make checks": (4, 6), "make tests": (22, 24), "python3 -m tools.mutants": (27, 30),
+        limits = {"make checks-first": (2, 4), "make checks": (4, 6), "make tests": (22, 24), "python3 -m tools.mutants": (27, 30),
                   "python3 -m tools.commits_are_the_maintainers": (7, 10), "python3 -m tools.needs_passed": (5, 10)}
         unlimited = GOOD
         for command, (minutes, _) in limits.items():
@@ -4200,20 +4200,20 @@ class Workflows(unittest.TestCase):
         moved = GOOD.replace("      - run: make tests\n        timeout-minutes: 22\n",
                              "      - timeout-minutes: 22\n        run: make tests\n")
         self.assertEqual(rules(moved), [])
-        # A job's run: steps are counted together: 4, 11 and 11 under a job of 28 are 26 minutes, and leave it its two.
+        # A job's run: steps are counted together: 2, 4, 11 and 11 under a job of 30 are 28 minutes, and leave it its two.
         two = GOOD.replace("      - run: make tests\n        timeout-minutes: 22\n",
                            "      - run: make tests\n        timeout-minutes: 11\n      - run: make fast\n"
                            "        timeout-minutes: 11\n")
         self.assertEqual(rules(two), [])
         more = two.replace("timeout-minutes: 11\n      - run: make fast", "timeout-minutes: 12\n      - run: make fast")
         self.assertEqual(rules(more), ["timeout"])
-        self.assertIn(("timeout", "the run: steps of job checks are given 27 minutes together, more than its 28 less the "
+        self.assertIn(("timeout", "the run: steps of job checks are given 29 minutes together, more than its 30 less the "
                                   "2 its other steps keep"), check_workflows.lint(more, required=True))
         self.assertEqual(check_workflows.MARGIN, 2)
         # A job's own limit is held the same way.
         for job in ("0", "\u00b2"):
             self.assertIn(("timeout", "job checks has no timeout-minutes"),
-                          check_workflows.lint(GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: %s\n" % job), required=True))
+                          check_workflows.lint(GOOD.replace("    timeout-minutes: 30\n", "    timeout-minutes: %s\n" % job, 1), required=True))
 
     def test_each_step_limit_holds_what_its_step_needs(self):  # issue 388
         # The eval job's run step starts no case it cannot end within BUDGET of the plan, so its limit is BUDGET at
@@ -4231,11 +4231,11 @@ class Workflows(unittest.TestCase):
 
     def test_an_example_in_the_standard_that_has_drifted_is_caught(self):
         root = tree({"examples/workflows/verify.yml": GOOD,
-                     "docs/standards/workflows.md": "```yaml\n" + GOOD.replace("minutes: 28", "minutes: 90") + "```\n"})
+                     "docs/standards/workflows.md": "```yaml\n" + GOOD.replace("minutes: 30", "minutes: 90") + "```\n"})
         self.assertTrue(caught(check_workflows.run(root), "word for word"))
 
     def test_the_required_check_that_has_drifted_from_its_example_is_caught(self):
-        root = tree({"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD.replace("minutes: 28", "minutes: 45")})
+        root = tree({"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": GOOD.replace("minutes: 30", "minutes: 45")})
         self.assertTrue(caught(check_workflows.run(root), "change both together"))
         bumped = GOOD.replace("3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1", "a" * 40 + " # v8.0.0")
         root = tree({"examples/workflows/verify.yml": GOOD, ".github/workflows/verify.yml": bumped})
@@ -4453,12 +4453,14 @@ class Workflows(unittest.TestCase):
         # On 2026-11-09 `make verify` as one job was cut at its step's 26 minutes in a merge group, so it runs in legs. A
         # leg told CHECKS_SHARD as a number would run another's share, leaving its own tests in no leg, and CHECKS_SHARDS
         # as a number could differ from the matrix's size; each is the matrix's own expression, as the mutant shards'.
-        # Each leg runs `make checks` in a step before `make tests`, so a failed check ends it before any test runs.
+        # Each leg runs `make checks` in a step before `make tests`, so a failed check ends it before any test runs, and
+        # `make checks-first` before both, so that no Role code runs before the checks that run none pass (issue 1377).
         job = GOOD[GOOD.index("  checks:\n"):GOOD.index("  mutants:\n")]
         index, total = "      CHECKS_SHARD: ${{ strategy.job-index }}\n", "      CHECKS_SHARDS: ${{ strategy.job-total }}\n"
         checks, run = "      - run: make checks\n        timeout-minutes: 4\n", "      - run: make tests\n"
         tests = run + "        timeout-minutes: 22\n"
-        self.assertEqual((job.count(index), job.count(total), job.count(checks + tests)), (1, 1, 1))
+        first = "      - run: make checks-first\n        timeout-minutes: 2\n"
+        self.assertEqual((job.count(index), job.count(total), job.count(first + checks + tests)), (1, 1, 1))
         told, shape = "not told CHECKS_SHARD", "whose steps are not a checkout of the head"
         cases = [(index, "      CHECKS_SHARD: 0\n", told), (total, "      CHECKS_SHARDS: 3\n", told),
                  (total, "", told), (index, index + "      OTHER: 1\n", told),
@@ -4473,7 +4475,11 @@ class Workflows(unittest.TestCase):
                  # The checks gone, run after the tests, run as another target, or let the tests run when they failed.
                  (checks, "", shape), (checks + tests, tests + checks, shape),
                  (checks, "      - run: make fast\n        timeout-minutes: 4\n", shape),
-                 (checks, checks + "        continue-on-error: true\n", shape)]
+                 (checks, checks + "        continue-on-error: true\n", shape),
+                 # The checks that run no Role code gone, run after the others, run as another target, or let them run.
+                 (first, "", shape), (first + checks, checks + first, shape),
+                 (first, "      - run: make fast\n        timeout-minutes: 2\n", shape),
+                 (first, first + "        continue-on-error: true\n", shape)]
         for old, new, said in cases:
             text = GOOD.replace(job, job.replace(old, new))
             self.assertNotEqual(text, GOOD, said)
@@ -5382,7 +5388,7 @@ class Workflows(unittest.TestCase):
                                   "          d: ${{ steps.a.outputs.b }}\n", 1)):
             # Read as the required check's workflow, so that GOOD's own concurrency is no expression out of place.
             self.assertIn("expression", {rule for rule, _ in check_workflows.lint(text, required=True)}, text)
-        outputs = GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: 28\n    outputs:\n"
+        outputs = GOOD.replace("    timeout-minutes: 30\n", "    timeout-minutes: 30\n    outputs:\n"
                                "      digest: ${{ steps.run.outputs.digest }}\n", 1)
         self.assertNotIn("expression", {rule for rule, _ in check_workflows.lint(outputs, required=True)})
         self.assertIn("expression", {rule for rule, _ in check_workflows.lint(outputs.replace(
@@ -5790,9 +5796,9 @@ class Workflows(unittest.TestCase):
             "a branch filter": (GOOD.replace("  pull_request:\n", "  pull_request:\n    branches:\n      - release\n"), "queue"),
             "an expression in a script": (GOOD.replace(STEP, "      - uses: actions/github-script@" + "a" * 40 + " # v7\n        with:\n          script: ${{ github.event.comment.body }}\n"), "expression"),
             "a checkout in quotes": (GOOD.replace("actions/checkout@", '"actions/checkout@').replace(" # v7.0.1\n        with:\n          persist-credentials: false", '" # v7.0.1'), "credentials"),
-            "a limit named in a comment": (GOOD.replace("    timeout-minutes: 28\n", "").replace("ubuntu-24.04\n", "ubuntu-24.04 # timeout-minutes: later\n"), "timeout"),
+            "a limit named in a comment": (GOOD.replace("    timeout-minutes: 30\n", "", 1).replace("ubuntu-24.04\n", "ubuntu-24.04 # timeout-minutes: later\n"), "timeout"),
             "windows line ends": (GOOD.replace("\n", "\r\n"), "form"),
-            "a key written twice": (GOOD.replace("    timeout-minutes: 28\n", "    timeout-minutes: 28\n    timeout-minutes: 600\n"), "form"),
+            "a key written twice": (GOOD.replace("    timeout-minutes: 30\n", "    timeout-minutes: 30\n    timeout-minutes: 600\n", 1), "form"),
             "a step's key written twice": (GOOD.replace(STEP, "      - run: make verify\n        run: make evil\n"), "form"),
             "nothing at all": ("", "form"),
             # Issue 371: a YAML reader reads each as more of the command, `make verify - ; exit 0`, and runs it whole.
@@ -14300,7 +14306,7 @@ FAILS = {
                                                          author_role="pr-review")),
     "check_purity": lambda: check_purity.run(clone({"kernel/clock.py": "import time\n"})),
     "check_repo": lambda: check_repo.run(clone({"requirements.txt": "requests\n"})),
-    "check_workflows": lambda: check_workflows.run(clone({".github/workflows/verify.yml": GOOD.replace("minutes: 28", "minutes: 45")})),
+    "check_workflows": lambda: check_workflows.run(clone({".github/workflows/verify.yml": GOOD.replace("minutes: 30", "minutes: 45")})),
     "check_context": lambda: check_context.run(clone({"docs/lessons.md": "# Lessons\n"})),
     "check_trials": lambda: check_trials.run(clone({"trials/notes.txt": "x\n"})),
     "check_release": lambda: check_release.run(clone({"release/current.py": "import os\n"})),
@@ -14648,6 +14654,7 @@ class Verify(unittest.TestCase):
         self.assertIn("\ntests:\n\t$(PY) -I -S tools/verify.py --tests\n", makefile)       # CI's step after the checks
         self.assertIn("\nfast:\n\t$(PY) -I -S tools/verify.py --fast\n", makefile)
         self.assertIn("\nchecks:\n\t$(PY) -I -S tools/verify.py --checks\n", makefile)
+        self.assertIn("\nchecks-first:\n\t$(PY) -I -S tools/verify.py --checks-first\n", makefile)   # CI's step before them
 
     def test_make_reads_the_makefile_as_committed_and_remakes_it_from_nothing(self):  # issue 1048, decision 0240
         # make tries to remake the makefile it read before it looks up a target, by an implicit rule from a file beside
@@ -14660,6 +14667,7 @@ class Verify(unittest.TestCase):
             (where / "Makefile.sh").write_text("verify:\n\t@echo not the committed verify\n")
             (where / "tests").mkdir()       # CI's goals run though a file of their name stands (Astra's, Carbon's reads)
             (where / "checks").write_text("")
+            (where / "checks-first").write_text("")
             # make's built-in rules on, whatever flags the run was given (Astra's read), and verify the goal of a bare
             # make too.
             env = {k: v for k, v in os.environ.items() if k not in ("MAKEFLAGS", "MFLAGS", "MAKEFILES", "GNUMAKEFLAGS")}
@@ -14672,7 +14680,7 @@ class Verify(unittest.TestCase):
                 failed = subprocess.run(["make", "-s"] + goal + ["PY=false"], cwd=where, capture_output=True, text=True,
                                         timeout=60, env=env)
                 self.assertNotEqual(failed.returncode, 0, goal)
-            for goal in ("tests", "checks"):
+            for goal in ("tests", "checks", "checks-first"):
                 ran = subprocess.run(["make", "-s", goal, "PY=false"], cwd=where, capture_output=True, timeout=60, env=env)
                 self.assertNotEqual(ran.returncode, 0, goal)
 

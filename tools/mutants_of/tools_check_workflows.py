@@ -279,11 +279,15 @@ MUTANTS = [
      "    if not any_leg:\n", "    if False:\n", LEGS_TESTS),
     # Issue 1050: each leg runs the checks in a step of their own before the tests.
     ("any step may stand before the tests", "tools/check_workflows.py",
-     '                and [(e["value"], e["body"] or []) for e in steps] == [(CHECKED, []), (LEGGED, [])]\n',
+     '                and [(e["value"], e["body"] or []) for e in steps] == [(FIRST, []), (CHECKED, []), (LEGGED, [])]\n',
      '                and [(e["value"], e["body"] or []) for e in steps][-1:] == [(LEGGED, [])]\n', LEGS_TESTS),
     ("the tests may run before the checks", "tools/check_workflows.py",
-     '                and [(e["value"], e["body"] or []) for e in steps] == [(CHECKED, []), (LEGGED, [])]\n',
-     '                and sorted([(e["value"], e["body"] or []) for e in steps]) == [(CHECKED, []), (LEGGED, [])]\n', LEGS_TESTS),
+     '                and [(e["value"], e["body"] or []) for e in steps] == [(FIRST, []), (CHECKED, []), (LEGGED, [])]\n',
+     '                and sorted([(e["value"], e["body"] or []) for e in steps]) == sorted([(FIRST, []), (CHECKED, []), (LEGGED, [])])\n', LEGS_TESTS),
+    # Issue 1377: before the checks, a step of the checks that run no Role code.
+    ("any step may stand before the checks", "tools/check_workflows.py",
+     '                and [(e["value"], e["body"] or []) for e in steps] == [(FIRST, []), (CHECKED, []), (LEGGED, [])]\n',
+     '                and [(e["value"], e["body"] or []) for e in steps][1:] == [(CHECKED, []), (LEGGED, [])]\n', LEGS_TESTS),
     ("no job need run the mutants", "tools/check_workflows.py",
      "    if not found:\n        whys.append(\"has no job that runs the mutants", "    if False:\n        whys.append(\"has no job that runs the mutants",
      SHARDS_TESTS),
