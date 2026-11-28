@@ -2,6 +2,10 @@
 
 TARGETS = ("tools/redact_trial.py",)
 MUTANTS = [
+    # Issue 1300: run as a file under -I, it finds the repo's modules by its own place.
+    ("the redaction finds the repo's modules only by the working directory", "tools/redact_trial.py",
+     "sys.path.append(str(pathlib.Path(__file__).resolve().parents[1]))\n", "",
+     ("tests.test_tools.Redaction.test_it_runs_as_a_file_under_isolation_and_takes_no_module_the_shell_names",)),
     # Each signed URL's secret, by its parameter, however it is written (issue 534).
     ("the redaction reads the path it is given", "tools/redact_trial.py", "    if argv:\n        print(\"usage:",
      "    if False:\n        print(\"usage:", ("tests.test_tools.Redaction.test_it_opens_no_path_it_is_given",)),

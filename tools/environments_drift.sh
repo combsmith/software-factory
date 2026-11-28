@@ -14,7 +14,7 @@ cd "$root"
 repo=$(python3 -c 'import json; print(json.load(open("config/rulesets.json"))["repo"])')
 read_one() {
   gh api --include "$2" > "$dir/raw-$1" 2>/dev/null || true
-  python3 -m tools.redact_trial < "$dir/raw-$1" > "$dir/$1" 2> /dev/null ||
+  python3 -I -S "$root/tools/redact_trial.py" < "$dir/raw-$1" > "$dir/$1" 2> /dev/null ||
       { echo "environments_drift: the redaction of $1 failed" >&2; exit 1; }
   rm -f "$dir/raw-$1"
 }
