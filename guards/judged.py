@@ -60,7 +60,7 @@ def _check(criterion):
     check = criterion.get("check") if type(criterion) is dict else None
     if type(check) is not dict:
         return None
-    kind, ref = check.get("kind"), check.get("ref")
+    kind, ref = check.get("kind"), check.get("ref")  # NOSONAR: the line above returns unless check is a dict
     if not _text(kind) or kind not in KINDS or not _text(ref):
         return None
     path, _, test = ref.partition(SEPARATOR)
