@@ -128,12 +128,12 @@ PATTERN = "*?+[]!"
 # tag, `factory/v1.2.3`, or a Channel's, `factory/v0-next` or `factory/v0-stable`, run as released (decision 1378's
 # follow-up; the Solution Architect's rulings of 2026-11-28).
 CALL = "workflow_call"
-LOCAL = "./" + FOLDER
+LOCAL = "./.github/workflows/"
 TAG = "@factory/"
 CHANNELS = ("next", "stable")
 SEMVER = ("major", "minor", "patch")
 DIGITS = "0123456789"
-NAME = KEY + "."
+NAME = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-."
 WORKFLOW_ENDS = (".yml", ".yaml")
 # How many workflows deep a called one's callers are followed: a chain longer, or one that comes back to itself, refuses.
 DEPTH = ("caller", "its caller", "the caller of that")
