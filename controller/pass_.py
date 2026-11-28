@@ -82,6 +82,15 @@ SUCCESSOR_WAIT = 30
 # How long a review told yes for its advisory readers counts while no record lists its Run (issue 932). GitHub lists a
 # dispatched Run within seconds; one still unlisted an hour on was not dispatched, or is past the job's own limit.
 UNLISTED_SECONDS = 3600
+UNLISTED_MOST = 1000        # the yeses a pass record carries at most, as pass/1 holds them
+
+
+def _hour_on(now: str) -> str:
+    """`now` an hour on, or the last moment the one form can write where that is past it."""
+    try:
+        return text(moment(now) + datetime.timedelta(seconds=UNLISTED_SECONDS))
+    except OverflowError:
+        return "9999-12-31T23:59:59Z"
 
 
 def started_by(started, accounts: dict) -> str:
@@ -401,27 +410,31 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
     # GitHub lists that no run-name names counts so too. With the records before unread, what they told is not known,
     # and no review is told yes (issue 932).
     listed_runs = {r["run"] for r in runs}
-    pending = {}
-    for r in before:
-        for e in r.get("advisory_unlisted", []):
-            pending.setdefault(e["run"], e["told_at"])
-        for e in r["pull_requests"]:
-            if e.get("advisory_ask") is True:
-                pending.setdefault(e["run"], r["now"])
+    observed = [(e["run"], e["told_at"]) for r in before for e in r.get("advisory_unlisted", [])] \
+        + [(e["run"], r["now"]) for r in before for e in r["pull_requests"] if e.get("advisory_ask") is True]
     # A yes with no Run, or told at no moment or after `now`, cannot be counted or let lapse: it is carried no further,
-    # and this pass, in doubt, tells no review yes, as with the records before unread.
-    doubt = any(type(run) is not str or seconds(now, at) is None or seconds(now, at) < 0 for run, at in pending.items())
+    # and this pass, in doubt, tells no review yes, as with the records before unread. A Run told yes twice counts from
+    # the later, so that no stale time lets it lapse early.
+    doubt = any(type(run) is not str or seconds(now, at) is None or seconds(now, at) < 0 for run, at in observed)
+    pending = {}
+    for rid, at in observed:
+        if type(rid) is str and seconds(now, at) is not None and seconds(now, at) >= 0:
+            pending[rid] = max(pending.get(rid, at), at)
     # A pass in doubt cannot say what it carries, so it says until when none may be told yes, an hour on, and each pass
-    # that reads that carries it to the next: a chain of passes that could not read the records before loses no yes.
-    held_until = [r["advisory_doubt_until"] for r in before if "advisory_doubt_until" in r]
-    until = max([u for u in held_until if seconds(u, now) is not None and seconds(u, now) > 0], default=None)
-    if previous is None or doubt or any(seconds(u, now) is None for u in held_until):
-        until = max(filter(None, [until, text(moment(now) + datetime.timedelta(seconds=UNLISTED_SECONDS))]))
-    unlisted = {run: at for run, at in pending.items() if type(run) is str and run not in listed_runs
-                and seconds(now, at) is not None and 0 <= seconds(now, at) <= UNLISTED_SECONDS}
+    # that reads that carries it to the next: a chain of passes that could not read the records before loses no yes. A
+    # doubt no more than an hour past its own record's `now` is carried; one further on, or at no moment, is a new doubt.
+    held = [(r["advisory_doubt_until"], r["now"]) for r in before if "advisory_doubt_until" in r]
+    until = max([u for u, at in held if seconds(u, now) is not None and seconds(u, now) > 0
+                 and seconds(u, at) <= UNLISTED_SECONDS], default=None)
+    if previous is None or doubt or any(seconds(u, now) is None or seconds(u, at) > UNLISTED_SECONDS for u, at in held):
+        until = max(filter(None, [until, _hour_on(now)]))
+    unlisted = {rid: at for rid, at in pending.items() if rid not in listed_runs and seconds(now, at) <= UNLISTED_SECONDS}
+    # A Run listed with no run-name may be a review whose name is not read yet: it counts while it runs, and for an hour
+    # after GitHub made it. One finished and older never ran a review's steps under the Factory's name, and counts nothing.
+    unnamed = [u for u in context["unidentified_runs"] or [] if u["status"] != "completed"
+               or seconds(now, u["created_at"]) is None or seconds(now, u["created_at"]) <= UNLISTED_SECONDS]
     told = [{"intent": advisory_.REVIEWING, "started_at": at} for at in unlisted.values()] + [
-        {"intent": advisory_.REVIEWING, "started_at": u["created_at"], "status": u["status"]}
-        for u in context["unidentified_runs"] or []]
+        {"intent": advisory_.REVIEWING, "started_at": u["created_at"], "status": u["status"]} for u in unnamed]
 
     def minting(d: dict) -> bool:
         """Whether the pass mints a Run for Decision `d`: an admission, an approval, or a queue act once its workflow is
@@ -488,10 +501,13 @@ def run(reads: dict, config: dict, now: str, previous, mint) -> dict:
                                                reads.get("gone") or (), reads.get("unread_issues") or (),
                                                reads.get("gone_issues") or (), served, found["hand"], found["taken"],
                                                opened, config["controller"]["home"]["repo"])}
-    record["advisory_unlisted"] = sorted(
-        [{"run": run, "told_at": at} for run, at in unlisted.items()]
-        + [{"run": e["run"], "told_at": now} for e in record["pull_requests"] if e.get("advisory_ask") is True],
-        key=lambda e: e["run"])
+    carry = sorted([{"run": rid, "told_at": at} for rid, at in unlisted.items()]
+                   + [{"run": e["run"], "told_at": now} for e in record["pull_requests"] if e.get("advisory_ask") is True],
+                   key=lambda e: e["run"])
+    # More than a record holds: what is left off was told within the hour, so a doubt of an hour on covers it.
+    if len(carry) > UNLISTED_MOST:
+        carry, until = carry[:UNLISTED_MOST], max(filter(None, [until, _hour_on(now)]))
+    record["advisory_unlisted"] = carry
     if until is not None:
         record["advisory_doubt_until"] = until
     checked(record, "pass")
