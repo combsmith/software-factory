@@ -14494,14 +14494,15 @@ class Verify(unittest.TestCase):
 
     def test_a_test_module_that_ends_its_process_cannot_pass_a_failed_check(self):  # issue 1050
         # verify answers for the checks and for the tests' own process: either failing fails it.
-        real = (verify.failed, verify.tested)
+        real = (verify.failed, verify.tested, verify.suite)
+        verify.suite = lambda *_: self.fail("a test was run in the checks' process")
         try:
             with contextlib.redirect_stdout(io.StringIO()):
                 for checks_failed, tests, answer in ((True, 0, 1), (False, 1, 1), (True, 1, 1), (False, 0, 0)):
                     verify.failed, verify.tested = (lambda checks: checks_failed), (lambda fast: tests)
                     self.assertEqual(verify.main([], {}), answer, (checks_failed, tests))
         finally:
-            verify.failed, verify.tested = real
+            verify.failed, verify.tested, verify.suite = real
         # As the Makefile runs it: the test module ends only the tests' process, and the failed check still fails it.
         done, _ = self.poisoned()
         self.assertIn("%-22s FAILED" % "kernel purity", done.stdout)
