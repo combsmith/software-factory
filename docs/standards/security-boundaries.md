@@ -101,7 +101,8 @@ Held by: `tools/check_repo.py`, `tests/test_tools.py::test_only_the_transport_re
 
 `apply` refuses a Role's change to a path on the base's list (decision 0188): the protected paths
 `config/hooks.json` names, `lifecycle/`, `config/authority.json` and `.github/` among them, and each
-model Lens's input. The rest of `kernel/` and `tools/` is pushed, and decision 0020 holds it at
+model Lens's input. The rest of `kernel/` and `tools/` passes the list. A push of it lands only where
+the Role's manifest permits `push_commits` and its App holds the grant, and decision 0020 holds it at
 convergence until every model Lens has reviewed the head. Code ownership does not do this here: the
 code owners are the org's team, which holds the machine user.
 
