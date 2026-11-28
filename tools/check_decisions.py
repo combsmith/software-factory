@@ -30,6 +30,7 @@ import subprocess
 import sys
 import tempfile
 
+from tools import walk
 from tools.check_context import LINK, PENDING, TOKEN, WAITING, _cells, _is_pending, _rows, _sections
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -219,7 +220,8 @@ def _mutants(root: pathlib.Path) -> dict:
     each text of the runner and the files of `tools/mutants_of/`. Two that share a description name no one mutant.
     Raises Unreadable."""
     try:
-        files = [root / "tools" / "mutants.py"] + sorted((root / "tools" / "mutants_of").rglob("*.py"))
+        files = [root / "tools" / "mutants.py"] + [path for path in walk.files(root, "tools/mutants_of")
+                                                   if path.suffix == ".py"]
         key = (str(root.resolve()),) + tuple((path.name, hashlib.sha256(path.read_bytes()).hexdigest()) for path in files)
     except OSError as err:
         raise Unreadable("tools/mutants.py cannot be read (%s)" % type(err).__name__)

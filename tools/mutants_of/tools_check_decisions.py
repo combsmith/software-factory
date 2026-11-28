@@ -163,6 +163,7 @@ MUTANTS = [
      '\n            and isinstance(item[2], list) and all(isinstance(test, str) for test in item[2]))',
      '\n            and isinstance(item[2], list))', NAMED_MUTANTS),
     ('a change to a file of mutants but tools/mutants.py is not read again', 'tools/check_decisions.py',
-     '[root / "tools" / "mutants.py"] + sorted((root / "tools" / "mutants_of").rglob("*.py"))',
-     '[root / "tools" / "mutants.py"]', READ_AGAIN),
+     '[root / "tools" / "mutants.py"] + [path for path in walk.files(root, "tools/mutants_of")\n',
+     '[root / "tools" / "mutants.py"] + [path for path in walk.files(root, "tools/mutants_of") if False\n',
+     READ_AGAIN),
 ]
