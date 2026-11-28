@@ -4,7 +4,7 @@ Status: accepted. 2026-11-28, the Solution Architect's ruling (P) and option A o
 
 ## Decision
 
-Decision 1390 still refuses a command in a workflow that `workflow_call` starts, and the poller's `workflow_run`. So every push here was refused. Two more workflows now pass whole, on the base's list.
+Decision 1390 refuses a command in a workflow `workflow_call` starts, and the poller's `workflow_run`. So every push was refused. Five more pass whole on the list: the four `workflow_call` starts, and the poller.
 
 - A workflow whose one trigger is `workflow_call` passes where every job in the folder naming it, at least one, calls it by its `./` path from a gated workflow, or at a home Release or Channel tag, word for word.
 - Any other job that names the file refuses it: a branch, a commit, another repo or a tag of another shape. So does a chain of callers past `DEPTH`, three callers up, or one that comes back.
