@@ -2,6 +2,7 @@
 
 # The tests of guards/push.py, each named for the rule of guards/AGENTS.md it holds.
 PUSH_TOLD = ('tests.test_guards.Push.test_a_push_is_told_whole_or_begins_nothing',)
+PUSH_KEYED = ('tests.test_guards.Push.test_a_landed_push_is_keyed_by_the_commit_it_made_on_the_branch_it_was_told',)
 PUSH_CHANGES = ('tests.test_guards.Push.test_a_pushs_changes_are_what_applied_gives_path_by_path',)
 PUSH_PATHS = ('tests.test_guards.Push.test_the_paths_apply_is_asked_about_are_the_paths_that_land',)
 PUSH_READS = ('tests.test_guards.Push.test_a_push_reads_its_branch_commit_tree_and_files_once_each_in_order',)
@@ -647,4 +648,13 @@ MUTANTS = [
     ('a tree made in a state may be a name given before it', 'guards/push.py',
      ' not in (tree, state["push"]["parent"]) and new not in made.values()',
      ' != tree', PUSH_LANDS),
+    # A landed push is keyed by the commit it made and names the branch it was told (decisions 1207 and 1208).
+    ('a landed push is keyed by the head it was admitted at', 'guards/push.py',
+     '    return state["commit"], state["push"]["branch"]\n', '    return state["push"]["parent"], state["push"]["branch"]\n', PUSH_KEYED),
+    ('a landed push names no branch', 'guards/push.py',
+     '    return state["commit"], state["push"]["branch"]\n', '    return state["commit"], None\n', PUSH_KEYED),
+    ('a push not read back at its commit has landed', 'guards/push.py',
+     ' and state["landed"] is True and _sha(state["commit"])):', ' and _sha(state["commit"])):', PUSH_KEYED),
+    ('a state in no shape seen gives has landed', 'guards/push.py',
+     '    if not (_state(state) and state["landed"] is True', '    if not (isinstance(state, dict) and state.get("landed") is True', PUSH_KEYED),
 ]
