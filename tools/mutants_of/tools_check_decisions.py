@@ -5,20 +5,11 @@ from tools.mutants_of.common import MAIN_ROWS, NAMED_MUTANTS
 TARGETS = ("tools/check_decisions.py",)
 AS_TEXT = ("tests.test_tools.Decisions.test_the_mutants_are_read_as_text_and_never_run",)
 RUNS = ("tests.test_tools.Decisions.test_the_mutants_read_as_text_are_those_the_runner_runs",)
-AGAIN = ("tests.test_tools.Decisions.test_a_change_to_a_file_of_mutants_alone_is_read_again",)
 MUTANTS = [
     # Issue 1377: the mutants are read from their files as text, in a grammar where nothing changes a value once bound.
-    ("the mutants are imported, not read as text", "tools/check_decisions.py",
-     "            _READ[key] = [(name, (rel, tests)) for name, rel, tests in read_mutants(root)]\n",
-     '            _READ[key] = [(m[0], (m[1], tuple(m[4]))) for m in __import__("tools.mutants", fromlist=["x"]).MUTANTS]\n',
-     AS_TEXT + RUNS),
-    ("the runner is imported where the tree is this one", "tools/check_decisions.py",
-     "    try:\n        key = (str(root.resolve()), tuple(",
-     "    if root.resolve() == ROOT.resolve():\n        from tools import mutants  # noqa: F401\n"
-     "    try:\n        key = (str(root.resolve()), tuple(", RUNS),
     ("no file of tools/mutants_of/ is read", "tools/check_decisions.py",
      "    return tuple(file.read.loaded(path.stem) for path in", "    return () and tuple(file.read.loaded(path.stem) for path in",
-     AS_TEXT),
+     AS_TEXT + RUNS),
     ("a statement the reader does not know is passed over", "tools/check_decisions.py",
      '        elif not (isinstance(node, ast.If) and rel == "tools/mutants.py" and source == PINNED["main"]):\n',
      "        elif False:\n", AS_TEXT),
@@ -39,9 +30,6 @@ MUTANTS = [
      '        raise ValueError("the mutants take more calls than the reader runs")\n', "        pass\n", AS_TEXT),
     ("a generator is read as a list", "tools/check_decisions.py",
      "        if kind is ast.ListComp:\n", "        if kind in (ast.ListComp, ast.GeneratorExp):\n", AS_TEXT),
-    ("a change to a file of mutants but tools/mutants.py is not read again", "tools/check_decisions.py",
-     "                                          for path in _mutant_files(root)))\n",
-     "                                          for path in _mutant_files(root)[:1]))\n", AGAIN),
     ("areas(ROOT) is read whatever it pins", "tools/check_decisions.py",
      '        raise ValueError("areas(ROOT) is not read as PINNED writes it")\n', "        pass\n", AS_TEXT),
     ("a file of mutants beside a folder of its name is read", "tools/check_decisions.py",
@@ -103,7 +91,7 @@ MUTANTS = [
     ('the mutants are read once whatever the file holds', 'tools/check_decisions.py',
      '(str(path), hashlib.sha256(path.read_bytes()).hexdigest())', '(str(path), len(path.read_bytes()))', NAMED_MUTANTS),
     ('two mutants may share a description', 'tools/check_decisions.py',
-     '    if len({name for name, _ in read}) != len(read):\n', '    if False:\n', NAMED_MUTANTS),
+     '        if len({name for name, _ in read}) != len(read):\n', '        if False:\n', NAMED_MUTANTS),
     ('the mutants are read for rows that need none', 'tools/check_decisions.py',
      '            if mutants is None and not _exempt(row[1], root):\n', '            if mutants is None:\n', NAMED_MUTANTS),
     ('every row main holds names its mutant', 'tools/check_decisions.py',

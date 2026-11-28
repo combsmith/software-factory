@@ -214,20 +214,28 @@ def _changed(old: list, new: list) -> list:
 
 
 def _mutants(root: pathlib.Path) -> dict:
-    """{description: (file, the tests that kill it)} of every mutant `tools/mutants.py` runs in `root`, read once for
-    each root and each text of its files. Two that share a description name no one mutant. Raises Unreadable."""
+    """{description: (file, the tests that kill it)} of every mutant `tools/mutants.py` holds, read once for each root and
+    each text of the file. Two
+    that share a description name no one mutant. Raises Unreadable."""
     try:
-        key = (str(root.resolve()), tuple((str(path), hashlib.sha256(path.read_bytes()).hexdigest())
-                                          for path in _mutant_files(root)))
-        if key not in _READ:
-            _READ[key] = [(name, (rel, tests)) for name, rel, tests in read_mutants(root)]
-    except Exception as err:    # noqa: BLE001 -- whatever stops it being read, the mutants are unreadable
-        why = "%s: %s" % (type(err).__name__, err) if isinstance(err, ValueError) else type(err).__name__
-        raise Unreadable("tools/mutants.py cannot be read (%s)" % why)
-    read = _READ[key]
-    if len({name for name, _ in read}) != len(read):
-        raise Unreadable("two mutants in tools/mutants.py share a description, so a row cannot name one of them")
-    return dict(read)
+        key = (str(root.resolve()), hashlib.sha256((root / "tools" / "mutants.py").read_bytes()).hexdigest())
+    except OSError as err:
+        raise Unreadable("tools/mutants.py cannot be read (%s)" % type(err).__name__)
+    if key not in _READ:
+        try:
+            if root.resolve() == ROOT.resolve():
+                from tools import mutants
+                listed = mutants.MUTANTS
+            else:
+                # Another tree's list is read as a literal, never run: nothing is loaded by a name (tools/check_writes.py).
+                listed = _literal_mutants((root / "tools" / "mutants.py").read_text(encoding="utf-8"))
+            read = [(m[0], (m[1], tuple(m[4]))) for m in listed]
+        except Exception as err:    # noqa: BLE001 -- whatever stops it being read, the mutants are unreadable
+            raise Unreadable("tools/mutants.py cannot be read (%s)" % type(err).__name__)
+        if len({name for name, _ in read}) != len(read):
+            raise Unreadable("two mutants in tools/mutants.py share a description, so a row cannot name one of them")
+        _READ[key] = dict(read)
+    return _READ[key]
 
 
 _READ = {}
@@ -870,6 +878,14 @@ def _steps(body: list, frame: _Frame):
         if out is not _ON:
             return out
     return _ON
+
+
+def _literal_mutants(source: str) -> list:
+    """The `MUTANTS = [...]` of a file that writes it as a literal, which a tree other than this one holds in a test."""
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Assign) and [getattr(t, "id", None) for t in node.targets] == ["MUTANTS"]:
+            return ast.literal_eval(node.value)
+    raise ValueError("no MUTANTS")
 
 
 def _is_test(killer: str, module: str, name: str) -> bool:

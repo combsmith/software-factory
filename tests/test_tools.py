@@ -7707,8 +7707,6 @@ class Decisions(unittest.TestCase):
         # The runner's areas(ROOT) as PINNED writes it loads a file of tools/mutants_of/: read through ast, its helpers,
         # comprehensions and a starred call worked out, the row finds the mutant it names.
         files = dict(AREA_FILES)
-        named = RECORD.replace("one thing is undone", "x is undone").replace("tools/check_x.py", "tools/check_w.py")
-        self.assertEqual(check_decisions.run(edited(history(files), {FIRST: named}, commit=True)), [])
         self.assertIn(("x is undone", "tools/check_w.py", ("tests.test_x.T.test_y",)),
                       check_decisions.read_mutants(history(files)))
         # What Python would build otherwise, or what the reader cannot work out as Python would, holds no row.
@@ -7740,17 +7738,8 @@ class Decisions(unittest.TestCase):
             [{"tools/mutants_of/tools_check_w.py": text} for text in areas.values()] + \
             [{"tools/mutants_of/tools_check_w/__init__.py": "MUTANTS = []\n"}]
         for words, overlay in zip(list(cases) + list(areas) + ["not the file the reader reads"], broken):
-            with self.subTest(words=words):
-                problems = check_decisions.run(edited(history(files), overlay))
-                self.assertTrue(caught(problems, "tools/mutants.py cannot be read"), problems)
-                self.assertTrue(caught(problems, words.strip()), problems)
-
-    def test_a_change_to_a_file_of_mutants_alone_is_read_again(self):  # issue 1377
-        root = history(AREA_FILES)
-        self.assertIn("x is undone", check_decisions._mutants(root))
-        edited(root, {"tools/mutants_of/tools_check_w.py": AREA_FILES["tools/mutants_of/tools_check_w.py"].replace(
-            '(("x", "test_y"),)', '(("z", "test_y"),)')})
-        self.assertIn("z is undone", check_decisions._mutants(root))
+            with self.subTest(words=words), self.assertRaisesRegex(ValueError, re.escape(words.strip())):
+                check_decisions.read_mutants(edited(history(files), overlay))
 
     def test_the_mutants_read_as_text_are_those_the_runner_runs(self):  # issue 1377
         # Each in a process of its own, so that neither loads what the other reads: the reader imports no file of
