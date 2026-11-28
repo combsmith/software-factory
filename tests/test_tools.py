@@ -11347,7 +11347,7 @@ if url.endswith("/installation/token"):
         made = '#!/bin/sh\nexec /usr/bin/mktemp -d "%s/out.XXXXXX"\n' % self.scratch
         # python3 stands in only for a redaction it is told to fail: of the exchanges, or of a capture.
         python = """#!/bin/sh
-if [ "$1 $2" = "-m tools.redact_trial" ]; then
+if [ "$1 $2" = "-I -S" ] && [ "$3" = '%(root)s/tools/redact_trial.py' ]; then
     input=$(cat)
     case "$input" in
         '{'*) [ -e "%(bin)s/bad-exchanges" ] && exit 3 ;;
@@ -11356,7 +11356,7 @@ if [ "$1 $2" = "-m tools.redact_trial" ]; then
     printf '%%s\\n' "$input" | exec "%(real)s" "$@"
 fi
 exec "%(real)s" "$@"
-""" % {"bin": self.bin, "real": sys.executable}
+""" % {"bin": self.bin, "real": sys.executable, "root": ROOT.resolve()}
         for name, text in (("gh", self.GH), ("curl", self.CURL), ("openssl", AppThreads.OPENSSL), ("mktemp", made), ("python3", python)):
             (self.bin / name).write_text(text)
             (self.bin / name).chmod(0o755)
@@ -12925,7 +12925,7 @@ class Redaction(unittest.TestCase):
             self.assertIn("opens no path", said.getvalue())
         self.assertFalse((folder / "out").exists())
         # As the scripts run it: in through a pipe, out through a pipe, and what it took out named on standard error.
-        ran = subprocess.run([sys.executable, "-m", "tools.redact_trial"], cwd=ROOT, capture_output=True, text=True,
+        ran = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "tools" / "redact_trial.py")], capture_output=True, text=True,
                              input="HTTP/2.0 200 OK\nAuthorization: x\nContent-Type: text/plain\n\nfine\n", timeout=60)
         self.assertEqual((ran.returncode, ran.stdout), (0, "HTTP/2.0 200 OK\nContent-Type: text/plain\n\nfine\n"))
         self.assertIn("the header Authorization", ran.stderr)
@@ -12947,7 +12947,7 @@ class Redaction(unittest.TestCase):
         # The App's script sends the report to its pipe and the clean text to its file: in that order, or the report
         # would go to the file.
         script = (ROOT / "tools" / "trial_as_app.sh").read_text()
-        self.assertIn('python3 -m tools.redact_trial < "$1" 2>&1 > "${1%.raw}.clean") | sed', script)
+        self.assertIn('python3 -I -S "$root/tools/redact_trial.py" < "$1" 2>&1 > "${1%.raw}.clean") | sed', script)
         # Its redact(), run alone: a capture that redacts is deleted beside its clean file; one that fails is deleted
         # unread with its partial clean file, since both lie in OUT, which a session reads, and the failure is returned.
         function = re.search(r"^redact\(\) \{.*?^\}$", script, re.M | re.S).group(0)
@@ -12962,6 +12962,33 @@ class Redaction(unittest.TestCase):
         self.assertIn("failed; its capture is deleted unread", ran.stderr)
         self.assertEqual(sorted(p.name for p in folder.iterdir()), ["good.clean"])
         self.assertEqual((folder / "good.clean").read_text(), "HTTP/2.0 200 OK\n\nfine\n")
+
+    def test_it_runs_as_a_file_under_isolation_and_takes_no_module_the_shell_names(self):  # issue 1300
+        # A PYTHONPATH entry, and under -m the working directory, are searched before the standard library: a json.py
+        # planted in either would run inside the redaction while it reads the raw answers. The scripts run it as a file
+        # under -I, which reads neither, and -S, which reads no site-packages; it finds the repo's own modules by its place.
+        planted = pathlib.Path(tempfile.mkdtemp(dir=SCRATCH.name)).resolve()
+        (planted / "json.py").write_text("import pathlib\npathlib.Path(%r).write_text('ran')\nraise SystemExit(7)\n"
+                                         % str(planted / "ran"))
+        # And a package named tools, read later than json, so that a path that took the working directory back after json
+        # was imported would be told too.
+        (planted / "tools").mkdir()
+        (planted / "tools" / "__init__.py").write_text("import pathlib\npathlib.Path(%r).write_text('ran')\nraise SystemExit(8)\n"
+                                                       % str(planted / "tools-ran"))
+        capture = "HTTP/2.0 200 OK\nAuthorization: x\nContent-Type: application/json\n\n{\"ok\": 1}\n"
+        steered = dict(os.environ, PYTHONPATH=str(planted))
+        isolated = subprocess.run([sys.executable, "-I", "-S", str(ROOT / "tools" / "redact_trial.py")], cwd=str(planted), env=steered,
+                                  capture_output=True, text=True, input=capture, timeout=60)
+        self.assertEqual((isolated.returncode, isolated.stdout),
+                         (0, 'HTTP/2.0 200 OK\nContent-Type: application/json\n\n{\n  "ok": 1\n}\n'), isolated.stderr)
+        self.assertIn("the header Authorization", isolated.stderr)
+        self.assertFalse((planted / "ran").exists())
+        self.assertFalse((planted / "tools-ran").exists())
+        # The way it was run before, the planted module runs: the test can tell the difference.
+        loose = subprocess.run([sys.executable, "-m", "tools.redact_trial"], cwd=str(ROOT), env=steered, capture_output=True,
+                               text=True, input=capture, timeout=60)
+        self.assertEqual(loose.returncode, 7)
+        self.assertTrue((planted / "ran").exists())
 
     def test_a_drafted_fixture_comes_out_with_no_credential(self):
         data = json.loads(fixture())
@@ -16295,6 +16322,23 @@ class SignalTraps(unittest.TestCase):
         self.assertLess(app.index("unset GH_DEBUG DEBUG CURL_HOME GODEBUG"), gh[0])
         self.assertLess(app.index(GH_UNSTEERED), gh[0])
 
+    def test_every_redaction_reads_no_module_the_shell_names(self):  # issue 1300
+        # A PYTHONPATH entry, and the working directory under -m, come before the standard library on the path: a json.py
+        # planted in either would run inside the redaction as it reads the raw answers, and a package in site-packages
+        # named tools would stand in for the repo's. Every script that redacts runs the redaction as a file under -I and
+        # -S, by the root it found, on every call. A test that the file is there is no call. The token trials that mint
+        # come in part 3 of issue 1300.
+        scripts, later = [], SCRIPTS_1300_LATER
+        for script in sorted((ROOT / "tools").glob("*.sh")):
+            lines = [line.replace('-f "$root/tools/redact_trial.py"', "") for line in script.read_text().splitlines()]
+            calls = [line for line in lines if "redact_trial" in line and not line.lstrip().startswith("#")]
+            if calls:
+                scripts.append(script.name)
+            for line in calls if script.name not in later else ():
+                self.assertEqual(re.findall(r"python3[^|;()<>]*redact_trial[^\s)]*", line), ['python3 -I -S "$root/tools/redact_trial.py"'],
+                                 (script.name, line))
+        self.assertEqual(len(scripts), 18)
+
     def test_every_trial_finds_its_root_as_the_file_system_does(self):  # issue 1215
         # A plain cd looks a relative path up along CDPATH, and says where it went, and takes .. past a link logically.
         # Each script's root is found with CDPATH empty, physically.
@@ -16347,6 +16391,12 @@ def note_in(test: unittest.TestCase, out: pathlib.Path, told: str) -> str:
     test.assertIn("redacted: 0 removed", clean.stderr)
     test.assertFalse(check_trials.shaped(note), note)
     return note
+
+
+# The token trials whose redaction runs under -I and -S from part 3 of issue 1300.
+SCRIPTS_1300_LATER = ("trial_reader_reads.sh", "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh",
+                      "trial_p80_branch_reads.sh", "trial_p58_edits.sh", "trial_p81_review_order.sh", "trial_p39_reach.sh",
+                      "trial_p4_narrow.sh", "trial_p8_cost.sh", "trial_p52_pause.sh")
 
 
 # What gh reads from the environment to choose a configuration or a pager (issue 1300).
