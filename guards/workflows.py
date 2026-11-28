@@ -56,7 +56,8 @@ Its stated limits:
 - A job that calls a workflow of this repo, and a workflow started by `workflow_call`, are refused: what calls it is
   not read. So, with the actions and `env:` names the table does not name, every job of this repo's own workflows
   that holds a secret and runs a command is still refused, and so is every push here.
-- The Actions cache a job may write is not read: no action the table names restores one.
+- The Actions cache a job may write is not read: no action the table names restores one, and a command is given no
+  cache's token by the table.
 - What an action reads at its pin is read from its source by a person when its row is written: the rows hold the pins
   `.github/workflows/sonarcloud.yml` holds, which decision 0225's row was written from. A new pin is refused until a
   row names it.
@@ -247,8 +248,7 @@ def _job(node: dict, started: bool):
 def _branches(node: dict, default: str) -> bool:
     """Whether a `push:` names a list of branches alone, and in it `default` alone, word for word."""
     named = node["kids"][0]["kids"] if [kid["key"] for kid in node["kids"]] == ["branches"] else []
-    return bool(named) and not node["kids"][0]["value"] \
-        and all(kid["key"] is None and not kid["kids"] and kid["value"] == default for kid in named)
+    return bool(named) and all(kid["key"] is None and not kid["kids"] and kid["value"] == default for kid in named)
 
 
 def _started(root: dict, default) -> bool:

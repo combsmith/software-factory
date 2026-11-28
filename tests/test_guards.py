@@ -2485,6 +2485,7 @@ class Commands(unittest.TestCase):
                    "on:\n  push:\n    tags:\n      - v1\n    branches:\n      - main\n",
                    "on:\n  push:\n    branches-ignore:\n      - dev\n", "on:\n  push:\n    branches:\n      - '*'\n",
                    "on:\n  push:\n    branches:\n      - main*\n", "on:\n  push:\n    branches:\n      - x: main\n",
+                   "on:\n  push:\n    branches:\n      x: main\n",
                    "on:\n  push:\n    branches:\n      - main\n    paths:\n      - x\n", "on:\n  Push:\n    branches:\n      - main\n"):
             self.assertEqual(released(started(on)), workflows.STARTED, on)
         # The default branch is the one named, word for word: told another, none, or one with a pattern's mark, it refuses.

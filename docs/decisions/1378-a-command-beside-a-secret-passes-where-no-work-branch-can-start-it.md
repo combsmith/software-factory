@@ -1,6 +1,6 @@
-# 0000. A command beside a secret passes where no work branch can start it
+# 1378. A command beside a secret passes where no work branch can start it
 
-Status: accepted. 2026-11-28, the Solution Architect's ruling 1; issue 838. Narrows decision 0239's Decision row "Where the secret clauses are held" and its Boundary row "Right before each push uses `push_commits`".
+Status: accepted. 2026-11-28, the Solution Architect's ruling 1; issue 838. Narrows decision 0239's Decision row "Where the secret clauses are held" and its first two Boundary rows, the grant's and the push's.
 
 ## Decision
 
@@ -12,7 +12,7 @@ Decision 0239 refuses a push where a job that holds a secret runs a file a Facto
 
 `guards/workflows.py` holds it, under the code `STARTED`; `refusal_at` is told the default branch.
 
-Limits: a person or an App that dispatches a workflow on a work branch runs that branch's files beside its secret; the ruling leaves that to them. A job that calls a workflow of this repo, and the actions and `env:` names the table lacks, still refuse every job here that holds a secret, but the scan's. Nothing calls the guard yet: the push's loop is not built.
+Limits: the runner is taken to be GitHub's own, as the guard says; a self-hosted one is not read. A person or an App that dispatches a workflow on a work branch runs that branch's files beside its secret; the ruling leaves that to them. A job that calls a workflow of this repo, and the actions and `env:` names the table lacks, still refuse every job here that holds a secret, but the scan's. Nothing calls the guard yet: the push's loop is not built.
 
 ## Why
 
