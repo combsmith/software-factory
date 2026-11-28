@@ -344,9 +344,10 @@ def _numbered(attempt):
 
 
 def _touched(record: dict, day: str) -> bool:
-    """Whether a finished Run ran on `day`: on its start's, its end's or one between them, its end read as its start
-    where GitHub gave none, as `runs` keeps it (the Solution Architect, 2026-11-27: a Run across midnight counts on both)."""
-    return record["started_at"][:DAY] <= day <= record.get("ended_at", record["started_at"])[:DAY]
+    """Whether a finished Run ran on `day`: on its start's, its end's or one between them (the Solution Architect,
+    2026-11-27: a Run across midnight counts on both). One whose end GitHub gave none of may have ended on any day since
+    its start, as the ceiling counts it, so it is read on each."""
+    return record["started_at"][:DAY] <= day <= record.get("ended_at", day)[:DAY]
 
 
 def advised(previous: list) -> dict:
@@ -425,6 +426,9 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
                 record, unidentified = found
                 if record is not None:
                     records.append(record)
+                    # A review re-run's record names its attempt, queued or not, whatever the day (decision 0224).
+                    if record["intent"] == REVIEWING and _numbered(row.get("run_attempt")) != 1:
+                        record[ATTEMPT] = _numbered(row.get("run_attempt"))
                     key = (record["run"], record["started_at"])
                     attempts[key] = attempts.get(key, 0) + 1
                     ids.setdefault(record["run"], []).append(row["id"])
@@ -479,12 +483,10 @@ def runs(transport, repo: str, branch: str, workflows: list, dispatcher: tuple, 
     # What each finished review Run of the day says its advisory reads cost (decision 0224): one small file, read once.
     # `day` is the UTC date of the pass's `now`, and None reads none. Nothing here makes the list less than whole or
     # ends the pass: what is not known the pass counts at its worst case. At most COSTS are asked for in one read. A
-    # review re-run's record names its attempt, so that each before it counts the worst case, and null where GitHub
-    # gives none that can be read, which counts as many as a Run may have (the Solution Architect, 2026-11-27).
+    # review re-run's record names its attempt, as read above, so that each before it counts the worst case, and null
+    # where GitHub gives none that can be read, which counts as many as a Run may have (the Solution Architect, 2026-11-27).
     costs = 0
     for record, github_id, attempt, keyed in ran if day is not None else []:
-        if record["intent"] == REVIEWING and _numbered(attempt) != 1:
-            record[ATTEMPT] = _numbered(attempt)
         if record["status"] != "completed" or record["intent"] != REVIEWING or not _touched(record, day) \
                 or _numbered(attempt) is None:
             continue
