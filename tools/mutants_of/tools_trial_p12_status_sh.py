@@ -1450,4 +1450,7 @@ MUTANTS = [
      'echo >&2 "trial_p4_narrow: no token was read', (NARROWED + "test_a_refused_mint_stops_with_nothing_read_and_the_answer_redacted",)),
     *[("%s keeps a mint status that is not three digits" % script, "tools/" + script, DIGITS_1245, "", (MINT_REFUSED,))
       for script in SCRIPTS_1215 if script != "trial_p4_narrow.sh"],
+    # And the note comes before the terminal's line, so a terminal gone loses nothing.
+    *[("%s tells the terminal before it notes" % script, "tools/" + script, 'live() { note "$*"; echo "$*" >&2; }',
+       'live() { echo "$*" >&2; note "$*"; }', (NOTED,)) for script in SCRIPTS_1215],
 ]
