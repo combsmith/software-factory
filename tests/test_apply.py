@@ -10,6 +10,7 @@ import copy
 import hashlib
 import json
 import pathlib
+import re
 import subprocess
 import tempfile
 import unittest
@@ -1275,16 +1276,28 @@ class Push(unittest.TestCase):
         for path in ("docs/sonar-project.properties", "sonar-project.properties.md"):
             self.assertIsNone(apply.push_refusal([path], [None], own_list()), path)
 
-    def test_the_checks_that_hold_a_trust_boundary_are_on_the_repos_own_list(self):  # issues 907, 1048 and 1090, decision 0240
+    def test_the_checks_that_hold_a_trust_boundary_are_on_the_repos_own_list(self):  # issues 907, 1048, 1090, 1377
         # The check that holds the workflows, the one that holds whose commits a pull request carries, the one that
         # holds who reaches a GitHub write, and the one that holds that nothing is fetched and no secret written down: a
         # Role's push of any of them could blind it to a later change, so each is refused, at its own path alone. So is
         # each file whose only job is to decide whether one of them runs, what it reads, or its verdict: verify's list
-        # of checks, the walk of the tree, and the required check's verdict (issue 1048). One hop, no further: the other
-        # checks, and the transport the commits' check reads through, stay verify's inputs, pushed and read by every Lens.
-        # And the title check, which the commits' check imports and folds into its verdict (issue 1090).
+        # of checks, the walk of the tree, and the required check's verdict (issue 1048). The transport the commits' check
+        # reads through stays verify's input, pushed and read by every Lens.
+        # And the title check, which the commits' check imports and folds into its verdict (issue 1090). And every other
+        # check verify runs, with the two files of tools/ they import beyond them, so a push can blind none (issue
+        # 1377): the runner of the mutants and its files stay verify's inputs.
         checks = ("tools/check_workflows", "tools/commits_are_the_maintainers", "tools/check_writes", "tools/check_repo",
-                 "tools/verify", "tools/walk", "tools/needs_passed", "tools/pr_title")
+                  "tools/verify", "tools/walk", "tools/needs_passed", "tools/pr_title") + tuple(
+            "tools/" + name for name in ("check_apps", "check_authority", "check_context", "check_decisions",
+                                         "check_examples", "check_gate_sets", "check_lifecycle", "check_purity",
+                                         "check_release", "check_rulesets", "check_trials", "jsonschema_lite",
+                                         "eval_result"))
+        # Every check verify's list names is among them, read from that list, so a check added to it is held too
+        # (Astra's and Carbon's reads).
+        source = (ROOT / "tools" / "verify.py").read_text()
+        start = source.index("\nCHECKS = [")
+        listed = set(re.findall(r"\bcheck_[a-z_]+", source[start:source.index("\n]\n", start)]))
+        self.assertTrue(listed and {"tools/" + name for name in listed} <= set(checks), listed)
         # A module Python would import at the name, whatever its suffix: an extension module is found ahead of the
         # source, so it is the same path (Astra's read). And a package at the name is too, the name itself among it, a
         # link to a directory: Python imports it in place of the module, and python3 -m runs its __main__ (the Claude
@@ -1305,7 +1318,7 @@ class Push(unittest.TestCase):
         # case.
         for path in ("Makefile", "GNUmakefile", "makefile", "gnumakefile"):
             self.assertEqual(apply.push_refusal([path], [None], own_list()), "push_protected", path)
-        for path in ("tools/check_authority.py", "tools/check_workflows_x.py", "sub/tools/check_writes.py",
+        for path in ("tools/mutants.py", "tools/mutants_of/common.py", "tools/check_workflows_x.py", "sub/tools/check_writes.py",
                      "adapters/github.py", "sub/tools/walk.py", "tools/walker.py", "tools/verify_x/a.py",
                      "tools/x/verify.py", "Makefile.md", "docs/Makefile", "kernel/__init__.py",
                      "tools/verify.notes/x.py", "tools/pr_titles.py", "tools/x/pr_title.py"):
@@ -1514,8 +1527,8 @@ class Bundle(unittest.TestCase):
                    "lifecycle/pull_request.json", "config/authority.json", "kernel/gate.py", "kernel/brakes.py",
                    "config/hooks.json", "roles/pr-review.json", "roles/pr-review/prompt.md", "harness/apply.py",
                    "config/rubric-pr-review.json", "config/harness.json", "tools/hooks/protected.py", "guards/patch.py",
-                   "guards/sub/data.json", "Makefile")
-        pushed = ("kernel/derive.py", "tests/test_apply.py", "tools/check_context.py", "README.md", ".gitleaks.toml",
+                   "guards/sub/data.json", "Makefile", "tools/check_context.py")
+        pushed = ("kernel/derive.py", "tests/test_apply.py", "tools/mutants.py", "README.md", ".gitleaks.toml",
                   "schemas/effect.schema.json", "docs/Makefile", "docs/a.md", "docs/decisions/x.md")
         for path in refused:
             for data in (a_bundle(changed(path)), a_bundle(moved(path, "docs/moved.md")),

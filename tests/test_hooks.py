@@ -2944,7 +2944,7 @@ class ProtectedPaths(Asks):
     def test_an_edit_elsewhere_is_not_asked_about(self):
         for rel in ("docs/notes.md", "kernel/AGENTS.md", "kernel/__init__.py", "kernel/decide.py", "kernel/derive.py",
                     "kernel/terms.py", "config/AGENTS.md", "Makefile.md", ".gitleaks.toml",
-                    "schemas/facts.schema.json", "tests/test_decide.py", "tests/test_hooks.py", "tools/check_authority.py",
+                    "schemas/facts.schema.json", "tests/test_decide.py", "tests/test_hooks.py", "tools/mutants.py",
                     "lifecycle.md", "docs/lifecycle/x.md", "tools/hooks.md", ".githubx/y", "config/rubric.md",
                     # Only a set's manifest is: its other files, and a manifest deeper down, are not (issue 696).
                     "evals/AGENTS.md", "evals/context/task.json", "evals/cases.json", "evals/pr-review/old/cases.json"):
