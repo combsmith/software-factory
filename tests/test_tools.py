@@ -3510,9 +3510,10 @@ class Repo(unittest.TestCase):
         self.assertTrue(validate(dict(named, readers={"astra": dict(block, advisory_ceiling_usd_per_day=30)}), schema))
         self.assertTrue(validate(dict(named, readers={"astra": dict(block, ceiling_usd_per_day=30)}), schema))
         # The readers' shares fit in the advise step's whole, or a reader before the others has no turn (decision 0243).
-        for shares, held in (((900, 540), True), ((900, 541), False), ((1440,), True), ((60, 1381), False)):
+        for shares, held in (((900, 540), True), ((900, 541), False), ((1440,), True), ((60, 1381), False), ((721, 721), False)):
             found = check_examples._readers(dict(named, readers=dict(zip(("astra", "kimi"), (dict(block, share=n) for n in shares)))))
             self.assertEqual(not caught(found, "past the advise step's whole of 1440"), held, shares)
+        self.assertEqual(check_examples._readers(dict(named, readers={"astra": dict(block, share=1440)})), [])
         # The worst case one read is counted at is no less than one Run may cost by its readers' caps and prices: each
         # reader's largest prompt at a token a byte and its whole output cap. With these, 2.14 for one reader.
         most = (block["prompt_characters"] * block["usd_per_million"]["input"]
