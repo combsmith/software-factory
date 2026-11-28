@@ -2628,6 +2628,33 @@ class Gated(unittest.TestCase):
         for home in ("combsmith/other", "combsmith", "", None, "combsmith/software-factory/x", "a/b c"):
             self.assertEqual(judged({CALLER_AT: caller(HOME_CALL)}, home=home), workflows.UNREADABLE, home)
 
+    def test_a_secret_handed_to_a_called_workflow_is_held(self):
+        # A secret given as an input reaches a called job that names none: every job of a workflow another may call
+        # holds one, so it runs on a hosted label and its command is refused.
+        handed = caller(LOCAL_CALL).replace("    secrets: inherit\n", "    with:\n      token: ${{ secrets.DEPLOY }}\n")
+        quiet = CALLED.replace("    env:\n      GITHUB_TOKEN: ${{ secrets.X }}\n", "    permissions: read-all\n")
+        for on in ("on:\n  workflow_call:\n", "on: workflow_call\n", "on:\n  - workflow_call\n", "on:\n  Workflow_Call:\n",
+                   "on:\n  workflow_call:\n  workflow_dispatch:\n"):
+            called = quiet.replace("on:\n  workflow_call:\n", on)
+            self.assertEqual(judged({CALLED_AT: called, CALLER_AT: handed}), workflows.STARTED, on)
+            self.assertEqual(judged({CALLED_AT: called.replace("ubuntu-24.04", "self-hosted"), CALLER_AT: handed}),
+                             workflows.UNREADABLE, on)
+        self.assertIsNone(judged({CALLED_AT: quiet.replace("on:\n  workflow_call:\n", "on:\n  workflow_dispatch:\n")}))
+        # A call by its path reaches a workflow on the list alone.
+        first = ".github/workflows/a.yml"
+        self.assertEqual(judged({first: handed, CALLED_AT: CALLED}, listed=[first]), workflows.UNREADABLE)
+        self.assertEqual(judged({first: handed, CALLED_AT: CALLED}, listed=[first, CALLED_AT]), workflows.STARTED)
+
+    def test_a_key_with_a_capital_refuses_a_gated_workflow(self):
+        # Actions may read a key in any case, so what a gated workflow's keys say is never passed over unread.
+        self.assertIsNone(released())
+        for old, new in (("on:\n", "ON:\n"), ("jobs:\n", "jobs:\n  other:\n    Runs-On: self-hosted\n    steps:\n      - run: make\n"),
+                         ("    runs-on: ubuntu-24.04\n", "    runs-on: ubuntu-24.04\n    Runs-On: self-hosted\n")):
+            self.assertEqual(released(RELEASE.replace(old, new, 1)), workflows.UNREADABLE, new)
+        self.assertEqual(released(RELEASE + "Jobs:\n  other:\n    runs-on: self-hosted\n    steps:\n      - run: make\n"),
+                         workflows.UNREADABLE)
+        self.assertEqual(judged({CALLER_AT: caller(HOME_CALL).replace("    uses:", "    Uses:")}), workflows.UNREADABLE)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -22,7 +22,7 @@ says is refused, never passed.
     for word nor under a directory it names.
   - `STARTED`: a step that runs a command, where a branch but the default may start the workflow. `refusal` is
     told no default branch, so every command is refused there.
-- `refusal_at(files, listed, default)`: the same answer for every workflow a commit holds, `files` mapping each one's path to
+- `refusal_at(files, listed, default, home)`: the same answer for every workflow a commit holds, `files` mapping each one's path to
   its text, but of the jobs that hold a secret alone: the first reason, the workflows in their paths' order, or None.
   A job holds a secret unless all of these are so (record 0239's first row): neither it nor its workflow outside its
   jobs names `secrets`, in any case, as a key or in a value, `secrets: inherit` and `${{ secrets.X }}` among them; it
@@ -30,7 +30,8 @@ says is refused, never passed.
   nothing, `read-all`, `{}`, or each scope `read` or `none`. With neither, the repo's default permission for
   `GITHUB_TOKEN` applies, which `adapters/settings.py` will read: until it does, it is taken as write, so such a job
   holds a secret. A key with a capital, at the job or at the top, is taken to hold one too, as Actions may read a
-  key in any case. A workflow's lines are still read whole in the narrow form, a job that holds no secret among them, so
+  key in any case. Every job of a workflow another may call, `workflow_call` among its triggers, holds one: a secret
+  may reach it as an input. A workflow's lines are still read whole in the narrow form, a job that holds no secret among them, so
   that what a job names is never hidden: lines this does not read are `UNREADABLE`, and so is no mapping of path to
   text. Its keys at the top and its `env:` are held to the table only where one of its jobs holds a secret.
   A command such a job runs passes only where its workflow is on the list, as every job's must be, and its `on:` names
@@ -44,7 +45,9 @@ says is refused, never passed.
   workflow, a job that holds a secret must call a workflow of this folder by its path, or `home`'s at a Release's or
   a Channel's tag, `factory/v1.2.3` or `factory/v0-next`, word for word, or run on a label `HOSTED` names; else it
   is `UNREADABLE`. Every job that holds a secret and runs steps runs on a label `HOSTED` names, wherever its workflow
-  stands. A workflow started by `workflow_call` is refused: what calls it is not read here.
+  stands. A call by its path reaches a workflow on the list alone, and a key with a capital, at the top or in a
+  job that holds a secret, is `UNREADABLE` there too. A command in a workflow that `workflow_call` starts is refused,
+  as `STARTED`: what calls it is not read here.
 
 Every route that points SonarCloud's scan at another settings file is refused: the scan's `args` and `projectBaseDir`
 are inputs its row does not name, and `SONAR_SCANNER_OPTS`, `SONAR_SCANNER_JSON_PARAMS` and `SONARQUBE_SCANNER_PARAMS`
@@ -65,7 +68,8 @@ Its stated limits:
   runs is the Release's, so whoever may move a `factory/` tag changes it: the tag's protection is the boundary. So,
   with the workflows `workflow_call` starts, every push here is still refused.
 - The Actions cache a job may write is not read: no action the table names restores one, and a command is given no
-  cache's token by the table.
+  cache's token by the table. A workflow passed whole may restore one, but a run the default branch starts restores
+  the default branch's caches alone, never a work branch's.
 - What an action reads at its pin is read from its source by a person when its row is written: the rows hold the pins
   `.github/workflows/sonarcloud.yml` holds, which decision 0225's row was written from. A new pin is refused until a
   row names it.
@@ -125,6 +129,7 @@ PATTERN = "*?+[]!"
 LOCAL = "./.github/workflows/"
 TAG = "@factory/"
 CHANNELS = ("next", "stable")
+CALL = "workflow_call"
 SEMVER = ("major", "minor", "patch")
 DIGITS = "0123456789"
 NAME = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-."
@@ -332,14 +337,15 @@ def _gated(path: str, roots: dict, listed: list, default) -> bool:
     return root is not None and _listed(path, listed) and not _started(root, default)
 
 
-def _call(job: dict, roots: dict, home) -> bool:
-    """Whether a job of a gated workflow is read as the table says: it calls a workflow of this folder by its path or
-    the home repo's at a Release tag, or it runs on GitHub's own runner."""
+def _call(job: dict, roots: dict, home, listed: list) -> bool:
+    """Whether a job of a gated workflow is read as the table says: no key of it has a capital, and it calls a workflow
+    on `listed` of this folder by its path, or the home repo's at a Release tag, or it runs on GitHub's own runner."""
     uses = [kid for kid in job["kids"] if kid["key"] == "uses"]
-    if not uses:
-        return _hosted(job)
+    if _capital(job["kids"]) or not uses:
+        return not _capital(job["kids"]) and _hosted(job)
     value = uses[0]["value"] if not uses[0]["kids"] else None
-    return type(value) is str and (bool(_home(value, home)) or value.startswith(LOCAL) and FOLDER + value[len(LOCAL):] in roots)
+    local = FOLDER + value[len(LOCAL):] if type(value) is str and value.startswith(LOCAL) else ""
+    return type(value) is str and (bool(_home(value, home)) or local in roots and _listed(local, listed))
 
 
 def _root(text):
@@ -361,6 +367,12 @@ def _named(nodes: list) -> bool:
             return True
         left += node["kids"]
     return False
+
+
+def _callable(root: dict) -> bool:
+    """Whether another workflow may call this one: `workflow_call` among its triggers, as a key or an item, in any case."""
+    on = [kid for kid in root["kids"] if kid["key"] == "on"]
+    return bool(on) and CALL in [on[0]["value"].casefold()] + [(kid["key"] or kid["value"]).casefold() for kid in on[0]["kids"]]
 
 
 def _capital(nodes: list) -> bool:
@@ -404,13 +416,13 @@ def _read(path, text, listed, narrow: bool, default, roots=None, home=None):
         return UNREADABLE
     # What the workflow says outside its jobs is read once, for every job.
     outside = [kid for kid in root["kids"] if kid["key"] != "jobs"]
-    outer = _named(outside) or _capital(root["kids"])
+    outer = _named(outside) or _capital(root["kids"]) or _callable(root)
     given = [kid for kid in outside if kid["key"] == "permissions"]
     held = [job for job in jobs["kids"] if not narrow or _holds(job, outer, given)]
     if not held:
         return None
     if narrow and _gated(path, roots, listed, default):
-        return None if all(_call(job, roots, home) for job in held) else UNREADABLE
+        return None if not _capital(root["kids"]) and all(_call(job, roots, home, listed) for job in held) else UNREADABLE
     top = _keys(root, TOP + ("env", "jobs"))
     if top is None or not _env(top.get("env")):
         return UNREADABLE
