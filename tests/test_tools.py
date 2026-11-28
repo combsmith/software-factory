@@ -9806,7 +9806,7 @@ class Trials(unittest.TestCase):
                 return unittest.TestResult()
 
         real = (verify.failed, verify.tested)
-        verify.failed, verify.tested = (lambda checks: False), (lambda fast: 0)
+        verify.failed, verify.tested = (lambda checks: False), (lambda fast, share: 0)
         try:
             with contextlib.redirect_stdout(io.StringIO()) as said:
                 self.assertEqual(verify.main([]), 0)
@@ -14381,7 +14381,7 @@ class Verify(unittest.TestCase):
 
         real += (verify.tested,)
         verify.failed, verify.unittest.TextTestRunner = (lambda checks: ran.append("checks") or False), Runner
-        verify.tested = lambda fast: ran.append("tested") or 0
+        verify.tested = lambda fast, share: ran.append("tested") or 0
         try:
             with contextlib.redirect_stdout(io.StringIO()) as said:
                 self.assertEqual(verify.main([], {"CHECKS_SHARD": "1", "CHECKS_SHARDS": "3"}), 0)
@@ -14422,7 +14422,7 @@ class Verify(unittest.TestCase):
 
         real = (verify.failed, verify.unittest.TextTestRunner, verify.tested)
         verify.failed, verify.unittest.TextTestRunner = (lambda checks: False), Runner
-        verify.tested = lambda fast: ran.update(fast=fast) or 0
+        verify.tested = lambda fast, share: ran.update(fast=fast) or 0
         try:
             # main prints the unverified rules, and on --checks the desk's note, here none
             with contextlib.redirect_stdout(io.StringIO()), mock.patch.object(verify, "desk_note", return_value=""):
@@ -14473,8 +14473,8 @@ class Verify(unittest.TestCase):
     @classmethod
     def poisoned(cls) -> tuple:
         """(what `make verify` did, where) in a copy of the repo that a Role's push could make: a check fails on a
-        print in kernel/, the one test module ends its process at import, and an ast.py at the top marks it was
-        imported. Run once, as the Makefile runs it, and kept for the tests that read it (issue 1050)."""
+        print in kernel/, the one test module ends its process at import, and an ast.py or json.py at the top marks
+        it was imported. Run once, as the Makefile runs it, and kept for the tests that read it (issue 1050)."""
         if cls.poisoned_run is None:
             where = pathlib.Path(tempfile.mkdtemp())
             cls.addClassCleanup(shutil.rmtree, where, True)
@@ -14484,8 +14484,9 @@ class Verify(unittest.TestCase):
                 or pathlib.Path(folder).resolve() == ROOT / "tests" and n != "__init__.py"])
             (root / "kernel" / "loud.py").write_text('print("a check fails on this")\n')
             (root / "tests" / "test_ends.py").write_text("import os\nos._exit(0)\n")
-            (root / "ast.py").write_text('import pathlib\npathlib.Path(__file__).with_name("SHADOWED").write_text("")\n'
-                                         "import os\nos._exit(0)\n")
+            for name in ("ast", "json"):        # unittest imports ast first on newer Pythons; json the checks alone
+                (root / (name + ".py")).write_text('import pathlib\npathlib.Path(__file__).with_name("SHADOWED").'
+                                                   'write_text("")\nimport os\nos._exit(0)\n')
             env = {k: v for k, v in os.environ.items()
                    if k not in ("MAKEFLAGS", "MFLAGS", "MAKEFILES", "GNUMAKEFLAGS", "CHECKS_SHARD", "CHECKS_SHARDS")}
             cls.poisoned_run = (subprocess.run(["make", "-s", "verify", "PY=" + sys.executable], cwd=root, env=env,
@@ -14499,10 +14500,21 @@ class Verify(unittest.TestCase):
         try:
             with contextlib.redirect_stdout(io.StringIO()):
                 for checks_failed, tests, answer in ((True, 0, 1), (False, 1, 1), (True, 1, 1), (False, 0, 0)):
-                    verify.failed, verify.tested = (lambda checks: checks_failed), (lambda fast: tests)
+                    verify.failed, verify.tested = (lambda checks: checks_failed), (lambda fast, share: tests)
                     self.assertEqual(verify.main([], {}), answer, (checks_failed, tests))
         finally:
             verify.failed, verify.tested, verify.suite = real
+        # The tests' process is started isolated, told the leg verify read or none, and its failure is verify's.
+        started = []
+        with mock.patch.object(verify, "failed", return_value=False), contextlib.redirect_stdout(io.StringIO()), \
+                mock.patch.object(verify.subprocess, "run", side_effect=lambda argv, **kw: started.append(
+                    (argv[1:3] + argv[4:], kw["env"].get("CHECKS_SHARD"), kw["env"].get("CHECKS_SHARDS")))
+                    or subprocess.CompletedProcess(argv, 1)), mock.patch.dict(os.environ, CHECKS_SHARD="0", CHECKS_SHARDS="2"):
+            self.assertEqual(verify.main([], {}), 1)
+            self.assertEqual(verify.main(["--fast"], {}), 1)
+            self.assertEqual(verify.main([], {"CHECKS_SHARD": "1", "CHECKS_SHARDS": "3"}), 1)
+        self.assertEqual(started, [(["-I", "-S", "--tests"], None, None), (["-I", "-S", "--tests", "--fast"], None, None),
+                                   (["-I", "-S", "--tests"], "1", "3")])
         # As the Makefile runs it: the test module ends only the tests' process, and the failed check still fails it.
         done, _ = self.poisoned()
         self.assertIn("%-22s FAILED" % "kernel purity", done.stdout)

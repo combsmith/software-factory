@@ -148,11 +148,14 @@ def quiet(stream) -> None:
         pass
 
 
-def tested(fast: bool) -> int:
-    """The exit of the tests, run in a process of their own, isolated as this one is, with the leg CI's matrix names in
-    the environment it inherits: a test module that ends that process can end only the tests' verdict."""
+def tested(fast: bool, share: tuple = None) -> int:
+    """The exit of the tests, run in a process of their own, isolated as this one is, told the leg this one read, or
+    none: a test module that ends that process can end only the tests' verdict."""
+    env = {k: v for k, v in os.environ.items() if k not in ("CHECKS_SHARD", "CHECKS_SHARDS")}
+    if share is not None:
+        env.update(CHECKS_SHARD=str(share[0]), CHECKS_SHARDS=str(share[1]))
     return subprocess.run([sys.executable, "-I", "-S", str(ROOT / "tools" / "verify.py"), "--tests"]
-                          + (["--fast"] if fast else []), cwd=str(ROOT), check=False).returncode
+                          + (["--fast"] if fast else []), cwd=str(ROOT), env=env, check=False).returncode
 
 
 def main(argv: list, environ=None) -> int:
@@ -177,7 +180,7 @@ def main(argv: list, environ=None) -> int:
     unverified(check_trials.unverified())
     if share is not None:
         print("%-22s leg %d of %d counted from 0" % ("tests", share[0], share[1]))
-    tests = tested("--fast" in argv)
+    tests = tested("--fast" in argv, share)
     print("%-22s %s" % ("tests", "their process ended %d" % tests))
     return 1 if checks_failed or tests != 0 else 0
 
