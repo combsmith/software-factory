@@ -22,11 +22,11 @@ import zipfile
 from unittest import mock
 
 from adapters import acceptance, applied, artifacts, branches, checks, draft_checks, edits, effects, facts, github, heldout, issues, items, keyword_spans, linked, \
-    passes, pull, push, records, pause, rules, texts, threads, timeline
+    opening, passes, pull, push, records, pause, rules, texts, threads, timeline
 from controller import shared
 from guards import patch
 from guards import push as guard
-from harness import task
+from harness import apply, task
 from kernel import brakes, terms
 from tests.support import pending
 
@@ -9622,6 +9622,166 @@ class Push(unittest.TestCase):
         self.assertEqual((push.READS_TOO_LARGE, push.TREE_UNFETCHED), ("push_reads_too_large", "push_tree_unfetched"))
         # A person's code is the Kernel's `person` fault, which holds the item for a person (decision 1224).
         self.assertEqual(push.PERSON, terms.ENDED_PERSON)
+
+
+OPENED_IN = "combsmith/widgets"
+OPENED_FROM = "factory-work/issue-12-1"
+OPENER = "combsmith-sf-qa-lead[bot]"
+LANDED = "a" * 40
+
+
+class Opening(unittest.TestCase):
+    """The opening port (issue 838, decision 0238): one draft opened from the work branch to the base, read back."""
+
+    class Scripted:
+        """A transport that answers each request by its method and path from a script, and keeps what was sent."""
+        def __init__(self, script):
+            self.script, self.sent = dict(script), []
+
+        def send(self, req):
+            self.sent.append(req)
+            answer = self.script.get((req["method"], req["path"]))
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+
+    LIST = ("GET", "/repos/%s/pulls?head=combsmith:%s&state=all&per_page=100" % (OPENED_IN, OPENED_FROM))
+    OPEN = ("POST", "/repos/%s/pulls" % OPENED_IN)
+    READ = ("GET", "/repos/%s/pulls/7" % OPENED_IN)
+
+    @staticmethod
+    def pull(number=7, login=OPENER, ref=OPENED_FROM, repo=OPENED_IN, base="main", draft=True):
+        return {"number": number, "state": "open", "user": {"login": login, "type": "Bot"},
+                "head": {"ref": ref, "sha": LANDED, "repo": {"full_name": repo}}, "base": {"ref": base}, "draft": draft}
+
+    def opened(self, script, title="docs: say it (#12)", body="Closes #12\n\nText.", base="main"):
+        """What the port read back, through the Role's token narrowed to the opening, and what it sent."""
+        scripted = self.Scripted(script)
+        sender = effects.Allowed(scripted, *opening.allowed(OPENED_IN, OPENED_FROM, base, title, body))
+        return opening.write(sender, OPENED_IN, OPENED_FROM, base, LANDED, title, body, OPENER), scripted.sent
+
+    def test_a_drafts_text_is_held_to_githubs_bounds_in_bytes_of_utf_8(self):
+        for title, body, code in (("t" * 256, "b", None), ("t" * 257, "b", opening.TITLE_BYTES),
+                                  ("\U0001f600" * 64, "b", None), ("\U0001f600" * 64 + "t", "b", opening.TITLE_BYTES),
+                                  ("é" * 128, "b", None), ("é" * 129, "b", opening.TITLE_BYTES),
+                                  ("t", "b" * 65536, None), ("t", "b" * 65537, opening.BODY_BYTES),
+                                  ("t", "€" * 21845 + "b", None), ("t", "€" * 21846, opening.BODY_BYTES),
+                                  ("t" * 257, "b" * 65537, opening.TITLE_BYTES),
+                                  ("t\ud800", "b", opening.UNREADABLE), ("t", "\udfffb", opening.UNREADABLE),
+                                  (None, "b", opening.UNREADABLE), ("t", b"b", opening.UNREADABLE),
+                                  (type("Text", (str,), {})("t"), "b", opening.UNREADABLE)):
+            self.assertEqual(opening.refusal(title, body), code, (title[:3] if isinstance(title, str) else title, code))
+
+    def test_a_roles_token_opens_one_draft_from_its_branch_to_its_base_and_reads_it_alone(self):
+        permits, patterns = opening.allowed(OPENED_IN, OPENED_FROM, "main", "t", "b")
+        allowed = effects.Allowed(self.Scripted({}), permits, patterns)
+        good = {"title": "t", "body": "b", "head": OPENED_FROM, "base": "main", "draft": True}
+        for req, sends in ((github.request(*self.LIST), True), (github.request(*self.READ), True),
+                           (github.request("POST", self.OPEN[1], body=good), True),
+                           (github.request("GET", "/repos/%s/pulls/07" % OPENED_IN), False),
+                           (github.request("GET", "/repos/%s/pulls/7/files" % OPENED_IN), False),
+                           (github.request("GET", "/repos/combsmith/other/pulls/7"), False),
+                           (github.request("POST", "/repos/combsmith/other/pulls", body=good), False),
+                           (github.request("PATCH", self.READ[1], body={"draft": False}), False),
+                           (github.request("GET", self.LIST[1].replace("state=all", "state=open")), False)) + tuple(
+                (github.request("POST", self.OPEN[1], body=dict(good, **{key: value})), False)
+                for key, value in (("draft", False), ("draft", 1), ("head", "factory-work/issue-13-1"),
+                                   ("base", "release"), ("title", "t" * 257), ("body", "b" * 65537),
+                                   ("title", "u"), ("body", "Closes #13"),
+                                   ("maintainer_can_modify", True))):
+            try:
+                allowed.send(req)
+                sent = True
+            except github.Unanswered:
+                sent = False
+            self.assertEqual(sent, sends, (req["method"], req["path"], req["body"]))
+        for repo, branch, base in (("combsmith/..", OPENED_FROM, "main"), (OPENED_IN, "main", "main"),
+                                   (OPENED_IN, OPENED_FROM + "x/y", "main"), (OPENED_IN, OPENED_FROM, "a..b"),
+                                   (OPENED_IN, OPENED_FROM, "-main"), (OPENED_IN, OPENED_FROM, "main.lock"),
+                                   (OPENED_IN, OPENED_FROM, "main/"), (OPENED_IN, OPENED_FROM, "a//b"),
+                                   (OPENED_IN, OPENED_FROM, "ma in"), (OPENED_IN, OPENED_FROM, None)):
+            self.assertEqual(opening.allowed(repo, branch, base, "t", "b"), ({}, []), (repo, branch, base))
+        self.assertEqual(opening.allowed(OPENED_IN, OPENED_FROM, "main", "t" * 257, "b"), ({}, []))
+        self.assertNotEqual(opening.allowed(OPENED_IN, OPENED_FROM, "release/v1.2", "t", "b"), ({}, []))
+
+    def test_a_draft_is_opened_once_and_claimed_only_when_read_back_by_its_number(self):
+        back, sent = self.opened({self.LIST: {"status": 200, "body": [self.pull(5, login="someone")]},
+                                  self.OPEN: {"status": 201, "body": {"number": 7}},
+                                  self.READ: {"status": 200, "body": self.pull()}})
+        self.assertEqual(back, {"state": "applied", "number": 7, "head": OPENED_FROM, "reason": None})
+        self.assertEqual([(r["method"], r["path"]) for r in sent], [self.LIST, self.OPEN, self.READ])
+        self.assertEqual(sent[1]["body"], {"title": "docs: say it (#12)", "body": "Closes #12\n\nText.",
+                                           "head": OPENED_FROM, "base": "main", "draft": True})
+        # What `apply` records of it: keyed by the number read back, on the branch the Run was admitted to open.
+        self.assertEqual(apply.opened("e1", 12, OPENED_FROM, back),
+                         {"id": "e1", "type": "open_pull_request", "state": "applied", "key": "7", "reason": None})
+
+    def test_a_draft_its_app_already_opened_from_the_branch_is_recovered_and_none_is_opened(self):
+        for listed in ([self.pull()], [self.pull(5, login="someone"), self.pull(draft=False)],
+                       [self.pull(5, ref="factory-work/issue-12-2"), self.pull()]):
+            back, sent = self.opened({self.LIST: {"status": 200, "body": listed},
+                                      self.READ: {"status": 200, "body": dict(listed[-1], number=7)}})
+            self.assertEqual(back, {"state": "already_applied", "number": 7, "head": OPENED_FROM, "reason": None})
+            self.assertNotIn(self.OPEN, [(r["method"], r["path"]) for r in sent])
+        # A recovered draft is claimed only as its read by number says: at another head, it is not this push's.
+        back, _ = self.opened({self.LIST: {"status": 200, "body": [self.pull()]},
+                               self.READ: {"status": 200, "body": dict(self.pull(), head={
+                                   "ref": OPENED_FROM, "sha": "b" * 40, "repo": {"full_name": OPENED_IN}})}})
+        self.assertEqual(back["state"], "sent")
+
+    def test_an_opening_not_read_back_whole_claims_nothing_and_says_why(self):
+        listed = {"status": 200, "body": []}
+        made = {"status": 201, "body": {"number": 7}}
+        for script, state, reason in (
+                ({self.LIST: {"status": 200, "body": {"total": 0}}}, "failed", "pulls_unreadable"),
+                ({self.LIST: {"status": 200, "body": [self.pull(n, login="x") for n in range(1, 101)]}}, "failed",
+                 "pulls_unreadable"),
+                ({self.LIST: {"status": 500, "body": None}}, "failed", "pulls_unreadable"),
+                ({self.LIST: {"status": 200, "body": [], "headers": {"Link": '<x?page=2>; rel="next"'}}}, "failed",
+                 "pulls_unreadable"),
+                ({self.LIST: {"status": 200, "body": [dict(self.pull(), user=None)]}}, "failed", "pulls_unreadable"),
+                ({self.LIST: {"status": 200, "body": ["#7"]}}, "failed", "pulls_unreadable"),
+                ({self.LIST: github.Unanswered("no answer")}, "failed", "pulls_unreadable"),
+                ({self.LIST: {"status": 200, "body": [self.pull(), self.pull(8)]}}, "failed", "opened_twice"),
+                ({self.LIST: {"status": 200, "body": [dict(self.pull(), state="closed")]}}, "failed", "opened_closed"),
+                ({self.LIST: listed, self.OPEN: {"status": 422, "body": {}}}, "failed", "write_refused"),
+                ({self.LIST: listed, self.OPEN: {"status": 502, "body": None}}, "failed", "write_unanswered"),
+                ({self.LIST: listed, self.OPEN: OSError("reset")}, "failed", "write_unanswered"),
+                ({self.LIST: listed, self.OPEN: ValueError("odd")}, "failed", "write_unanswered"),
+                ({self.LIST: listed, self.OPEN: {"status": "201", "body": {"number": 7}}}, "failed",
+                 "write_unanswered"),
+                ({self.LIST: {"status": 403, "body": {}}}, "refused", "token_refused"),
+                ({self.LIST: listed, self.OPEN: {"status": 401, "body": {}}}, "refused", "token_refused"),
+                ({self.LIST: listed, self.OPEN: made, self.READ: {"status": 403, "body": {}}}, "sent", None),
+                ({self.LIST: listed, self.OPEN: {"status": 201, "body": None}}, "sent", None)) + tuple(
+                ({self.LIST: listed, self.OPEN: made, self.READ: {"status": 200, "body": body}}, "sent", None)
+                for body in (self.pull(login="someone"), self.pull(ref="factory-work/issue-12-2"),
+                             self.pull(repo="someone/widgets"), self.pull(base="release"),
+                             self.pull(draft=False), self.pull(draft=None), self.pull(number=8),
+                             dict(self.pull(), state="closed"), dict(self.pull(), number=True),
+                             dict(self.pull(), user={"login": OPENER, "type": "User"}),
+                             dict(self.pull(), head={"ref": OPENED_FROM, "sha": "b" * 40,
+                                                     "repo": {"full_name": OPENED_IN}}),
+                             dict(self.pull(), base="main"), dict(self.pull(), head=None), None)) + (
+                ({self.LIST: listed, self.OPEN: made, self.READ: {"status": 404, "body": {}}}, "sent", None),
+                ({self.LIST: listed, self.OPEN: {"status": 201, "body": {"number": "7"}}}, "sent", None),
+                ({self.LIST: listed, self.OPEN: {"status": 201, "body": {"number": 0}}}, "sent", None)):
+            back, _ = self.opened(script)
+            self.assertEqual((back["state"], back["number"], back["reason"]), (state, None, reason), (script, state))
+            self.assertEqual(apply.opened("e1", 12, OPENED_FROM, back)["key"], None)
+
+    def test_an_opening_told_wrongly_sends_nothing(self):
+        for repo, branch, base, title, body, login, *commit in (
+                ("combsmith/..", OPENED_FROM, "main", "t", "b", OPENER), (OPENED_IN, "main", "main", "t", "b", OPENER),
+                (OPENED_IN, OPENED_FROM, "a..b", "t", "b", OPENER),
+                (OPENED_IN, OPENED_FROM, "main", "t" * 257, "b", OPENER),
+                (OPENED_IN, OPENED_FROM, "main", "t", "b" * 65537, OPENER),
+                (OPENED_IN, OPENED_FROM, "main", "t", "b", ""), (OPENED_IN, OPENED_FROM, "main", "t", "b", None),
+                (OPENED_IN, OPENED_FROM, "main", "t", "b", OPENER, "A" * 40)):
+            scripted = self.Scripted({})
+            back = opening.write(scripted, repo, branch, base, (commit or [LANDED])[0], title, body, login)
+            self.assertEqual((back, scripted.sent), ({"state": "refused", "number": None, "head": None,
+                                                      "reason": opening.TOLD_WRONGLY}, []), (repo, branch, base))
 
 if __name__ == "__main__":
     unittest.main()
