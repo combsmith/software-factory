@@ -123,10 +123,10 @@ unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy
 token=""
 # A token that may be live is told on the terminal and, since the terminal may be gone by then, in OUT's finish.log: a
 # note of the script's own words, with no credential and no answer of GitHub's, from which no fixture is built (issue
-# 1245). It is written only once this run has made OUT.
+# 1245). It is written first, so that a terminal gone loses nothing, and only once this run has made OUT.
 noted=""
 note() { [ -z "$noted" ] || printf '%s\n' "$*" >> "$out/finish.log" || true; }
-live() { echo "$*" >&2; note "$*"; }
+live() { note "$*"; echo "$*" >&2; }
 
 revoke() {
     printf 'Authorization: Bearer %s\n' "$token" | curl -q --max-time 30 -sS -o /dev/null -w '%{http_code}' -X DELETE -H @- \
