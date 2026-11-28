@@ -13,7 +13,7 @@ case "$real/" in "$root"/*) echo "the scratch directory $real is inside the repo
 : > "$dir/answers"
 for call in $(cd "$root" && python3 -m tools.machine_user_drift --reads); do
   gh api --include "$call" > "$dir/raw" 2>/dev/null || true
-  (cd "$root" && python3 -m tools.redact_trial < "$dir/raw" >> "$dir/answers") 2> /dev/null ||
+  (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$dir/raw" >> "$dir/answers") 2> /dev/null ||
       { echo "machine_user_drift: the redaction of $call failed" >&2; exit 1; }
   rm -f "$dir/raw"
   printf '\0' >> "$dir/answers"

@@ -131,7 +131,7 @@ read_step() {
     gh api graphql --include -f query="$QUERY" -f owner="$owner" -f name="$name" -F issue="$3" -F pr="$4" \
         > "$dir/raw" 2> "$dir/err" || status=$?
     # An answer the redaction refuses, cut off or in another form, keeps nothing and is offered again like any other.
-    (cd "$root" && python3 -m tools.redact_trial < "$dir/raw" > "$out/clean-$step") 2> "$out/redacted-$step" ||
+    (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$dir/raw" > "$out/clean-$step") 2> "$out/redacted-$step" ||
         { echo "trial_p61_timeline: the redaction of step $step failed; nothing of it is kept" >&2
           rm -f "$dir/raw" "$dir/err"; return 1; }
     rm -f "$dir/raw"
@@ -155,7 +155,7 @@ sys.exit(0 if interim and head.split("\n", 1)[0].split()[1:2] == ["200"] and not
         return 0
     fi
     echo "trial_p61_timeline: step $step was not read whole; what gh said, redacted:" >&2
-    (cd "$root" && python3 -m tools.redact_trial < "$dir/err") >&2 2>/dev/null || true
+    (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$dir/err") >&2 2>/dev/null || true
     rm -f "$dir/err"
     return 1
 }
