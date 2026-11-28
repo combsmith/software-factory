@@ -25,8 +25,10 @@ The checks, in `harness/push_loop.py`'s `ORDER`, each only once all before it pa
 Then the push of the changes: the branch, the commit and its tree read again, a blob of each written file, one tree,
 read back, one commit, read back, and the branch made or moved, then read (`harness/push_loop.py`'s `land`). The
 default branch's head is read again right before the branch's write, and refuses it where it moved, `BASE_MOVED`, so
-no check read another base; and at the first push once more after it, where the admitted commit no longer stands on it, `OFF_DEFAULT`, with nothing
-landed (decision 0242). Its limits: the branch it made then stays; no draft is opened from it, which is the dispatch's.
+no check read another base; and at the first push once more after it, where the admitted commit no longer stands on
+it, `OFF_DEFAULT`, or the head moved, `BASE_MOVED`, with nothing landed (decision 0242). Its limits: the branch it made
+then stays, and no draft is opened from it, which is the dispatch's; a branch moved names no old head to GitHub, which
+takes no such lease, so a branch rewound between the read and the move is seen only by the read after it.
 The patch is taken as told: that it is the bundle's, by its digest, and the token the push is sent by, are the
 dispatch's. FR-14's rule on a test the admitted commit holds (`guards/push.py`'s `existing`) is the fix Intent's.
 """
@@ -188,7 +190,9 @@ def push(reader, sender, told) -> tuple:
     state, why = push_loop.land(state, sender, repo, told["branch"], make(repo, told["branch"], state["commit"]))
     if why is not None:
         return None, why
-    case = base.on_default(reader, repo, parent)[0] if first else base.HEAD
+    case, after = base.on_default(reader, repo, parent) if first else (base.HEAD, moved)
     if case not in base.GOES_ON:
         return None, BASE_UNREAD if case is None else OFF_DEFAULT
+    if after != got["base"][1]:
+        return None, BASE_MOVED
     return guard.landed(state), None
