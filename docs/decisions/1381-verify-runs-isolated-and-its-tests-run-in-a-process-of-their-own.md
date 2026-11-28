@@ -1,4 +1,4 @@
-# 0000. Verify runs isolated and its tests run in a process of their own
+# 1381. Verify runs isolated and its tests run in a process of their own
 
 Status: accepted. 2026-11-28, the Factory Builder and the Solution Architect; issue 1050. Narrows decision 0240's limit rows "a module of the standard library" and "the tests run in the checks' process".
 
