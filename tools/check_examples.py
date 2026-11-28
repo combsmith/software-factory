@@ -338,6 +338,9 @@ def _table(feed, decision_schema) -> list:
     return out
 
 
+STEP_SECONDS = 1440      # the advise step's whole, the most `schemas/harness.schema.json` lets one share be
+
+
 def _readers(harness) -> list:
     """What harness/1 cannot say of its readers, since a schema here has no rule on a key: each is an advisory Lens of
     the same file, by a name advice/1 can hold, and of another family than the Engine's (decision 0224)."""
@@ -354,6 +357,12 @@ def _readers(harness) -> list:
     # each reader's largest prompt at a token a byte, which is the most a prompt of that many bytes can be and what the
     # step that asks holds a prompt to (`prompt_characters` bounds its bytes of UTF-8), and its whole output cap. A
     # figure under it would count a read whose cost is not known at less than it may have spent (decision 0224, Spend).
+    # Each reader's turn runs until only the shares of the readers after it are left of the advise step's whole, so the
+    # shares together fit in it, or a reader before them has no turn (decision 0243; the whole is a share's most).
+    shares = [block.get("share") for block in harness.get("readers", {}).values()]
+    if all(type(share) is int for share in shares) and sum(shares) > STEP_SECONDS:
+        out.append("harness: the readers' shares come to %d seconds, past the advise step's whole of %d; lower one"
+                   % (sum(shares), STEP_SECONDS))
     worst = harness.get("advisory_worst_case_usd")
     if worst is not None and not out:
         most = sum((r["prompt_characters"] * r["usd_per_million"]["input"] + r["output_tokens"] * r["usd_per_million"]["output"])
