@@ -2719,11 +2719,12 @@ class Acceptance(unittest.TestCase):
         # before any list read short and whatever complete.acceptance claims, and calls a person; queued, it is taken out.
         short = dict(facts()["complete"], acceptance=False)
         for reviews in ([], APPROVED):
-            for others in ((), ("reviews",), ("threads",), ("timeline",)):
-                d = go(facts(closes_another_issue=True, reviews=reviews,
-                             complete=dict(short, **{s: False for s in others})), REVIEWED)
-                self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
-                                 (None, "closes_another_issue", ["acceptance"], "defer", "needs_you"), (reviews, others))
+            for read in (False, True):      # an acceptance read short or whole, beside another list read short
+                for others in ((), ("reviews",), ("threads",), ("timeline",)):
+                    d = go(facts(closes_another_issue=True, reviews=reviews,
+                                 complete=dict(short, acceptance=read, **{s: False for s in others})), REVIEWED)
+                    self.assertEqual((d["state"], d["reason"], d["evidence"], d["outcome"], d["attention"]),
+                                     (None, "closes_another_issue", ["acceptance"], "defer", "needs_you"), (reviews, read, others))
         d = go(facts(closes_another_issue=True, queue=True, reviews=APPROVED, complete=short), REVIEWED)
         self.assertEqual((d["reason"], d["outcome"], d.get("action"), d["attention"]),
                          ("closes_another_issue", "act", "dequeue", "needs_you"))
