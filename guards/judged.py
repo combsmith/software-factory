@@ -13,7 +13,8 @@ Builder).
   of that approval (decision 0025), never from the head; `at` is where that read found it.
 - `consumer(repo, own)`: None where the push is to `own`, the Factory's own repo, or `CONSUMER`: a Consumer's setup
   and test commands are its manifest's, which no port reads yet (`adapters/consumer.py`, not built). So every push to
-  a Consumer's repo is refused until one does. The names are compared as given: one in another case is refused.
+  a Consumer's repo is refused until one does. Each name must be `owner/name`, and they are compared as given: one in
+  another case is refused.
 
 Its stated limits:
 - What judges the Role and the contract does not name is not refused here: a fixture or a threshold a test reads is
@@ -37,6 +38,8 @@ SEPARATOR = "::"
 # A path's characters, as `schemas/hooks.schema.json` holds a pattern's: each name of them alone, never `.` or `..`.
 NAME = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.*-"
 FOLDER = "/"
+# A repo's owner and name, as GitHub spells them: the characters `guards/push.py` reads a repo's name by.
+REPO = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
 
 
 def _text(said) -> bool:
@@ -85,6 +88,12 @@ def paths(contract, at) -> tuple:
     return out, None
 
 
+def _repo(said) -> bool:
+    """Whether `said` is an owner and a repo's name, `owner/name`, each of `REPO`'s characters and neither `.` nor `..`."""
+    owner, _, name = said.partition(FOLDER) if type(said) is str else ("", "", "")
+    return all(part and part not in (".", "..") and all(c in REPO for c in part) for part in (owner, name))
+
+
 def consumer(repo, own):
-    """None for a push to the Factory's own repo, `own`; `CONSUMER` for any other, or a name of no exact kind."""
-    return None if _text(repo) and _text(own) and repo == own else CONSUMER
+    """None for a push to the Factory's own repo, `own`; `CONSUMER` for any other, or a name that is no repo's."""
+    return None if _repo(repo) and _repo(own) and repo == own else CONSUMER

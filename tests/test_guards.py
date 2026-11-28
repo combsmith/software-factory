@@ -2255,6 +2255,10 @@ class Judged(unittest.TestCase):
         self.assertEqual(patterns[0], CONTRACT_AT)
         self.assertEqual(set(patterns), {CONTRACT_AT} | set(said["protected_paths"]) | set(tests))
         self.assertEqual(len(patterns), len(set(patterns)))
+        # In the order the contract gives them, and a file two tests name once.
+        two = [criterion("test", "spec/x_test.py::test_a"), criterion("test", "spec/x_test.py::test_b"), criterion("test", "a.py::t")]
+        self.assertEqual(judged.paths(contract(criteria=two, protected_paths=["b.py", "a.py"]), "acceptance/9.json"),
+                         (["acceptance/9.json", "b.py", "a.py", "spec/x_test.py"], None))
         # A test the contract names but does not protect is refused, and so is the contract where it was read; a
         # criterion of another kind names no file. The file is the ref up to its first `::`, or the ref whole.
         extra = said["criteria"] + [criterion("test", "spec/b_test.py::Case::test_b"), criterion("test", "spec/c_test.py::t"),
@@ -2283,7 +2287,9 @@ class Judged(unittest.TestCase):
                          (contract(protected_paths=["a.py", Odd("b.py")]), CONTRACT_AT),
                          ({k: v for k, v in contract().items() if k != "protected_paths"}, CONTRACT_AT),
                          (contract(criteria=[]), CONTRACT_AT), (contract(criteria=None), CONTRACT_AT),
-                         (contract(criteria=good), CONTRACT_AT), (contract(criteria=[good, "AC-2"]), CONTRACT_AT),
+                         (contract(criteria=good), CONTRACT_AT), (contract(criteria=(good,)), CONTRACT_AT),
+                         (contract(criteria=[good, criterion("static", None)]), CONTRACT_AT),
+                         (contract(protected_paths=("a.py",)), CONTRACT_AT), (contract(criteria=[good, "AC-2"]), CONTRACT_AT),
                          (contract(criteria=[good, dict(good, check=None)]), CONTRACT_AT),
                          (contract(criteria=[good, dict(good, check={"kind": "test"})]), CONTRACT_AT),
                          (contract(criteria=[good, dict(good, check={"ref": "t.py"})]), CONTRACT_AT),
@@ -2320,7 +2326,9 @@ class Judged(unittest.TestCase):
         own = "combsmith/software-factory"
         self.assertIsNone(judged.consumer(own, own))
         for repo, ours in (("combsmith/markets", own), ("Combsmith/Software-Factory", own), (own + "-canary", own),
-                           ("", ""), (None, None), (own, None), (None, own), (Odd(own), own), (own, Odd(own)), ([own], own)):
+                           ("", ""), (None, None), (own, None), (None, own), (Odd(own), own), (own, Odd(own)), ([own], own),
+                           (" ", " "), ("combsmith", "combsmith"), ("a/b/c", "a/b/c"), ("/b", "/b"), ("a/", "a/"), ("a/..", "a/.."),
+                           ("./b", "./b"), ("a b/c", "a b/c"), ("a/b\n", "a/b\n")):
             self.assertEqual(judged.consumer(repo, ours), judged.CONSUMER, (repo, ours))
 
 if __name__ == "__main__":
