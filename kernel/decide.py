@@ -25,6 +25,7 @@ NEEDS_YOU_REASONS = frozenset({
     "description_edited_after_approval", "description_unreadable",
     "path_needs_person",
     "run_needs_person",
+    "closes_another_issue",
 })
 
 
