@@ -7713,6 +7713,8 @@ class Decisions(unittest.TestCase):
                       check_decisions.read_mutants(history(files)))
         kept = files["tools/mutants.py"] + "X = [n for n in (0,) if n if 1 // n]\n"
         self.assertTrue(check_decisions.read_mutants(edited(history(files), {"tools/mutants.py": kept})))
+        noted = files["tools/mutants.py"] + 'def f():\n    x = 1\n    "a note"\n    return x\n\n\nX = f()\n'
+        self.assertTrue(check_decisions.read_mutants(edited(history(files), {"tools/mutants.py": noted})))
         # What Python would build otherwise, or what the reader cannot work out as Python would, holds no row.
         runner, area = files["tools/mutants.py"], files["tools/mutants_of/tools_check_w.py"]
         cases = {
@@ -7757,21 +7759,50 @@ class Decisions(unittest.TestCase):
             "the function g is read as a value": runner + "def g(m):\n    return ''\n\n\nX = re.sub('a', g, 'a')\n",
             "iter() is given": runner + "X = iter(range(3), None)\n",
             "UTF-8 alone": "# coding: unicode_escape\n" + runner,
+            "UTF-8 alone ": "# coding: latin-1\n# coding: utf-8\n" + runner,
+            "cannot be read (SyntaxError)": runner + "def unused():\n    break\n",
+            "h is not run by the reader": runner + "def g(m):\n    return ''\n\n\ndef h(p):\n    if p:\n"
+                                                   "        return re.sub('a', g, 'a')\n    return 1\n\n\nX = h(pathlib.Path('a'))\n",
+            "a range is searched": runner + "X = None in range(3)\n",
+            "a format is wider than the reader builds": runner + "X = ('%(k)s' * 4000) % {'k': 'x' * 3000}\n",
+            "areas takes what the reader does not give": runner.replace("AREAS = areas(ROOT)", "AREAS = areas(ROOT / 'a')"),
+            "n is read before it is bound ": runner + "def f(n):\n    return [n for first in (0,) for n in n]\n\n\nX = f((1,))\n",
         }
         areas = {"imports from": area.replace("import Y", "import *"), "line 24 is not read": area + "raise SystemExit(7)\n",
                  "calls or builds a value": area + 'def f(x: len("a")):\n    return x\n',
-                 "imports from __future__": area + "from __future__ import annotations\n"}
+                 "cannot be read (SyntaxError) ": area + "from __future__ import annotations\n"}
         broken = [{"tools/mutants.py": text} for text in cases.values()] + \
             [{"tools/mutants_of/tools_check_w.py": text} for text in areas.values()] + \
             [{"tools/mutants_of/tools_check_w/__init__.py": "MUTANTS = []\n"}, {"tools/mutants/__init__.py": "MUTANTS = []\n"},
              {"tools/mutants_of/__init__.py": "common = 1\n"}]
         broken += [{"tools/mutants_of/__init__.py": "__path__ = []\n"},
-                   {"tempfile.py": "X = 1\n", "tools/mutants_of/tools_check_w.py": area + "import tempfile\n"}]
+                   {"tempfile.py": "X = 1\n", "tools/mutants_of/tools_check_w.py": area + "import tempfile\n"},
+                   {"random.py": "", "tools/mutants_of/tools_check_w.py": area + "import tempfile\n"}, {"enum": ""}]
         more = ["not the file the reader reads", "not the file Python imports", "__init__.py binds common",
-                "binds a name twice", "imports tempfile"]
+                "binds a name twice", "holds tempfile.py", "holds random.py", "holds enum"]
         for words, overlay in zip(list(cases) + list(areas) + more, broken):
             with self.subTest(words=words), self.assertRaisesRegex(ValueError, re.escape(words.strip())):
                 check_decisions.read_mutants(edited(history(files), overlay))
+
+    def test_each_of_the_readers_budgets_holds(self):  # issue 1377
+        # Each ceiling refuses alone: three rounds, three calls or five tuples held more need that much more of it.
+        runner = AREA_FILES["tools/mutants.py"]
+
+        def least(key: str, text: str) -> int:
+            root, low, high = edited(history(AREA_FILES), {"tools/mutants.py": text}), 0, 10 ** 8
+            while low < high:
+                with mock.patch.dict(check_decisions.BUDGET, {key: (low + high) // 2}):
+                    try:
+                        check_decisions.read_mutants(root)
+                        high = (low + high) // 2
+                    except ValueError:
+                        low = (low + high) // 2 + 1
+            return low
+        self.assertEqual(least("rounds", runner + "X = [n for n in range(3) if False]\n"), least("rounds", runner) + 3)
+        self.assertEqual(least("calls", runner + "def one():\n    return 1\n\n\nX = (one(), one(), one())\n"),
+                         least("calls", runner) + 3)
+        self.assertGreater(least("held", runner + "X = [len(tuple(range(400))) for n in range(5)]\n"),
+                           least("held", runner) + 5 * 400)
 
     def test_a_change_to_a_file_of_mutants_alone_is_read_again(self):  # issue 1377
         root = history(AREA_FILES)
@@ -7789,7 +7820,7 @@ class Decisions(unittest.TestCase):
         # mutants, and its list is the runner's.
         said = []
         for code in ("import json, sys\nfrom tools import check_decisions\nread = check_decisions.read_mutants("
-                     "check_decisions.ROOT)\nprint(json.dumps([read, sorted(m for m in sys.modules if m.startswith("
+                     "check_decisions.ROOT)\ncheck_decisions._mutants(check_decisions.ROOT)\nprint(json.dumps([read, sorted(m for m in sys.modules if m.startswith("
                      "'tools.mutants'))]))",
                      "import json\nfrom tools import mutants\nprint(json.dumps([[m[0], m[1], m[4]] for m in mutants.MUTANTS]))"):
             done = subprocess.run([sys.executable, "-B", "-c", code], cwd=ROOT, capture_output=True, text=True, timeout=600)

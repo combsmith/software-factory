@@ -6,6 +6,7 @@ TARGETS = ("tools/check_decisions.py",)
 AS_TEXT = ("tests.test_tools.Decisions.test_the_mutants_are_read_as_text_and_never_run",)
 RUNS = ("tests.test_tools.Decisions.test_the_mutants_read_as_text_are_those_the_runner_runs",)
 AGAIN = ("tests.test_tools.Decisions.test_a_change_to_a_file_of_mutants_alone_is_read_again",)
+BUDGETS = ("tests.test_tools.Decisions.test_each_of_the_readers_budgets_holds",)
 MUTANTS = [
     # Issue 1377: the mutants are read from their files as text, in a grammar where nothing changes a value once bound.
     ("the mutants are imported, not read as text", "tools/check_decisions.py",
@@ -56,6 +57,30 @@ MUTANTS = [
      "            if name and ((folder / name).is_dir() or not", "            if name and (False or not", AS_TEXT),
     ("a test at the top that is not worked out is passed over", "tools/check_decisions.py",
      '        if self.top:\n            raise ValueError("%s: a test at the top', '        if False:\n            raise ValueError("%s: a test at the top',
+     AS_TEXT),
+    ("a string statement past a function's first is read as a test", "tools/check_decisions.py",
+     "        if _docstring(node):\n            continue\n        if isinstance(node, ast.Return):",
+     "        if isinstance(node, ast.Return):", AS_TEXT),
+    ("a file in an encoding but UTF-8 is read", "tools/check_decisions.py",
+     'if tokenize.detect_encoding(io.BytesIO(data).readline)[0] != "utf-8":', "if False:", AS_TEXT),
+    ("a file Python cannot compile is read", "tools/check_decisions.py",
+     '        compile(self.tree, rel, "exec", dont_inherit=True)\n', "", AS_TEXT),
+    ("a def given as a value on a path not taken is read", "tools/check_decisions.py",
+     "            or isinstance(one, ast.Name) and one.id in file.defs and one.id not in local and id(one) not in calls \\\n",
+     "", AS_TEXT),
+    ("what the reader holds has no bound", "tools/check_decisions.py",
+     '        if _WEIGHTS[None] > BUDGET["held"]:', "        if False:", BUDGETS),
+    ("a comprehension may take any number of rounds", "tools/check_decisions.py",
+     '                        raise ValueError("the mutants take more rounds than the reader runs")\n',
+     "                        pass\n", BUDGETS),
+    ("a format counts each field once", "tools/check_decisions.py",
+     'len(left) + left.count("%") * (_weighed(right)[0]', "len(left) + 1 * (_weighed(right)[0]", AS_TEXT),
+    ("a range is searched item by item", "tools/check_decisions.py",
+     "(ast.In, ast.NotIn) and type(right) is range and", "(ast.In, ast.NotIn) and False and", AS_TEXT),
+    ("a comprehension reads its function's value of a name it binds", "tools/check_decisions.py",
+     "if inner is not self or k not in names}", "if True}", AS_TEXT),
+    ("a file at the top of the tree may stand in for Python's own module", "tools/check_decisions.py",
+     "        if shadow:\n            raise ValueError(\"the tree's top", "        if False:\n            raise ValueError(\"the tree's top",
      AS_TEXT),
     # Issue 590: a check names a test, never a file of tests, and a row names the mutant its own tests kill.
     ('a record that cannot be read has its rows', 'tools/check_decisions.py',

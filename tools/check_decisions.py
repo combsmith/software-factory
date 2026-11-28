@@ -22,11 +22,14 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import io
 import os
 import pathlib
 import re
 import shutil
 import subprocess
+import sys
+import tokenize
 
 from tools import walk
 from tools.check_context import LINK, PENDING, TOKEN, WAITING, _cells, _is_pending, _rows, _sections
@@ -239,6 +242,33 @@ _READ = {}
 STDLIB = frozenset(("concurrent.futures", "contextlib", "importlib", "json", "os", "pathlib", "re", "signal", "subprocess",
                     "sys", "tempfile", "unittest"))
 BUILTINS = frozenset(("dict", "iter", "len", "range", "tuple"))
+# The modules of Python's own library, as 3.12 names them: a file or folder of one's name at the top of the tree is what
+# Python imports in its place, one import deep or more. sys.stdlib_module_names adds those of a later Python.
+STDLIB_NAMES = frozenset("""
+__future__ _abc _aix_support _ast _asyncio _bisect _blake2 _bz2 _codecs _codecs_cn _codecs_hk _codecs_iso2022
+_codecs_jp _codecs_kr _codecs_tw _collections _collections_abc _compat_pickle _compression _contextvars _crypt
+_csv _ctypes _curses _curses_panel _datetime _dbm _decimal _elementtree _frozen_importlib
+_frozen_importlib_external _functools _gdbm _hashlib _heapq _imp _io _json _locale _lsprof _lzma _markupbase
+_md5 _msi _multibytecodec _multiprocessing _opcode _operator _osx_support _overlapped _pickle _posixshmem
+_posixsubprocess _py_abc _pydatetime _pydecimal _pyio _pylong _queue _random _scproxy _sha1 _sha2 _sha3 _signal
+_sitebuiltins _socket _sqlite3 _sre _ssl _stat _statistics _string _strptime _struct _symtable _thread
+_threading_local _tkinter _tokenize _tracemalloc _typing _uuid _warnings _weakref _weakrefset _winapi _wmi
+_zoneinfo abc aifc antigravity argparse array ast asyncio atexit audioop base64 bdb binascii bisect builtins bz2
+cProfile calendar cgi cgitb chunk cmath cmd code codecs codeop collections colorsys compileall concurrent
+configparser contextlib contextvars copy copyreg crypt csv ctypes curses dataclasses datetime dbm decimal
+difflib dis doctest email encodings ensurepip enum errno faulthandler fcntl filecmp fileinput fnmatch fractions
+ftplib functools gc genericpath getopt getpass gettext glob graphlib grp gzip hashlib heapq hmac html http
+idlelib imaplib imghdr importlib inspect io ipaddress itertools json keyword lib2to3 linecache locale logging
+lzma mailbox mailcap marshal math mimetypes mmap modulefinder msilib msvcrt multiprocessing netrc nis nntplib nt
+ntpath nturl2path numbers opcode operator optparse os ossaudiodev pathlib pdb pickle pickletools pipes pkgutil
+platform plistlib poplib posix posixpath pprint profile pstats pty pwd py_compile pyclbr pydoc pydoc_data
+pyexpat queue quopri random re readline reprlib resource rlcompleter runpy sched secrets select selectors shelve
+shlex shutil signal site smtplib sndhdr socket socketserver spwd sqlite3 sre_compile sre_constants sre_parse ssl
+stat statistics string stringprep struct subprocess sunau symtable sys sysconfig syslog tabnanny tarfile
+telnetlib tempfile termios textwrap this threading time timeit tkinter token tokenize tomllib trace traceback
+tracemalloc tty turtle turtledemo types typing unicodedata unittest urllib uu uuid venv warnings wave weakref
+webbrowser winreg winsound wsgiref xdrlib xml xmlrpc zipapp zipfile zipimport zlib zoneinfo
+""".split()) | frozenset(getattr(sys, "stdlib_module_names", ()))
 EXCEPTIONS = frozenset(("Exception", "RuntimeError", "ValueError"))
 # Of any value a file of mutants can reach, these methods and attributes change nothing: a str's, a dict's, a path's, a
 # pattern's or re's. A str's `replace` is worked out at the top alone, on a str: a path's renames a file.
@@ -254,7 +284,7 @@ EXPRESSIONS = (ast.Constant, ast.Name, ast.Load, ast.Store, ast.Tuple, ast.List,
                ast.Compare, ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.In, ast.NotIn, ast.Is, ast.IsNot,
                ast.IfExp, ast.Attribute, ast.Subscript, ast.Slice, ast.ListComp, ast.DictComp, ast.GeneratorExp,
                ast.comprehension, ast.Call, ast.keyword)
-BUDGET = {"calls": 20000, "rounds": 200000, "length": 10000000, "width": 1000, "depth": 100}
+BUDGET = {"calls": 20000, "rounds": 200000, "length": 10000000, "width": 1000, "depth": 100, "held": 50000000}
 PINNED = {
     "ROOT": 'ROOT = pathlib.Path(__file__).resolve().parent.parent',
     "AREA_NAME": 'AREA_NAME = re.compile(r"[a-z_][a-z0-9_]*")',
@@ -306,11 +336,11 @@ class _File:
         if (read.root / rel).is_symlink() or (read.root / rel).with_suffix("").is_dir():
             raise ValueError("%s is not the file Python imports" % rel)
         data = (read.root / rel).read_bytes()
-        cookie = re.match(rb"(?:[^\n]*\n)?[ \t\f]*#.*?coding[:=][ \t]*([-\w.]+)", data)
-        if data.startswith(b"\xef\xbb\xbf") or cookie and cookie.group(1).lower() not in (b"utf-8", b"utf8"):
+        if tokenize.detect_encoding(io.BytesIO(data).readline)[0] != "utf-8":
             raise ValueError("%s is not read as UTF-8 alone" % rel)
         self.text = data.decode("utf-8")
         self.tree = ast.parse(data, filename=rel)
+        compile(self.tree, rel, "exec", dont_inherit=True)
         top = [_targets(node) for node in self.tree.body]
         self.names = {name for names in top for name in names}
         shadowed = self.names & (BUILTINS | TYPES | EXCEPTIONS) or {n for n in self.names if n.startswith("__")}
@@ -326,6 +356,9 @@ class _Read:
 
     def __init__(self, root: pathlib.Path):
         self.root, self.done, self.calls, self.rounds, self.depth = root, {}, 0, 0, 0
+        shadow = sorted(path.name for path in root.iterdir() if path.name.split(".")[0] in STDLIB_NAMES)
+        if shadow:
+            raise ValueError("the tree's top holds %s, which Python imports in place of its own module" % shadow[0])
 
     def loaded(self, name: str) -> _Module:
         """tools.mutants_of's module `name`, or the package for "", read once, its package first."""
@@ -510,14 +543,17 @@ def _weighed(value) -> tuple:
     elif type(value) in (tuple, list, dict, type({}.keys()), type({}.values()), type({}.items())):
         parts = [_weighed(one) for one in (value.items() if type(value) is dict else value)]
         out = (1 + sum(w for w, _ in parts), all(p for _, p in parts))
+        _WEIGHTS[id(value)] = (value, out)
+        _WEIGHTS[None] = _WEIGHTS.get(None, 0) + out[0]
+        if _WEIGHTS[None] > BUDGET["held"]:
+            raise ValueError("the values the reader holds outweigh what it builds")
     else:
         out = (1, False)
-    if type(value) not in (bool, int, float, type(None)):
-        _WEIGHTS[id(value)] = (value, out)
     return out
 
 
-_WEIGHTS = {}       # id: (value, (weight, plain)) of the values one reading has weighed, each held so its id stays its own
+_WEIGHTS = {}       # id: (value, (weight, plain)) of the lists, tuples and dicts one reading weighed, each held so its id
+#                     stays its own; None: what they weigh in all
 
 
 def _sized(value):
@@ -667,6 +703,8 @@ class _Frame:
             right = self.value(right)
             if not (_plain(left) and _plain(right)):
                 return UNKNOWN
+            if type(op) in (ast.In, ast.NotIn) and type(right) is range and type(left) is not int:
+                raise ValueError("%s: a range is searched" % self.file.rel)
             if type(op) in (ast.Is, ast.IsNot) and not any(one is None or type(one) is bool for one in (left, right)):
                 raise ValueError("%s: an identity of values the reader builds is not read" % self.file.rel)
             if not _real(lambda: COMPARE[type(op)](left, right)):
@@ -708,7 +746,7 @@ class _Frame:
                     self.file.read.rounds += 1
                     if self.file.read.rounds > BUDGET["rounds"]:
                         raise ValueError("the mutants take more rounds than the reader runs")
-                    local = dict(inner.local or {})
+                    local = {k: v for k, v in (inner.local or {}).items() if inner is not self or k not in names}
                     _bind(loop.target, item, local)
                     one = _Frame(self.file, local, inner.names | names, self.top)
                     for test in loop.ifs:
@@ -798,7 +836,7 @@ def _operation(op, left, right):
     if type(op) is ast.Mod and isinstance(left, bytes):
         raise ValueError("a bytes format is not read")
     if type(op) is ast.Mod and isinstance(left, str):
-        if len(left) + 4 * _weighed(right)[0] > BUDGET["length"]:
+        if len(left) + left.count("%") * (_weighed(right)[0] + BUDGET["width"]) > BUDGET["length"]:
             raise ValueError("a format is wider than the reader builds")
         for width in FORMAT.finditer(left):
             if "*" in width.group(0) or any(part and int(part) > BUDGET["width"] for part in width.groups()):
@@ -868,6 +906,7 @@ def _safe(node, file: _File) -> None:
             continue
         bad = not isinstance(one, EXPRESSIONS) \
             or isinstance(one, ast.Name) and (one.id.startswith("__") or one.id in file.classes) \
+            or isinstance(one, ast.Name) and one.id in file.defs and one.id not in local and id(one) not in calls \
             or isinstance(one, (ast.Attribute, ast.Subscript)) and not isinstance(one.ctx, ast.Load) \
             or isinstance(one, ast.Attribute) and not (one.attr in ATTRIBUTES or one.attr in METHODS and id(one) in calls) \
             or isinstance(one, ast.GeneratorExp) and id(one) not in tupled \
@@ -923,6 +962,8 @@ _ON = _Opaque("ON")      # what a run of statements gives when none of them retu
 def _steps(body: list, frame: _Frame):
     """Run a function's statements: what one returns, else _ON; UNKNOWN from a test not worked out."""
     for node in body:
+        if _docstring(node):
+            continue
         if isinstance(node, ast.Return):
             return frame.value(node.value)
         if isinstance(node, ast.Assign):
