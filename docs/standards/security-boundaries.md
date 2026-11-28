@@ -108,7 +108,7 @@ code owners are the org's team, which holds the machine user.
 
 ```text
 refused: lifecycle/   config/authority.json   .github/   kernel/gate.py   tools/hooks/protected.py
-pushed:  kernel/derive.py   tools/check_context.py
+passes:  kernel/derive.py   tools/check_context.py
 ```
 
 Org standard: codeowners-standard.md, "Rule": the code owners file is the org's, word for word.
