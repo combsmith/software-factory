@@ -1810,6 +1810,33 @@ class Push(unittest.TestCase):
         self.assertFalse(push.permits(self.upto(PUSH, 1), "GET", AT_TREE, None))
         self.assertFalse(push.permits(self.upto(PUSH, 3), "GET", AT_COMMIT, None))
 
+    def test_a_landed_push_is_keyed_by_the_commit_it_made_on_the_branch_it_was_told(self):  # decisions 1207, 1208
+        # The commit made and read back, never the branch's head before the push nor the commit admitted, and the
+        # branch the push was told: what applied/1 keys a push_commits by and names.
+        for told in (PUSH, MOVE):
+            landing = self.landing(told)
+            self.assertEqual(push.landed(self.upto(told, len(landing))), (COMMITTED, BRANCH), told["head"])
+            # Nothing has landed before the branch is read back at the commit made.
+            for steps in range(len(landing)):
+                self.assertIsNone(push.landed(self.upto(told, steps)), (told["head"], steps))
+        self.assertIsNone(push.landed(self.upto(PUSH, 0)))
+        # Whatever commit was made and branch told, those are given; and reading them changes nothing of the state.
+        done = self.upto(PUSH, len(self.landing()))
+        other = dict(done, commit="0123456789abcdef" * 2 + "01234567",
+                     push=dict(done["push"], branch="factory-work/issue-1-10"))
+        kept = repr(other)
+        self.assertEqual(push.landed(other), ("0123456789abcdef" * 2 + "01234567", "factory-work/issue-1-10"))
+        self.assertEqual(push.landed(other), ("0123456789abcdef" * 2 + "01234567", "factory-work/issue-1-10"))
+        self.assertEqual(repr(other), kept)
+        # A state in no shape seen gives lands nothing, a landing said in another word or with no commit among them.
+        done = self.upto(PUSH, len(self.landing()))
+        reading, _ = push.began(READING)
+        for at, bad in enumerate((dict(done, landed=1), dict(done, landed="yes"), dict(done, commit=None),
+                                  dict(done, commit="x"), dict(done, moved=False), dict(done, stale=True),
+                                  dict(done, push=dict(done["push"], branch="main")), Mapping(done), None,
+                                  {k: v for k, v in done.items() if k != "landed"}, dict(reading, landed=True))):
+            self.assertIsNone(push.landed(bad), at)
+
     def test_each_read_back_and_branch_write_says_whose_a_stop_is(self):
         refused, moved, unanswered = (None, push.ANSWER_REFUSED), (None, push.BRANCH_MOVED), (None, push.UNANSWERED)
         limited, gone = (None, push.RATE_LIMITED), {"status": "404", "body": {}}

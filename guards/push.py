@@ -29,6 +29,10 @@ What this rests on: the state is the caller's and never the port's, and the port
 holds, never `push`. That `blobs` is the base64 of the bytes `changes` holds is `apply`'s to say, which may import
 what encodes it.
 
+`landed(state)` gives `(commit, branch)` for a push that landed: the commit this push made and read back, and the work
+branch it was told, which `applied/1` keys its `push_commits` by and names (decisions 1207 and 1208); never the branch's
+head as read back, nor the commit admitted. None for a push that has not landed.
+
 `touched(changes)` and `existing(changes, tree)` give `(paths, None)`, naming the paths `harness/apply.py` is asked
 about: a push that touches a protected path is refused there, and so is one that changes or removes a test the
 admitted commit holds. One matcher reads the base's patterns (`tools/hooks/protected.py`); this names the paths, so
@@ -486,6 +490,15 @@ def _commit(got, state) -> bool:
     tree, parents = got.get("tree"), got.get("parents")
     return (_mapping(tree) and _said(tree.get("sha"), state["new"]) and type(parents) is list and len(parents) == 1
             and _mapping(parents[0]) and _said(parents[0].get("sha"), push["parent"]))
+
+
+def landed(state):
+    """`(commit, branch)` of a push that landed: the commit it made, read back at the branch it wrote, and that branch,
+    as `applied/1` keys and names its `push_commits`; None for a state that has not landed or is in no shape `seen`
+    gives."""
+    if not (_state(state) and state["landed"] is True and _sha(state["commit"])):
+        return None
+    return state["commit"], state["push"]["branch"]
 
 
 def touched(changes) -> tuple:
