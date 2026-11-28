@@ -285,6 +285,9 @@ MUTANTS = [
      '                and [(e["value"], e["body"] or []) for e in steps] == [(FIRST, []), (CHECKED, []), (LEGGED, [])]\n',
      '                and sorted([(e["value"], e["body"] or []) for e in steps]) == sorted([(FIRST, []), (CHECKED, []), (LEGGED, [])])\n', LEGS_TESTS),
     # Issue 1377: before the checks, a step of the checks that run no Role code.
+    ("the checks may run before the checks that run no Role code", "tools/check_workflows.py",
+     '                and [(e["value"], e["body"] or []) for e in steps] == [(FIRST, []), (CHECKED, []), (LEGGED, [])]\n',
+     '                and sorted([(e["value"], e["body"] or []) for e in steps][:2]) + [(e["value"], e["body"] or []) for e in steps][2:] == sorted([(FIRST, []), (CHECKED, [])]) + [(LEGGED, [])]\n', LEGS_TESTS),
     ("any step may stand before the checks", "tools/check_workflows.py",
      '                and [(e["value"], e["body"] or []) for e in steps] == [(FIRST, []), (CHECKED, []), (LEGGED, [])]\n',
      '                and [(e["value"], e["body"] or []) for e in steps][1:] == [(CHECKED, []), (LEGGED, [])]\n', LEGS_TESTS),
