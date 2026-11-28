@@ -18,6 +18,8 @@ test module that ends its process at import ends only the tests' process, and th
 """
 from __future__ import annotations
 
+import importlib
+import json
 import os
 import pathlib
 import re
@@ -29,36 +31,86 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.append(str(ROOT))      # after the standard library: a file at the top never stands in for one of its modules
 
-from tools import (check_apps, check_authority, check_context, check_decisions, check_examples, check_gate_sets,
-                   check_lifecycle,
-                   check_purity, check_release, check_repo, check_rulesets, check_trials, check_workflows, check_writes)
-
+# Each check, by its name, its module of tools/ and its function. Each runs in a process of its own (`answers`), and
+# this one imports none of them: a check whose code ends its process, or forges its answer, can blind only itself
+# (issue 1377).
 CHECKS = [
-    ("schemas and examples", check_examples.run),
-    ("lifecycle", check_lifecycle.run),
-    ("authority", check_authority.run),
-    ("apps", check_apps.run),
-    ("rulesets", check_rulesets.run),
-    ("kernel purity", check_purity.run),
-    ("guards purity", check_purity.guards),
-    ("trials", check_trials.run),
-    ("release", check_release.run),
-    ("repo", check_repo.run),
-    ("workflows", check_workflows.run),
-    ("writes", check_writes.run),
-    ("context", check_context.run),
-    ("decision records", check_decisions.run),
-    ("gate sets", check_gate_sets.run),
+    ("schemas and examples", "check_examples", "run"),
+    ("lifecycle", "check_lifecycle", "run"),
+    ("authority", "check_authority", "run"),
+    ("apps", "check_apps", "run"),
+    ("rulesets", "check_rulesets", "run"),
+    ("kernel purity", "check_purity", "run"),
+    ("guards purity", "check_purity", "guards"),
+    ("trials", "check_trials", "run"),
+    ("release", "check_release", "run"),
+    ("repo", "check_repo", "run"),
+    ("workflows", "check_workflows", "run"),
+    ("writes", "check_writes", "run"),
+    ("context", "check_context", "run"),
+    ("decision records", "check_decisions", "run"),
+    ("gate sets", "check_gate_sets", "run"),
 ]
+# How a check's process gives its answer: its last line of output, this, then {"check": its name, "problems": [...]}.
+ANSWER = "verify: the check answers "
 # The test modules `make fast` leaves out, each of which runs the seeded simulation. `make verify` runs them all.
 SLOW = ("test_simulator", "test_issue_simulator", "test_reasons")
 
 
-def failed(checks: list) -> bool:
-    """Run each check, print what it found, and say whether any found a problem."""
-    any_failed = False
-    for name, check in checks:
-        problems = check()
+def check(entry: tuple):
+    """The function an entry of CHECKS names, imported: in the check's own process, or in a test."""
+    _, module, function = entry
+    return getattr(importlib.import_module("tools." + module), function)
+
+
+def answered(name: str) -> int:
+    """Run the check `name` in this process, and print its answer as the last line: `verify --check NAME`."""
+    entry = next(e for e in CHECKS if e[0] == name)
+    problems = check(entry)()
+    sys.stdout.flush()
+    print(ANSWER + json.dumps({"check": name, "problems": problems}), flush=True)
+    return 0
+
+
+def answers(checks: list) -> dict:
+    """{name: (exit, output, errors)} of each check, run together, each in a process of its own, isolated as this one
+    is and told nothing but its name."""
+    started = {name: subprocess.Popen([sys.executable, "-I", "-S", str(ROOT / "tools" / "verify.py"), "--check", name],
+                                      cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+               for name, _, _ in checks}
+    out = {}
+    for name, process in started.items():
+        said, errors = process.communicate()
+        out[name] = (process.returncode, said.decode("utf-8", "replace"), errors.decode("utf-8", "replace"))
+    return out
+
+
+def problems_of(name: str, answer) -> list:
+    """The problems a check's process answered: those its last line gives, when it ended 0 and that line is its answer
+    to this check, a list of sentences. Anything else, no answer among it, is its problem."""
+    if answer is None:
+        return ["the check gave no answer"]
+    code, said, errors = answer
+    lines = said.splitlines()
+    last = lines[-1] if lines else ""
+    try:
+        given = json.loads(last[len(ANSWER):]) if last.startswith(ANSWER) else None
+    except ValueError:
+        given = None
+    whole = isinstance(given, dict) and set(given) == {"check", "problems"} and given["check"] == name \
+        and isinstance(given["problems"], list) and all(isinstance(p, str) for p in given["problems"])
+    if code != 0 or not whole:
+        tail = [line for line in (lines + errors.splitlines()) if line.strip()][-5:]
+        return ["the check's process ended %s without its answer" % code] + tail
+    return given["problems"]
+
+
+def failed(checks: list, ran=answers) -> bool:
+    """Run each check, print what it found, and say whether any found a problem. A check that gives no answer has
+    found one."""
+    said, any_failed = ran(checks), False
+    for name, _, _ in checks:
+        problems = problems_of(name, said.get(name))
         print("%-22s %s" % (name, "ok" if not problems else "FAILED"))
         for p in problems:
             print("    " + p)
@@ -116,6 +168,7 @@ def leg(environ) -> tuple:
 def notes() -> list:
     """What `verify` says of the records before the tests: what they were compared with, and how many Boundary rows
     name no mutant yet (issue 590)."""
+    from tools import check_decisions       # the tests' process alone imports a check here
     return ["%-22s %s" % ("decision base", check_decisions.described()),
             "%-22s %s" % ("boundary mutants", check_decisions.unnamed())]
 
@@ -161,6 +214,8 @@ def tested(fast: bool, share: tuple = None) -> int:
 
 
 def main(argv: list, environ=None) -> int:
+    if argv[:1] == ["--check"] and len(argv) == 2:      # one check's own process, which `answers` starts
+        return answered(argv[1])
     try:
         share = None if "--checks" in argv or "--fast" in argv else leg(environ or {})
     except ValueError as err:
@@ -169,6 +224,7 @@ def main(argv: list, environ=None) -> int:
     if "--tests" in argv:       # `make tests`, or the tests' process that `tested` starts: it runs no check
         for line in notes():
             print(line)
+        from tools import check_trials
         unverified(check_trials.unverified())
         if share is not None:
             print("%-22s leg %d of %d counted from 0" % ("tests", share[0], share[1]))
