@@ -10557,7 +10557,9 @@ else:
                     ({"status": 503, "body": "<html>unavailable</html>"}, False, "GitHub may have minted one"),
                     ({"status": 429, "body": '{"message": "API rate limit exceeded"}'}, False, "429"),
                     # No status curl wrote: the last line is the answer's, and is no status (issue 1245).
-                    ({"status": '{"message": "Server Error from GitHub"}', "body": ""}, False, "GitHub may have minted one")):
+                    ({"status": '{"message": "Server Error from GitHub"}', "body": ""}, False, "GitHub may have minted one"),
+                    # Nor is a last line that only begins with three digits (Carbon).
+                    ({"status": "500 Server Error", "body": ""}, False, "GitHub may have minted one")):
                 with self.subTest(script=name, plan=plan):
                     self.setUp()
                     argv = [a.replace("KEY", self.key_file) for a in args]

@@ -157,6 +157,8 @@ MUTANTS = [
      'note "trial_p52_pause:', (MINT_REFUSED,)),
     ("P-52 keeps a mint status that is not three digits", "tools/trial_p52_pause.sh",
      'case "$minted_status" in [0-9][0-9][0-9]) ;; *) minted_status="" ;; esac\n', "", (MINT_REFUSED,)),
+    ("P-52 takes a mint status that only begins with three digits", "tools/trial_p52_pause.sh",
+     'case "$minted_status" in [0-9][0-9][0-9]) ;;', 'case "$minted_status" in [0-9][0-9][0-9]*) ;;', (MINT_REFUSED,)),
     ("P-52 tells the terminal before it notes", "tools/trial_p52_pause.sh", 'live() { note "$*"; echo "$*" >&2; }',
      'live() { echo "$*" >&2; note "$*"; }', (NOTED,)),
 ]
