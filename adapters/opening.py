@@ -126,10 +126,11 @@ def _back(state: str, number=None, head=None, reason=None) -> dict:
 
 
 def _readable(pull) -> bool:
-    """Whether a listed pull request says who opened it and from which branch of which repo: one that does not may
-    be the App's own, so the list is not read whole."""
+    """Whether a listed pull request says who opened it, a person or an App, and from which branch of which repo:
+    one that does not may be the App's own, so the list is not read whole."""
     user, head = (pull.get("user"), pull.get("head")) if isinstance(pull, dict) else (None, None)
-    return isinstance(user, dict) and type(user.get("login")) is str and isinstance(head, dict) \
+    return isinstance(user, dict) and type(user.get("login")) is str and user.get("type") in ("User", "Bot") \
+        and isinstance(head, dict) \
         and type(head.get("ref")) is str and isinstance(head.get("repo"), dict) \
         and type(head["repo"].get("full_name")) is str
 

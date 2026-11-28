@@ -9843,6 +9843,23 @@ class Opening(unittest.TestCase):
             self.assertEqual((back["state"], back["number"], back["reason"]), (state, None, reason), (script, state))
             self.assertEqual(apply.opened("e1", 12, OPENED_FROM, back)["key"], None)
 
+    def test_a_listed_pull_request_that_says_not_whether_a_person_or_an_app_opened_it_posts_nothing(self):
+        # One of the App's login that says no kind may be its own draft, so none is opened beside it (issue 1346).
+        for user in ({"login": OPENER}, {"login": OPENER, "type": None}, {"login": OPENER, "type": "Organization"},
+                     {"login": OPENER, "type": ["Bot"]}, {"login": "someone", "type": "bot"}):
+            back, sent = self.opened({self.LIST: {"status": 200, "body": [dict(self.pull(5), user=user)]},
+                                      self.OPEN: {"status": 201, "body": {"number": 7}},
+                                      self.READ: {"status": 200, "body": self.pull()}})
+            self.assertEqual((back["state"], back["reason"]), ("failed", "pulls_unreadable"), user)
+            self.assertEqual([(r["method"], r["path"]) for r in sent], [self.LIST], user)
+        # One a person opened says so, and the draft is opened beside it.
+        back, sent = self.opened({self.LIST: {"status": 200, "body": [
+                                      dict(self.pull(5), user={"login": "someone", "type": "User"})]},
+                                  self.OPEN: {"status": 201, "body": {"number": 7}},
+                                  self.READ: {"status": 200, "body": self.pull()}})
+        self.assertEqual((back["state"], back["number"]), ("applied", 7))
+        self.assertEqual([(r["method"], r["path"]) for r in sent], [self.LIST, self.OPEN, self.READ])
+
     def test_an_opening_told_wrongly_sends_nothing(self):
         for repo, branch, base, title, body, login, *commit in (
                 ("combsmith/..", OPENED_FROM, "main", "t", "b", OPENER), (OPENED_IN, "main", "main", "t", "b", OPENER),
