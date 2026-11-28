@@ -27,7 +27,8 @@ says is refused, never passed.
   calls no other workflow; and its own `permissions:`, or its workflow's where it has none, let its token write
   nothing, `read-all`, `{}`, or each scope `read` or `none`. With neither, the repo's default permission for
   `GITHUB_TOKEN` applies, which `adapters/settings.py` will read: until it does, it is taken as write, so such a job
-  holds a secret. A workflow's lines are still read whole in the narrow form, a job that holds no secret among them, so
+  holds a secret. A key with a capital, at the job or at the top, is taken to hold one too, as Actions may read a
+  key in any case. A workflow's lines are still read whole in the narrow form, a job that holds no secret among them, so
   that what a job names is never hidden: lines this does not read are `UNREADABLE`, and so is no mapping of path to
   text. Its keys at the top and its `env:` are held to the table only where one of its jobs holds a secret.
 
@@ -210,10 +211,20 @@ def _listed(name: str, listed: list) -> bool:
     return name in listed or any(entry.endswith("/") and name.startswith(entry) for entry in listed)
 
 
-def _named(node: dict) -> bool:
-    """Whether `secrets` is named, in any case, by the key or the value of `node` or of any node under it."""
-    said = (node["key"] or "") + " " + node["value"]
-    return "secrets" in said.casefold() or any(_named(kid) for kid in node["kids"])
+def _named(nodes: list) -> bool:
+    """Whether `secrets` is named, in any case, by the key or the value of any of `nodes` or of a node under one."""
+    left = list(nodes)
+    while left:
+        node = left.pop()
+        if "secrets" in ((node["key"] or "") + " " + node["value"]).casefold():
+            return True
+        left += node["kids"]
+    return False
+
+
+def _capital(nodes: list) -> bool:
+    """Whether a key of `nodes` has a capital: Actions may read a key in any case, so `Permissions:` is never passed over."""
+    return any(node["key"] is not None and node["key"] != node["key"].casefold() for node in nodes)
 
 
 def _quiet(node: dict) -> bool:
@@ -223,14 +234,15 @@ def _quiet(node: dict) -> bool:
     return node["value"] in QUIET_ALL
 
 
-def _holds(job: dict, root: dict) -> bool:
-    """Whether a job holds a secret, as record 0239 says: it, or its workflow outside the jobs, names `secrets`; it calls
-    another workflow, which this does not read; or its token may write, by its own `permissions:`, else its
-    workflow's, else the repo's default, taken as write until `adapters/settings.py` reads it."""
-    given = [kid for kid in job["kids"] if kid["key"] == "permissions"] \
-        or [kid for kid in root["kids"] if kid["key"] == "permissions"]
-    return _named(job) or any(_named(kid) for kid in root["kids"] if kid["key"] != "jobs") \
-        or any(kid["key"] == "uses" for kid in job["kids"]) or not given or not _quiet(given[0])
+def _holds(job: dict, outer: bool, given: list) -> bool:
+    """Whether a job holds a secret, as record 0239 says: it names `secrets`, or `outer` says its workflow does outside
+    the jobs; it calls another workflow, which this does not read; or its token may write, by its own `permissions:`,
+    else its workflow's, `given`, else the repo's default, taken as write until `adapters/settings.py` reads it. A key
+    with a capital, at the job or, by `outer`, at the top, is taken to hold one too."""
+    own = [kid for kid in job["kids"] if kid["key"] == "permissions"]
+    given = own or given
+    return outer or _capital(job["kids"]) or _named([job]) or any(kid["key"] == "uses" for kid in job["kids"]) \
+        or not given or not _quiet(given[0])
 
 
 def _read(path, text, listed, narrow: bool):
@@ -243,9 +255,14 @@ def _read(path, text, listed, narrow: bool):
     root = _tree(lines) if lines is not None else None
     named = [kid for kid in root["kids"] if kid["key"] == "jobs"] if root is not None else []
     jobs = named[0] if named and all(kid["key"] is not None for kid in root["kids"]) else None
-    if jobs is None or jobs["value"] or not jobs["kids"] or any(job["key"] is None or job["value"] for job in jobs["kids"]):
+    if jobs is None or jobs["value"] or not jobs["kids"] \
+            or any(job["key"] is None or job["value"] or not job["kids"] for job in jobs["kids"]):
         return UNREADABLE
-    held = [job for job in jobs["kids"] if not narrow or _holds(job, root)]
+    # What the workflow says outside its jobs is read once, for every job.
+    outside = [kid for kid in root["kids"] if kid["key"] != "jobs"]
+    outer = _named(outside) or _capital(root["kids"])
+    given = [kid for kid in outside if kid["key"] == "permissions"]
+    held = [job for job in jobs["kids"] if not narrow or _holds(job, outer, given)]
     if not held:
         return None
     top = _keys(root, TOP + ("env", "jobs"))

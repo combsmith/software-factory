@@ -8706,6 +8706,10 @@ class Workflows(unittest.TestCase):
         # A folder that holds no workflow holds none, read whole.
         self.assertEqual(self.workflows(self.listing("README.md")), ({}, None))
         self.assertEqual(self.workflows(self.listing()), ({}, None))
+        # A listing one short of GitHub's cut is whole, and a link or a folder not named as a workflow is passed over.
+        found = self.listing(*["f%d.md" % n for n in range(999)])
+        found["response"]["body"][0]["type"] = "symlink"
+        self.assertEqual(self.workflows(found), ({}, None))
         # As many as the bound are read.
         names = ["w%d.yml" % n for n in range(rules.MOST)]
         found = self.workflows(self.listing(*names), *[self.workflow(name) for name in names])
@@ -8721,7 +8725,7 @@ class Workflows(unittest.TestCase):
         file_answer["response"]["body"] = file_answer["response"]["body"][0]
         no_body = self.listing("a.yml")
         no_body["response"]["body"] = None
-        cut = self.listing(*["f%d.md" % n for n in range(rules.ENTRIES)])
+        cut = self.listing(*["f%d.md" % n for n in range(1000)])
         odd = self.listing("a.yml")
         odd["response"]["body"].append("b.yml")
         many = ["w%d.yml" % n for n in range(rules.MOST + 1)]
@@ -8731,7 +8735,12 @@ class Workflows(unittest.TestCase):
                       (self.listing("a.yml", path="a.yml"), self.workflow("a.yml")), (self.listing("a.yml", name=None),),
                       (self.listing(""),), (self.listing("a/b.yml"), self.workflow("a/b.yml")),
                       (self.listing("a.yml", "a.yml"), self.workflow("a.yml"), self.workflow("a.yml")),
-                      (self.listing("a.md", "a.md"),), (self.listing(*many),) + tuple(self.workflow(name) for name in many)):
+                      (self.listing("a.md", "a.md"),), (self.listing(*many),) + tuple(self.workflow(name) for name in many),
+                      # A link listed under a workflow's name, or a name a request's path would not carry as it is.
+                      (self.listing("a.yml", kind="symlink"), self.workflow("a.yml")),
+                      (self.listing("a.yml", kind="submodule"), self.workflow("a.yml")),
+                      (self.listing("a?b.yml"), self.workflow("a?b.yml")), (self.listing("a b.yml"), self.workflow("a b.yml")),
+                      (self.listing("a%62.yml"), self.workflow("a%62.yml")), (self.listing("a#b.yml"), self.workflow("a#b.yml"))):
             self.assertEqual(self.workflows(*found), unreadable, found[0]["response"]["status"])
         # One workflow that cannot be read as its one file refuses the commit, wherever it stands: a link or a submodule
         # listed under a workflow's name among them.

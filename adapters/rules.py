@@ -32,6 +32,7 @@ UNREADABLE = "push_list_unreadable"
 FOLDER = ".github/workflows"
 WORKFLOWS_UNREADABLE = "workflows_unreadable"
 ENTRIES = 1000      # GitHub lists at most this many entries of a folder: a listing of as many may have been cut
+WORKFLOW_NAME = re.compile(r"[A-Za-z0-9_.-]+")
 MOST = 50           # the workflows read at one commit; a folder that holds more is not read
 
 
@@ -104,9 +105,13 @@ def workflows_at(transport, repo: str, sha: str) -> tuple:
     for entry in listing:
         name = entry.get("name") if isinstance(entry, dict) else None
         path = "%s/%s" % (FOLDER, name)
-        if not isinstance(name, str) or not name or "/" in name or entry.get("path") != path or path in seen:
+        if not isinstance(name, str) or not name or entry.get("path") != path or path in seen:
             return None, WORKFLOWS_UNREADABLE
         seen.append(path)
+        # A workflow is a plain file named in characters a request's path carries as they are: a link listed under a
+        # workflow's name, or one named with `?`, `#`, `%` or a space, is not read.
+        if name.lower().endswith((".yml", ".yaml")) and (entry.get("type") != "file" or not WORKFLOW_NAME.fullmatch(name)):
+            return None, WORKFLOWS_UNREADABLE
     paths = [path for path in seen if path.lower().endswith((".yml", ".yaml"))]
     if len(paths) > MOST:
         return None, WORKFLOWS_UNREADABLE

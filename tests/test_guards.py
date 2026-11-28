@@ -2288,6 +2288,11 @@ class Secrets(unittest.TestCase):
             "a secret named in its workflow's env": tested("permissions: write-all\n", "permissions: write-all\nenv:\n  X: ${{ secrets.X }}\n"),
             "a secret its workflow is called with": tested("  pull_request:\n", "  workflow_call:\n    secrets:\n      X:\n"),
             "another workflow called": tested("    runs-on: ubuntu-24.04\n", "    uses: o/r/.github/workflows/x.yml@main\n"),
+            # Actions may read a key in any case: one with a capital is never passed over.
+            "its own permissions with a capital": tested("    permissions:\n      contents: read\n", "    Permissions:\n      contents: write\n")
+            .replace("permissions: write-all\n", "permissions: read-all\n"),
+            "another workflow called with a capital": tested("    runs-on: ubuntu-24.04\n", "    Uses: o/r/.github/workflows/x.yml@main\n"),
+            "a key with a capital at the top": tested("permissions: write-all\n", "permissions: write-all\nEnv:\n  X: y\n"),
         }
         for why, text in holds.items():
             self.assertEqual(at(text), workflows.UNREADABLE, why)
@@ -2303,6 +2308,9 @@ class Secrets(unittest.TestCase):
         beside = SCAN + "  test:\n    runs-on: ubuntu-24.04\n    permissions:\n      contents: read\n    steps:\n      - run: make\n"
         self.assertIsNone(workflows.refusal_at({SCAN_AT: beside}, LISTED))
         self.assertEqual(workflows.refusal(SCAN_AT, beside, LISTED), workflows.UNREADABLE)
+        # However deep a job that holds none is written, it is read, and not read into.
+        deep = "    strategy:\n" + "".join(" " * (6 + n) + "x%d:\n" % n for n in range(600)) + " " * 606 + "y: z\n"
+        self.assertIsNone(at(tested("    steps:\n", deep + "    steps:\n")))
         # Every job of a workflow is asked: one that holds beside one that holds none is read.
         both = TEST + "  other:\n    runs-on: ubuntu-24.04\n    permissions: write-all\n    steps:\n      - run: make\n"
         self.assertEqual(at(both), workflows.UNREADABLE)
@@ -2326,7 +2334,10 @@ class Secrets(unittest.TestCase):
                           ("an anchor", tested("    runs-on: ubuntu-24.04\n", "    runs-on: &r ubuntu-24.04\n")),
                           ("a key given twice", tested("      contents: read\n", "      contents: read\n      contents: write\n")),
                           ("permissions given twice", tested("    runs-on: ubuntu-24.04\n", "    runs-on: ubuntu-24.04\n    permissions: write-all\n")),
+                          ("permissions given twice, the quiet first", tested("    steps:\n", "    permissions: write-all\n    steps:\n")),
+                          ("jobs given twice", TEST + "jobs:\n  other:\n    runs-on: x\n    steps:\n      - run: make\n"),
                           ("an item among the jobs", TEST + "  - runs-on: x\n"),
+                          ("a job of no body", tested("permissions: write-all\n", "permissions: read-all\n") + "  other:\n"),
                           ("a job of a value", TEST + "  other: x\n"),
                           ("an item at the top", "- x\n" + TEST),
                           ("no jobs", TEST.split("jobs:\n")[0]),
