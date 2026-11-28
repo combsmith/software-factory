@@ -1,4 +1,4 @@
-"""The push loop's own pieces, each a tested function that `harness/push.py`, not built yet, composes (issue 838; the
+"""The push loop's own pieces, each a tested function that `harness/push.py` composes (issue 838; the
 Solution Architect's ruling 2 of 2026-11-28). They decide nothing: what may leave, and what an answer must say, is
 `guards/push.py`'s; each request is built by `adapters/push.py` and sent by its `send`.
 

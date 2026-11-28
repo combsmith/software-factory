@@ -478,4 +478,8 @@ MUTANTS = [
     # Argon's reads of #348, #355 and #379, owed while it had no quota (no record; Boundaries rows on 0070, 0075, 0080).
     ('a list pattern with a backslash or a control character is read', 'harness/apply.py',
      'derive.readable_pattern(p) and not UNREADABLE_PATH.search(p) for p in protected_list', 'derive.readable_pattern(p) for p in protected_list', ('tests.test_apply.Push.test_a_list_that_is_none_or_empty_refuses_every_push',)),
+    # Issue 838: nothing calls harness/push.py until apply's dispatch lands, wiring only (the Solution Architect).
+    ('apply imports the push before its dispatch lands', 'harness/apply.py',
+     'from harness import engine, shared\n', 'from harness import engine, push, shared\n',
+     ('tests.test_harness.Push.test_nothing_calls_the_push_until_apply_dispatches_it',)),
 ]

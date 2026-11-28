@@ -377,4 +377,13 @@ MUTANTS = [
      'READ_TOOLS = "Read,Grep,Glob"\n', 'READ_TOOLS = "Read,Grep"\n',
      ('tests.test_harness.Engine.test_no_run_is_given_a_tool_that_runs_code_or_writes',)),
     # Issue 589: the advisory check of a changed line of Python that no test notices.
+    # Issue 838: dev-lead's Run pushes nothing itself; given a tool that writes, or a token that pushes, the tests fail.
+    ("dev-lead's Run is given a tool that writes", 'harness/engine.py',
+     '            + OPTIONS + (READ if read is True else ["--tools", ""]))',
+     '            + OPTIONS + (READ if read is True else ["--tools", "Bash,Write"]))',
+     ('tests.test_harness.Engine.test_the_cli_is_given_no_tool',)),
+    ("dev-lead's Run is given a token that pushes", 'harness/engine.py',
+     '    env[CREDENTIAL_NAME] = job_env[CREDENTIAL_NAME]\n',
+     '    env[CREDENTIAL_NAME] = job_env[CREDENTIAL_NAME]\n    env["GH_TOKEN"] = job_env.get("GH_TOKEN", "a")\n',
+     ('tests.test_harness.Engine.test_the_cli_is_given_exactly_the_named_environment_and_the_one_credential',)),
 ]

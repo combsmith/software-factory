@@ -2210,7 +2210,7 @@ class Recorded:
 
 
 class Push(unittest.TestCase):
-    """`harness/push_steps.py`, the push whole (issue 838; the Solution Architect's ruling 2 of 2026-11-28): each check before
+    """`harness/push.py`, the push whole (issue 838; the Solution Architect's ruling 2 of 2026-11-28): each check before
     the first write refuses it, the push of P-71's push A lands exactly its patch, and nothing calls it yet."""
     DEFAULT, MOVED = "d" * 40, "e" * 40
     GONE = b"A file the first push removes.\n"
@@ -2240,7 +2240,7 @@ class Push(unittest.TestCase):
         the admitted commit stands, `bases` in turn; the list at a sha, `lists(sha)`; the workflows, `files(sha)`; the
         Factory's own repo, `home`, P-71's canary unless told."""
         from adapters import push as port
-        from harness import push_steps as push
+        from harness import push
         from tests.test_apply import own_list
         asked, bases = {"base": [], "list": [], "workflows": []}, list(bases or [("ancestor", self.DEFAULT)] * 3)
 
@@ -2295,7 +2295,7 @@ class Push(unittest.TestCase):
         self.assertIsNone(said[1])
 
     def test_a_later_push_moves_the_branch_from_the_head_its_decision_named(self):
-        from harness import push_steps as push
+        from harness import push
         # P-71's push B, as a patch on push A's commit: the branch read at the head admitted, moved to the commit made
         # without force, and landed there; where the admitted commit stands on the default branch is not held.
         old, new = b"Notes the second push changes.\n", b"Notes the second push changed.\n"
@@ -2341,7 +2341,7 @@ class Push(unittest.TestCase):
     def test_the_loop_refuses_on_each_check(self):
         from adapters import rules
         from guards import judged, patch, push as guard, workflows
-        from harness import push_steps as push
+        from harness import push
         from tests.test_apply import own_list
         from tests.test_guards import CONTRACT_AT, contract
         parent, ancestor, shared = self.told()["parent"], ("ancestor", self.DEFAULT), self.shared()
@@ -2413,10 +2413,10 @@ class Push(unittest.TestCase):
                 names = [alias.name for alias in node.names] if isinstance(node, (ast.Import, ast.ImportFrom)) else []
                 module = node.module if isinstance(node, ast.ImportFrom) else None
                 if isinstance(node, ast.ImportFrom) and node.level:
-                    # A relative import, read from the file's own package: `from . import push_steps` in harness/.
+                    # A relative import, read from the file's own package: `from . import push` in harness/.
                     package = path.relative_to(ROOT).parent.parts[:len(path.relative_to(ROOT).parent.parts) - node.level + 1]
                     module = ".".join(package + ((node.module,) if node.module else ()))
-                if "harness.push_steps" in names or module == "harness.push_steps" or module == "harness" and "push_steps" in names:
+                if "harness.push" in names or module == "harness.push" or module == "harness" and "push" in names:
                     callers.append(rel)
         self.assertEqual(callers, [])
 
