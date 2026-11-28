@@ -305,7 +305,8 @@ def _started(root: dict, default) -> bool:
 
 
 def _number(said: str) -> bool:
-    return bool(said) and all(c in DIGITS for c in said)
+    """Whether `said` is a number as a version writes one: digits, and no 0 before another digit."""
+    return bool(said) and all(c in DIGITS for c in said) and (said == "0" or said[:1] != "0")
 
 
 def _tag(tag: str) -> bool:

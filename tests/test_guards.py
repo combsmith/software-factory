@@ -2582,6 +2582,9 @@ class Gated(unittest.TestCase):
         for given in ("    runs-on: self-hosted\n", "    runs-on:\n      - self-hosted\n", "    runs-on: ${{ matrix.os }}\n",
                       "    runs-on: windows-latest\n", "    runs-on: Ubuntu-24.04\n", "    runs-on: 'ubuntu-24.04 '\n", ""):
             self.assertEqual(released(RELEASE.replace(runs, given)), workflows.UNREADABLE, given)
+        # Every job of it that holds a secret is held so, one beside another in the same workflow.
+        other = "  other:\n    runs-on: self-hosted\n    steps:\n      - run: make\n"
+        self.assertEqual(released(RELEASE.replace("jobs:\n", "jobs:\n" + other) + other.replace("other", "last")), workflows.UNREADABLE)
         # Where a work branch may start it too: the runner is read before its command.
         holding = tested("    permissions:\n      contents: read\n", "")
         self.assertEqual(at(holding), workflows.STARTED)
@@ -2604,7 +2607,8 @@ class Gated(unittest.TestCase):
                      HOME_CALL.replace("v0-next", "v0-beta"), HOME_CALL.replace("v0-next", "1.2.3"),
                      HOME_CALL.replace("v0-next", "v-next"), HOME_CALL.replace("v0-next", "v1..2"),
                      HOME_CALL.replace("v0-next", "v0-next-x"), HOME_CALL.replace("factory/v0-next", "v0-next"),
-                     HOME_CALL.replace("v0-next", "x0-next"),
+                     HOME_CALL.replace("v0-next", "x0-next"), HOME_CALL.replace("v0-next", "v01.2.3"),
+                     HOME_CALL.replace("v0-next", "v1.02.3"), HOME_CALL.replace("v0-next", "v00-next"),
                      HOME_CALL.replace("called.yml", "called.txt"), HOME_CALL.replace("called.yml", "a/called.yml"),
                      HOME_CALL.replace("called.yml", "called yml"), HOME.upper() + HOME_CALL[len(HOME):],
                      "x" + HOME_CALL, "./.github/workflows/missing.yml", "./called.yml", "./.github/workflows/called.yml@main"):
