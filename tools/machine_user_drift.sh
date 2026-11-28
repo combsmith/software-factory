@@ -11,11 +11,11 @@ trap 'exit 1' HUP INT TERM
 real=$(cd "$dir" && pwd -P)
 case "$real/" in "$root"/*) echo "the scratch directory $real is inside the repo; set TMPDIR elsewhere" >&2; exit 2;; esac
 : > "$dir/answers"
-for call in $(cd "$root" && python3 -m tools.machine_user_drift --reads); do
+for call in $(cd "$root" && python3 -I -S "$root/tools/machine_user_drift.py" --reads); do
   gh api --include "$call" > "$dir/raw" 2>/dev/null || true
   (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$dir/raw" >> "$dir/answers") 2> /dev/null ||
       { echo "machine_user_drift: the redaction of $call failed" >&2; exit 1; }
   rm -f "$dir/raw"
   printf '\0' >> "$dir/answers"
 done
-cd "$root" && python3 -m tools.machine_user_drift < "$dir/answers"
+cd "$root" && python3 -I -S "$root/tools/machine_user_drift.py" < "$dir/answers"

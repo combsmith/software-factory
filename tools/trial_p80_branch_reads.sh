@@ -145,7 +145,7 @@ unrevoked() {
 # A token in an answer that may be cut short: the first "token" field's value, found without parsing the whole.
 # It is read as bytes, so an answer cut inside a character still gives up its token (issue 502).
 token_in() {
-    printf '%s\n' "$1" | python3 -I -c '
+    printf '%s\n' "$1" | python3 -I -S -c '
 import re, sys
 found = re.search(r"\"token\"\s*:\s*\"([^\"]+)\"", sys.stdin.buffer.read().decode("utf-8", "replace"))
 print(found.group(1) if found else "")' 2>/dev/null || true
@@ -184,7 +184,7 @@ trap "trap '' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM QUIT PIPE
 # Checked once the exit trap stands, after the scratch directory's refusal: python3 may write to TMPDIR as it starts.
 # Each branch is a work branch's name, whole, as kernel/terms.py's WORK_BRANCH spells one, so it reaches the URL as
 # nothing else; and no two are one branch, since each stands in one state.
-if ! problem=$(python3 -I -c '
+if ! problem=$(python3 -I -S -c '
 import re, sys
 names = sys.argv[1:]
 for name in names:
@@ -202,7 +202,7 @@ b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 
 # The Controller's name, id and installation, as the data and P-39's first reads give them; REPO must be one the data
 # installs the Controller on, and the Factory's own repo is not asked.
-ids=$(cd "$root" && python3 -I -c '
+ids=$(cd "$root" && python3 -I -S -c '
 import json, sys
 app = json.load(open("config/apps.json"))["apps"]["controller"]
 if sys.argv[1] not in app["installed_on"] or sys.argv[1] == "combsmith/software-factory":
@@ -257,7 +257,7 @@ read_one() {   # NARROWED PATH STATE BRANCH
 # A branch's two reads, as adapters/branches.py makes them: its pull requests in every state, by REST's head filter on
 # REPO's owner, the query built as the port builds it; then its ref, the branch written into the path as it is.
 branch_reads() {   # NARROWED STATE BRANCH
-    query=$(python3 -I -c '
+    query=$(python3 -I -S -c '
 import sys, urllib.parse
 print(urllib.parse.urlencode({"state": "all", "head": sys.argv[1].split("/")[0] + ":" + sys.argv[2], "per_page": 100}))
 ' "$repo" "$3")
@@ -285,7 +285,7 @@ with_token() {   # NARROWED PERMISSIONS
     minted_status=$(printf '%s\n' "$minted" | tail -n 1)
     # Three whole digits, or none: a last line curl did not write is the answer's (issue 1245).
     case "$minted_status" in [0-9][0-9][0-9]) ;; *) minted_status="" ;; esac
-    token=$(printf '%s\n' "$minted" | sed '$d' | python3 -I -c '
+    token=$(printf '%s\n' "$minted" | sed '$d' | python3 -I -S -c '
 import json, sys
 answer = json.load(sys.stdin)
 print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/null || true)

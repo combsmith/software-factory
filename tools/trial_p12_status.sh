@@ -146,7 +146,7 @@ unrevoked() {
 # A token in an answer that may be cut short: the first "token" field's value, found without parsing the whole.
 # It is read as bytes, so an answer cut inside a character still gives up its token (issue 502).
 token_in() {
-    printf '%s\n' "$1" | python3 -I -c '
+    printf '%s\n' "$1" | python3 -I -S -c '
 import re, sys
 found = re.search(r"\"token\"\s*:\s*\"([^\"]+)\"", sys.stdin.buffer.read().decode("utf-8", "replace"))
 print(found.group(1) if found else "")' 2>/dev/null || true
@@ -186,7 +186,7 @@ b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 
 # The Controller's name, id and installation, as the data and P-39's first reads give them; REPO must be one the data
 # installs the Controller on, and the Factory's own repo is not asked.
-ids=$(cd "$root" && python3 -I -c '
+ids=$(cd "$root" && python3 -I -S -c '
 import json, sys
 app = json.load(open("config/apps.json"))["apps"]["controller"]
 if sys.argv[1] not in app["installed_on"] or sys.argv[1] == "combsmith/software-factory":
@@ -242,7 +242,7 @@ ask() {   # METHOD PATH [BODY]
 # digits; and the output at what the status would use, at GitHub's documented limit, and one past it. They are written
 # only once a token is minted, so that a refused or unreadable mint writes nothing at all.
 bodies() {
-    (cd "$scratch" && python3 -I - "$commit" <<'BODIES'
+    (cd "$scratch" && python3 -I -S - "$commit" <<'BODIES'
 import json, sys
 commit = sys.argv[1]
 def write(path, **fields):
@@ -280,7 +280,7 @@ with_token() {   # WHAT
     minted_status=$(printf '%s\n' "$minted" | tail -n 1)
     # Three whole digits, or none: a last line curl did not write is the answer's (issue 1245).
     case "$minted_status" in [0-9][0-9][0-9]) ;; *) minted_status="" ;; esac
-    token=$(printf '%s\n' "$minted" | sed '$d' | python3 -I -c '
+    token=$(printf '%s\n' "$minted" | sed '$d' | python3 -I -S -c '
 import json, sys
 answer = json.load(sys.stdin)
 print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/null || true)
@@ -337,7 +337,7 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
     runs="repos/$repo/check-runs"
     listed="repos/$repo/commits/$commit/check-runs?check_name=status_on_item"
     ask POST "$runs" create-1
-    made=$(python3 -I -c '
+    made=$(python3 -I -S -c '
 import json, sys
 text = open(sys.argv[1]).read()
 while text.startswith("HTTP/"):    # each head, a proxy'"'"'s block among them, comes before the answer

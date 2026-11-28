@@ -11,7 +11,7 @@ trap 'exit 1' HUP INT TERM
 real=$(cd "$dir" && pwd -P)
 case "$real/" in "$root"/*) echo "the scratch directory $real is inside the repo; set TMPDIR elsewhere" >&2; exit 2;; esac
 cd "$root"
-repo=$(python3 -c 'import json; print(json.load(open("config/rulesets.json"))["repo"])')
+repo=$(python3 -I -S -c 'import json; print(json.load(open("config/rulesets.json"))["repo"])')
 read_one() {
   gh api --include "$2" > "$dir/raw-$1" 2>/dev/null || true
   python3 -I -S "$root/tools/redact_trial.py" < "$dir/raw-$1" > "$dir/$1" 2> /dev/null ||
@@ -20,9 +20,9 @@ read_one() {
 }
 read_one list "repos/$repo/environments?per_page=100"     # environments_drift.py: PAGE
 { cat "$dir/list"; printf '\0'; } > "$dir/first"
-names=$(python3 -m tools.environments_drift --names < "$dir/first")
+names=$(python3 -I -S "$root/tools/environments_drift.py" --names < "$dir/first")
 for name in $names; do
   read_one "env-$name" "repos/$repo/environments/$name/deployment-branch-policies?per_page=100"
 done
 { cat "$dir/first"; for name in $names; do cat "$dir/env-$name"; printf '\0'; done; } |
-  python3 -m tools.environments_drift
+  python3 -I -S "$root/tools/environments_drift.py"

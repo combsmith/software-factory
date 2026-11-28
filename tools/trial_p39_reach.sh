@@ -129,7 +129,7 @@ revoke() {
 # A token in an answer that may be cut short: the first "token" field's value, found without parsing the whole.
 # It is read as bytes, so an answer cut inside a character still gives up its token (issue 502).
 token_in() {
-    printf '%s\n' "$1" | python3 -I -c '
+    printf '%s\n' "$1" | python3 -I -S -c '
 import re, sys
 found = re.search(r"\"token\"\s*:\s*\"([^\"]+)\"", sys.stdin.buffer.read().decode("utf-8", "replace"))
 print(found.group(1) if found else "")' 2>/dev/null || true
@@ -176,7 +176,7 @@ b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 
 # Each App's name, id and installation, as P-39's first reads give them: the installation GitHub listed for the App's
 # name, so an App the data does not name yet is read too.
-ids=$(cd "$root" && python3 -I -c '
+ids=$(cd "$root" && python3 -I -S -c '
 import json
 fixture = json.load(open("trials/P-39.grants.json"))
 read = [e for e in fixture["exchanges"] if e["request"]["call"] == "GET /orgs/combsmith/installations"]
@@ -216,7 +216,7 @@ reach() {
     # Three whole digits, or none: a last line curl did not write is the answer's (issue 1245).
     case "$minted_status" in [0-9][0-9][0-9]) ;; *) minted_status="" ;; esac
     minted=$(printf '%s\n' "$minted" | sed '$d')
-    token=$(printf '%s\n' "$minted" | python3 -I -c '
+    token=$(printf '%s\n' "$minted" | python3 -I -S -c '
 import json, sys
 answer = json.load(sys.stdin)
 print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/null || true)

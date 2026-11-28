@@ -139,7 +139,7 @@ unrevoked() {
 # A token in an answer that may be cut short: the first "token" field's value, found without parsing the whole.
 # It is read as bytes, so an answer cut inside a character still gives up its token (issue 502).
 token_in() {
-    printf '%s\n' "$1" | python3 -I -c '
+    printf '%s\n' "$1" | python3 -I -S -c '
 import re, sys
 found = re.search(r"\"token\"\s*:\s*\"([^\"]+)\"", sys.stdin.buffer.read().decode("utf-8", "replace"))
 print(found.group(1) if found else "")' 2>/dev/null || true
@@ -180,7 +180,7 @@ b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 # The pr-review App's name, id and installation, as the data and P-39's first reads give them; REPO must be one the data
 # installs it on, and the Factory's own repo is not asked. Checked once the exit trap stands: python3 may write to
 # TMPDIR as it starts.
-ids=$(cd "$root" && python3 -I -c '
+ids=$(cd "$root" && python3 -I -S -c '
 import json, sys
 app = json.load(open("config/apps.json", encoding="utf-8"))["apps"]["pr-review"]
 if sys.argv[1] not in app["installed_on"] or sys.argv[1] == "combsmith/software-factory":
@@ -259,7 +259,7 @@ reads() {
 
 # The body of call N's clean answer, as JSON, read past every head; nothing where it cannot be read.
 body_of() {   # N
-    python3 -I -c '
+    python3 -I -S -c '
 import json, sys
 text = open(sys.argv[1], encoding="utf-8").read()
 while text.startswith("HTTP/"):    # each head, a proxy'"'"'s block among them, comes before the answer
@@ -269,14 +269,14 @@ print(json.dumps(json.loads(text)))' "$out/clean-$1" 2>/dev/null || true
 
 # Whether the clean answer of call N names a next page: its link header, which the redaction keeps, says so.
 names_next() {   # N
-    python3 -I -c '
+    python3 -I -S -c '
 import re, sys
 sys.exit(0 if re.search(r"(?im)^link:.*rel=\"next\"", open(sys.argv[1], encoding="utf-8").read()) else 1)' "$out/clean-$1"
 }
 
 # The bodies, OUT's sent-NAME, trial text only, written once a token is minted.
 bodies() {
-    python3 -I - "$out" "$file" <<'BODIES'
+    python3 -I -S - "$out" "$file" <<'BODIES'
 import json, os, sys
 out, path = sys.argv[1:]
 said = {"start": {"body": "Trial P-81: a review started now and submitted later.",
@@ -309,7 +309,7 @@ with_token() {   # NARROWED PERMISSIONS
     minted_status=$(printf '%s\n' "$minted" | tail -n 1)
     # Three whole digits, or none: a last line curl did not write is the answer's (issue 1245).
     case "$minted_status" in [0-9][0-9][0-9]) ;; *) minted_status="" ;; esac
-    token=$(printf '%s\n' "$minted" | sed '$d' | python3 -I -c '
+    token=$(printf '%s\n' "$minted" | sed '$d' | python3 -I -S -c '
 import json, sys
 answer = json.load(sys.stdin)
 print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/null || true)
@@ -371,7 +371,7 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
     fi
     ask POST "repos/$repo/pulls/$number/reviews" start
     # The review's id, if GitHub left it pending: every later step needs it.
-    review=$(body_of "$n" | python3 -I -c '
+    review=$(body_of "$n" | python3 -I -S -c '
 import json, sys
 held = json.load(sys.stdin)
 print(held["id"] if isinstance(held, dict) and held.get("state") == "PENDING" else "")' 2>/dev/null || true)

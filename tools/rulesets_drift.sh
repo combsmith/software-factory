@@ -11,7 +11,7 @@ trap 'exit 1' HUP INT TERM
 # Each path resolved, links and all, so a TMPDIR that leads into the repo another way is refused too.
 real=$(cd "$dir" && pwd -P)
 case "$real/" in "$root"/*) echo "the scratch directory $real is inside the repo; set TMPDIR elsewhere" >&2; exit 2;; esac
-repo=$(cd "$root" && python3 -c 'import json; print(json.load(open("config/rulesets.json"))["repo"])')
+repo=$(cd "$root" && python3 -I -S -c 'import json; print(json.load(open("config/rulesets.json"))["repo"])')
 read_one() {
   gh api --include "$2" > "$dir/raw" 2>/dev/null || true
   (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$dir/raw" > "$dir/$1") 2> /dev/null ||
@@ -19,10 +19,10 @@ read_one() {
   rm -f "$dir/raw"
 }
 read_one list "repos/$repo/rulesets?per_page=100"   # rulesets_drift.py: PAGE
-ids=$(python3 -I "$root/tools/rulesets_drift.py" --ids < "$dir/list")
+ids=$(python3 -I -S "$root/tools/rulesets_drift.py" --ids < "$dir/list")
 for id in $ids; do
   read_one "ruleset-$id" "repos/$repo/rulesets/$id"
 done
 read_one branches "repos/$repo/git/matching-refs/heads/factory"
 { cat "$dir/list"; printf '\0'; for id in $ids; do cat "$dir/ruleset-$id"; printf '\0'; done; cat "$dir/branches"; printf '\0'; } |
-  python3 -I "$root/tools/rulesets_drift.py"
+  python3 -I -S "$root/tools/rulesets_drift.py"

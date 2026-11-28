@@ -122,7 +122,7 @@ revoke() {
 # A token in an answer that may be cut short: the first "token" field's value, found without parsing the whole.
 # It is read as bytes, so an answer cut inside a character still gives up its token (issue 502).
 token_in() {
-    printf '%s\n' "$1" | python3 -I -c '
+    printf '%s\n' "$1" | python3 -I -S -c '
 import re, sys
 found = re.search(r"\"token\"\s*:\s*\"([^\"]+)\"", sys.stdin.buffer.read().decode("utf-8", "replace"))
 print(found.group(1) if found else "")' 2>/dev/null || true
@@ -159,7 +159,7 @@ b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 
 # The controller's id and installation, from the data and P-39's first read; the repo it acts in besides this one, and
 # the org, from where config/apps.json says it is installed.
-said=$(cd "$root" && python3 -I -c '
+said=$(cd "$root" && python3 -I -S -c '
 import json
 app = json.load(open("config/apps.json"))["apps"]["controller"]
 fixture = json.load(open("trials/P-39.grants.json"))
@@ -197,7 +197,7 @@ minted_status=$(printf '%s\n' "$minted" | tail -n 1)
 # Three whole digits, or none: a last line curl did not write is the answer's (issue 1245).
 case "$minted_status" in [0-9][0-9][0-9]) ;; *) minted_status="" ;; esac
 minted=$(printf '%s\n' "$minted" | sed '$d')
-token=$(printf '%s\n' "$minted" | python3 -I -c '
+token=$(printf '%s\n' "$minted" | python3 -I -S -c '
 import json, sys
 answer = json.load(sys.stdin)
 print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/null || true)
@@ -243,7 +243,7 @@ if [ "$minted_status" != 201 ]; then
     minting=""
     exit 1
 fi
-printf '%s\n' "$minted" | python3 -I -c '
+printf '%s\n' "$minted" | python3 -I -S -c '
 import json, sys
 answer = json.load(sys.stdin)
 json.dump({"permissions": answer.get("permissions"), "repository_selection": answer.get("repository_selection")},

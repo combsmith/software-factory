@@ -137,7 +137,7 @@ unrevoked() {
 
 # It is read as bytes, so an answer cut inside a character still gives up its token (issue 502).
 token_in() {
-    printf '%s\n' "$1" | python3 -I -c '
+    printf '%s\n' "$1" | python3 -I -S -c '
 import re, sys
 found = re.search(r"\"token\"\s*:\s*\"([^\"]+)\"", sys.stdin.buffer.read().decode("utf-8", "replace"))
 print(found.group(1) if found else "")' 2>/dev/null || true
@@ -177,7 +177,7 @@ trap "trap '' HUP INT TERM QUIT PIPE; exit 1" HUP INT TERM QUIT PIPE
 b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 
 # The App's id, from the data the trial-author App is not: the id P-1's and P-7's fixtures record for it.
-app_id=$(cd "$root" && python3 -I -c '
+app_id=$(cd "$root" && python3 -I -S -c '
 import json
 fixture = json.load(open("trials/P-1.json"))
 first = fixture["exchanges"][0]
@@ -235,7 +235,7 @@ printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -i -H @- -H "$ACCEPT" -
     "$API/repos/$repo/installation" | tr -d '\r' > "$scratch/raw-1"
 (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$scratch/raw-1" > "$out/clean-1") 2> "$out/redacted-1"
 drop "$scratch/raw-1"
-installation=$(sed -n '/^{/,$p' "$out/clean-1" | python3 -I -c 'import json, sys; print(json.load(sys.stdin)["id"])')
+installation=$(sed -n '/^{/,$p' "$out/clean-1" | python3 -I -S -c 'import json, sys; print(json.load(sys.stdin)["id"])')
 asked="{\"n\": 1, \"call\": \"GET /repos/$repo/installation\", \"body\": null, \"status\": \"$(awk 'BEGIN { head = 1 } head && /^HTTP\// { found = "" } { sub(/\r$/, "") } head && $0 != "" { if (/^HTTP\/[0-9.]+ [0-9][0-9][0-9]( |$)/) found = $2; else exit } { head = ($0 == "") } END { print found }' "$out/clean-1")\"},"
 
 # The mint, narrowed: contents read alone, and the one repository. GitHub's answer and its status are held in a
@@ -249,7 +249,7 @@ minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_c
 jwt=""
 rm -f "$scratch/mint.json"
 minted_status=$(printf '%s\n' "$minted" | tail -n 1)
-token=$(printf '%s\n' "$minted" | sed '$d' | tr -d '\r' | python3 -I -c '
+token=$(printf '%s\n' "$minted" | sed '$d' | tr -d '\r' | python3 -I -S -c '
 import json, sys
 text = sys.stdin.read()
 try:

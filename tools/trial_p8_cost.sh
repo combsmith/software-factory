@@ -135,7 +135,7 @@ revoke() {
 # A token in an answer that may be cut short: the first "token" field's value, found without parsing the whole.
 # It is read as bytes, so an answer cut inside a character still gives up its token (issue 502).
 token_in() {
-    printf '%s\n' "$1" | python3 -I -c '
+    printf '%s\n' "$1" | python3 -I -S -c '
 import re, sys
 found = re.search(r"\"token\"\s*:\s*\"([^\"]+)\"", sys.stdin.buffer.read().decode("utf-8", "replace"))
 print(found.group(1) if found else "")' 2>/dev/null || true
@@ -183,7 +183,7 @@ b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
 repos=$*
 
 # The reader App's id and installation, as the data and P-39's first reads give them.
-ids=$(cd "$root" && python3 -I -c '
+ids=$(cd "$root" && python3 -I -S -c '
 import json
 app = json.load(open("config/apps.json"))["apps"]["reader"]
 fixture = json.load(open("trials/P-39.grants.json"))
@@ -328,7 +328,7 @@ asked=""
 # scratch directory (it holds no credential), sent with curl -i, and the response redacted into OUT as clean-N.
 graphql() {   # QUERY VARIABLES_JSON CALL
     n=$((n + 1))
-    printf '%s' "$1" | python3 -I -c '
+    printf '%s' "$1" | python3 -I -S -c '
 import json, sys
 json.dump({"query": sys.stdin.read(), "variables": json.loads(sys.argv[1])}, open(sys.argv[2], "w"))' \
         "$2" "$scratch/body-$n"
@@ -347,7 +347,7 @@ json.dump({"query": sys.stdin.read(), "variables": json.loads(sys.argv[1])}, ope
     (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
     drop "$scratch/raw-$n"
     # A 200 can carry errors beside partial data, as a read past GitHub's node limit does: that is not a pass's read.
-    if ! sed -n '/^{/,$p' "$out/clean-$n" | python3 -I -c '
+    if ! sed -n '/^{/,$p' "$out/clean-$n" | python3 -I -S -c '
 import json, sys
 answer = json.load(sys.stdin)
 sys.exit(1 if not isinstance(answer, dict) or "errors" in answer or not answer.get("data") else 0)'; then
@@ -374,7 +374,7 @@ minted_status=$(printf '%s\n' "$minted" | tail -n 1)
 # Three whole digits, or none: a last line curl did not write is the answer's (issue 1245).
 case "$minted_status" in [0-9][0-9][0-9]) ;; *) minted_status="" ;; esac
 minted=$(printf '%s\n' "$minted" | sed '$d')
-token=$(printf '%s\n' "$minted" | python3 -I -c '
+token=$(printf '%s\n' "$minted" | python3 -I -S -c '
 import json, sys
 answer = json.load(sys.stdin)
 print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/null || true)
@@ -429,7 +429,7 @@ minted="" minting=""
 
 # 1. The counts, in one query: an alias r0, r1, ... for each repo given.
 # shellcheck disable=SC2086  # one repo a line
-counts=$(printf '%s\n' $repos | python3 -I -c '
+counts=$(printf '%s\n' $repos | python3 -I -S -c '
 import json, sys
 repos = [line.split("/", 1) for line in sys.stdin.read().split()]
 fields = " ".join("r%d: repository(owner: \"%s\", name: \"%s\") { nameWithOwner pullRequests(states: OPEN) { totalCount } "
@@ -439,7 +439,7 @@ graphql "$counts" '{}' "POST /graphql, Counts: the open pull requests and issues
 
 # 2. For each repo, the pass's read with its top-level pages sized to the counts, a hundred at most.
 # shellcheck disable=SC2086  # one repo a line
-sizes=$(sed -n '/^{/,$p' "$out/clean-1" | python3 -I -c '
+sizes=$(sed -n '/^{/,$p' "$out/clean-1" | python3 -I -S -c '
 import json, sys
 data = json.load(sys.stdin)["data"]
 for i in range(len(sys.argv) - 1):

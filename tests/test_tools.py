@@ -10482,16 +10482,16 @@ data = sys.stdin.buffer.read()
 sys.stdout.write(base64.b64encode(data).decode() if sys.argv[1] == "base64" else "signature")
 '''
     MINTED = '{"token": "TOKEN", "expires_at": "2026-10-29T23:00:00Z", "permissions": {"metadata": "read"}}'
-    # A stand-in python3 that runs a script's python3 -I -c with stdin read as UTF-8 strictly, as python reads it under a
+    # A stand-in python3 that runs a script's python3 -I -S -c with stdin read as UTF-8 strictly, as python reads it under a
     # locale such as en_US.UTF-8. Under C and C.UTF-8 it reads with surrogateescape (PEP 538, PEP 540), so a cut character
     # raises nothing (the Claude review), and a runner need have no other locale (Codex). Any other call runs as it is.
     STRICT = """#!%s -I
 import os, sys
 args = sys.argv[1:]
-if args[:2] == ["-I", "-c"]:
-    sys.argv = ["-c"] + args[3:]
+if args[:3] == ["-I", "-S", "-c"]:
+    sys.argv = ["-c"] + args[4:]
     sys.stdin.reconfigure(encoding="utf-8", errors="strict")
-    exec(compile(args[2], "<string>", "exec"), {"__name__": "__main__"})
+    exec(compile(args[3], "<string>", "exec"), {"__name__": "__main__"})
 else:
     os.execv(%r, [%r] + args)
 """
