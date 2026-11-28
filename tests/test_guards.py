@@ -2087,6 +2087,7 @@ jobs:
 """
 SCAN_AT = ".github/workflows/sonarcloud.yml"
 LISTED = [".github/", "sonar-project.properties"]
+HOME = "combsmith/software-factory"
 SCAN_STEP = "        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0\n"
 CHECKOUT_WITH = "          persist-credentials: false\n"
 
@@ -2279,7 +2280,7 @@ jobs:
 
 def at(test: str = TEST, listed=None, scan: str = SCAN) -> str:
     """refusal_at of the scan beside the test workflow, against `listed` or the scan's own list."""
-    return workflows.refusal_at({SCAN_AT: scan, TEST_AT: test}, LISTED if listed is None else listed, "main")
+    return workflows.refusal_at({SCAN_AT: scan, TEST_AT: test}, LISTED if listed is None else listed, "main", HOME)
 
 
 def tested(old: str, new: str) -> str:
@@ -2339,13 +2340,13 @@ class Secrets(unittest.TestCase):
         kept = tested("        run: make test\n", "        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n") \
             .replace("permissions: write-all\n", "").replace(own, "")
         self.assertIsNone(at(kept, listed=LISTED))
-        self.assertEqual(workflows.refusal_at({TEST_AT: kept}, ["sonar-project.properties"], "main"), workflows.UNLISTED)
+        self.assertEqual(workflows.refusal_at({TEST_AT: kept}, ["sonar-project.properties"], "main", HOME), workflows.UNLISTED)
         # A workflow none of whose jobs holds a secret need not be on the list, nor hold to the table's keys.
-        self.assertIsNone(workflows.refusal_at({TEST_AT: tested("permissions: write-all\n", "defaults:\n  run:\n    shell: bash\n")}, [], "main"))
+        self.assertIsNone(workflows.refusal_at({TEST_AT: tested("permissions: write-all\n", "defaults:\n  run:\n    shell: bash\n")}, [], "main", HOME))
         # A secret another job names is that job's: a job of the scan's workflow that names none and may write nothing
         # is not read, though it runs a command.
         beside = SCAN + "  test:\n    runs-on: ubuntu-24.04\n    permissions:\n      contents: read\n    steps:\n      - run: make\n"
-        self.assertIsNone(workflows.refusal_at({SCAN_AT: beside}, LISTED, "main"))
+        self.assertIsNone(workflows.refusal_at({SCAN_AT: beside}, LISTED, "main", HOME))
         self.assertEqual(workflows.refusal(SCAN_AT, beside, LISTED), workflows.STARTED)
         # However deep a job that holds none is written, it is read, and not read into.
         deep = "    strategy:\n" + "".join(" " * (6 + n) + "x%d:\n" % n for n in range(600)) + " " * 606 + "y: z\n"
@@ -2360,13 +2361,13 @@ class Secrets(unittest.TestCase):
         files = {TEST_AT: unread, ".github/workflows/a.yml": SCAN, SCAN_AT: SCAN}
         # In their paths' order, whatever order they were given in: a.yml is held to the list first.
         self.assertEqual(workflows.refusal_at(files, [".github/workflows/sonarcloud.yml", ".github/workflows/test.yml",
-                                                      "sonar-project.properties"], "main"), workflows.UNLISTED)
-        self.assertEqual(workflows.refusal_at(files, LISTED, "main"), workflows.STARTED)
+                                                      "sonar-project.properties"], "main", HOME), workflows.UNLISTED)
+        self.assertEqual(workflows.refusal_at(files, LISTED, "main", HOME), workflows.STARTED)
         # One refused among those that pass refuses the commit, wherever it stands.
         for path in (".github/workflows/a.yml", ".github/workflows/z.yml"):
-            self.assertEqual(workflows.refusal_at({SCAN_AT: SCAN, TEST_AT: TEST, path: unread}, LISTED, "main"), workflows.STARTED, path)
+            self.assertEqual(workflows.refusal_at({SCAN_AT: SCAN, TEST_AT: TEST, path: unread}, LISTED, "main", HOME), workflows.STARTED, path)
         # A commit with no workflow refuses nothing.
-        self.assertIsNone(workflows.refusal_at({}, [], "main"))
+        self.assertIsNone(workflows.refusal_at({}, [], "main", HOME))
         # What the narrow form does not read is read nowhere, in a job that holds no secret too: it may name one.
         for why, text in (("a block scalar with an indentation mark", tested("        run: make test\n", "        run: |2\n          echo ${{ secrets.X }}\n")),
                           ("a tab", tested("        run: make test\n", "        run:\tmake test\n")),
@@ -2382,13 +2383,13 @@ class Secrets(unittest.TestCase):
                           ("an item at the top", "- x\n" + TEST),
                           ("no jobs", TEST.split("jobs:\n")[0]),
                           ("jobs of none", TEST.split("jobs:\n")[0] + "jobs:\n")):
-            self.assertEqual(workflows.refusal_at({TEST_AT: text}, LISTED, "main"), workflows.UNREADABLE, why)
+            self.assertEqual(workflows.refusal_at({TEST_AT: text}, LISTED, "main", HOME), workflows.UNREADABLE, why)
         # What is no exact kind reads nothing, with no workflow too.
         for files, listed in ((None, LISTED), ([(TEST_AT, TEST)], LISTED), ({TEST_AT: None}, LISTED), ({TEST_AT: TEST.encode()}, LISTED),
                               ({Odd(TEST_AT): TEST}, LISTED), ({TEST_AT: TEST, None: TEST}, LISTED), ({".github/test.yml": TEST}, LISTED),
                               ({".github/workflows/a/test.yml": TEST}, LISTED), ({TEST_AT: TEST}, tuple(LISTED)),
                               ({}, None), ({}, tuple(LISTED)), ({}, [Odd(".github/")]), ({TEST_AT: TEST}, [None])):
-            self.assertEqual(workflows.refusal_at(files, listed, "main"), workflows.UNREADABLE, (files, listed))
+            self.assertEqual(workflows.refusal_at(files, listed, "main", HOME), workflows.UNREADABLE, (files, listed))
 
 
 RELEASE_AT = ".github/workflows/release.yml"
@@ -2428,7 +2429,7 @@ EVENTS = """on:
 
 
 def released(text: str = RELEASE, listed=None, default="main"):
-    return workflows.refusal_at({RELEASE_AT: text}, LISTED if listed is None else listed, default)
+    return workflows.refusal_at({RELEASE_AT: text}, LISTED if listed is None else listed, default, HOME)
 
 
 def started(on: str) -> str:
@@ -2447,18 +2448,18 @@ class Commands(unittest.TestCase):
                            (">", "${{ secrets.X }}"), ("|-", "${{ secrets.X }}"), (">+", "${{ secrets.X }}")):
             text = TEST.replace("permissions: write-all\n", "").replace("        run: make test\n",
                                                                           "        run: %s\n          make\n\n          %s\n" % (mark, line))
-            self.assertEqual(workflows.refusal_at({TEST_AT: text}, LISTED, "main"), workflows.STARTED, line)
-            self.assertIsNone(workflows.refusal_at({TEST_AT: text.replace(line, "make test")}, LISTED, "main"), line)
+            self.assertEqual(workflows.refusal_at({TEST_AT: text}, LISTED, "main", HOME), workflows.STARTED, line)
+            self.assertIsNone(workflows.refusal_at({TEST_AT: text.replace(line, "make test")}, LISTED, "main", HOME), line)
             self.assertIn(quiet, text)
         # It ends at the first line that stands no further right than its key; that line is read as a key.
         after = TEST.replace("        run: make test\n", "        run: |\n          make\n        env:\n          GITHUB_TOKEN: ${{ secrets.X }}\n")
-        self.assertEqual(workflows.refusal_at({TEST_AT: after}, LISTED, "main"), workflows.STARTED)
+        self.assertEqual(workflows.refusal_at({TEST_AT: after}, LISTED, "main", HOME), workflows.STARTED)
         under = TEST.replace("        run: make test\n", "        run: |\n          make\n      - name: Again\n        run: make\n")
-        self.assertIsNone(workflows.refusal_at({TEST_AT: under}, LISTED, "main"))
+        self.assertIsNone(workflows.refusal_at({TEST_AT: under}, LISTED, "main", HOME))
         self.assertEqual(workflows.refusal(TEST_AT, under, LISTED), workflows.STARTED)
         # A line its key's column holds is not its value: a key given twice there is refused, as anywhere.
         twice = TEST.replace("        run: make test\n", "        run: |\n          make\n        run: make\n")
-        self.assertEqual(workflows.refusal_at({TEST_AT: twice}, LISTED, "main"), workflows.UNREADABLE)
+        self.assertEqual(workflows.refusal_at({TEST_AT: twice}, LISTED, "main", HOME), workflows.UNREADABLE)
         # A line left of the block's first, yet right of its key, is neither its value nor a key: refused.
         self.assertEqual(released(RELEASE.replace("          python3 -m release cut\n", "            true\n          true\n")),
                          workflows.UNREADABLE)
@@ -2507,7 +2508,9 @@ class Commands(unittest.TestCase):
                              workflows.STARTED, default)
         # `refusal` is told no default branch: a command there is always refused.
         self.assertEqual(workflows.refusal(RELEASE_AT, RELEASE, LISTED), workflows.STARTED)
-        # A command beside an action, its inputs, or an `env:` name outside the table is refused wherever it is started.
+        # A command beside an action, its inputs, or an `env:` name outside the table is refused in a workflow off the
+        # list, though no work branch may start it; on the list, the workflow passes whole, its steps unread.
+        off = ["sonar-project.properties"]
         step = "        run: |\n          python3 -m release cut\n"
         for why, new in (("beside an action", step + "        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1\n"),
                          ("beside inputs", step + "        with:\n          x: y\n"),
@@ -2517,18 +2520,20 @@ class Commands(unittest.TestCase):
                          ("a command of no value", "        run:\n"), ("a command of a block of no lines", "        run: |\n"),
                          ("a working folder", step + "        working-directory: x\n"),
                          ("a shell", step + "        shell: bash\n")):
-            self.assertEqual(released(RELEASE.replace(step, new)), workflows.UNREADABLE, why)
-        self.assertIsNone(released(RELEASE.replace(step, step + "        env:\n          GITHUB_TOKEN: x\n")))
+            self.assertEqual(released(RELEASE.replace(step, new), listed=off), workflows.UNREADABLE, why)
+            self.assertIsNone(released(RELEASE.replace(step, new)), why)
+        self.assertEqual(released(RELEASE.replace(step, step + "        env:\n          GITHUB_TOKEN: x\n"), listed=off),
+                         workflows.UNLISTED)
         # Once a command is refused, nothing after it is read: the first step that fails gives the reason.
         later = RELEASE.replace(step, step + "      - uses: actions/cache@v4\n")
-        self.assertIsNone(released(later.replace("      - uses: actions/cache@v4\n", "")))
-        self.assertEqual(released(later), workflows.UNREADABLE)
+        self.assertEqual(released(later.replace("      - uses: actions/cache@v4\n", ""), listed=off), workflows.UNLISTED)
+        self.assertEqual(released(later, listed=off), workflows.UNREADABLE)
         self.assertEqual(released(started("on:\n  pull_request:\n").replace(step, step + "      - uses: actions/cache@v4\n")),
                          workflows.STARTED)
         # A job that holds no secret may still run a command on any event; one that holds one beside it is refused.
         quiet = TEST.replace("permissions: write-all\n", "")
-        self.assertIsNone(workflows.refusal_at({TEST_AT: quiet, RELEASE_AT: RELEASE}, LISTED, "main"))
-        self.assertEqual(workflows.refusal_at({TEST_AT: quiet, RELEASE_AT: started("on:\n  pull_request:\n")}, LISTED, "main"),
+        self.assertIsNone(workflows.refusal_at({TEST_AT: quiet, RELEASE_AT: RELEASE}, LISTED, "main", HOME))
+        self.assertEqual(workflows.refusal_at({TEST_AT: quiet, RELEASE_AT: started("on:\n  pull_request:\n")}, LISTED, "main", HOME),
                          workflows.STARTED)
 
 
