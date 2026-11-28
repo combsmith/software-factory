@@ -74,8 +74,8 @@ def answered(name: str) -> int:
     """Run the check `name` in this process, and print its answer as the last line: `verify --check NAME`."""
     entry = next(e for e in CHECKS if e[0] == name)
     problems = check(entry)()
-    sys.stdout.flush()
-    print(ANSWER + json.dumps({"check": name, "problems": problems}), flush=True)
+    sys.stdout.flush()      # a line the check left open is closed first, so the answer stands on a line of its own
+    print("\n" + ANSWER + json.dumps({"check": name, "problems": problems}), flush=True)
     return 0
 
 
