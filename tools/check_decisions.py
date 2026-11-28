@@ -264,7 +264,7 @@ EXPRESSIONS = (ast.Constant, ast.Name, ast.Load, ast.Store, ast.Tuple, ast.List,
                ast.Compare, ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.In, ast.NotIn, ast.Is, ast.IsNot,
                ast.IfExp, ast.Attribute, ast.Subscript, ast.Slice, ast.ListComp, ast.DictComp, ast.GeneratorExp,
                ast.comprehension, ast.Call, ast.keyword)
-BUDGET = {"calls": 20000, "rounds": 200000, "length": 1000000, "width": 1000, "depth": 100}
+BUDGET = {"calls": 20000, "rounds": 200000, "length": 50000000, "width": 1000, "depth": 100}
 PINNED = {
     "ROOT": 'ROOT = pathlib.Path(__file__).resolve().parent.parent',
     "AREA_NAME": 'AREA_NAME = re.compile(r"[a-z_][a-z0-9_]*")',
@@ -365,10 +365,13 @@ def read_mutants(root: pathlib.Path) -> list:
     """(description, file, tests) of each mutant of tools/mutants.py's MUTANTS in `root`, read as Python builds it: its
     own, and those of each file of tools/mutants_of/ that its `areas(ROOT)` loads. Raises ValueError for a file or a
     mutant it cannot read so."""
-    listed = _top(_Read(root), "tools/mutants.py").get("MUTANTS", UNKNOWN)
-    if type(listed) is not list:
-        raise ValueError("MUTANTS is not a list read as text")
-    return [_parts(mutant) for mutant in listed]
+    try:
+        listed = _top(_Read(root), "tools/mutants.py").get("MUTANTS", UNKNOWN)
+        if type(listed) is not list:
+            raise ValueError("MUTANTS is not a list read as text")
+        return [_parts(mutant) for mutant in listed]
+    finally:
+        _WEIGHTS.clear()
 
 
 def _parts(mutant) -> tuple:
@@ -472,7 +475,7 @@ def _bind(target, value, bound: dict) -> None:
     if isinstance(target, ast.Name):
         bound[target.id] = value
     elif isinstance(target, (ast.Tuple, ast.List)) and all(isinstance(one, ast.Name) for one in target.elts):
-        if _plain(value) and len(list(value)) != len(target.elts):
+        if _plain(value) and len(_items(value)) != len(target.elts):
             raise ValueError("an assignment unpacks the wrong number of values")
         parts = list(value) if isinstance(value, (tuple, list)) else [UNKNOWN] * len(target.elts)
         for one, part in zip(target.elts, parts):
@@ -483,19 +486,55 @@ def _bind(target, value, bound: dict) -> None:
 
 def _plain(value) -> bool:
     """Whether `value` is worked out whole: no _Opaque, module or function at any depth."""
-    if value is None or type(value) in (bool, int, float, complex, str, bytes, range, slice, type(...)):
-        return True
-    if type(value) in (tuple, list, type({}.keys()), type({}.values())):
-        return all(_plain(one) for one in value)
-    if type(value) in (dict, type({}.items())):
-        return all(_plain(one) for one in (value.items() if type(value) is dict else value))
-    return False
+    return _weighed(value)[1]
+
+
+def _weighed(value) -> tuple:
+    """(weight, plain) of a value: its length, each part counted as often as it is held, and whether it is worked out
+    whole. A part held twice is weighed once, so a value that holds itself many times over costs no more to weigh."""
+    known = _WEIGHTS.get(id(value))
+    if known is not None and known[0] is value:
+        return known[1]
+    if value is None or type(value) in (bool, int, float, complex, range, slice, type(...)):
+        out = (1, True)
+    elif type(value) in (str, bytes):
+        out = (len(value) + 1, True)
+    elif type(value) in (tuple, list, dict, type({}.keys()), type({}.values()), type({}.items())):
+        parts = [_weighed(one) for one in (value.items() if type(value) is dict else value)]
+        out = (1 + sum(w for w, _ in parts), all(p for _, p in parts))
+    else:
+        out = (1, False)
+    if type(value) not in (bool, int, float, type(None)):
+        _WEIGHTS[id(value)] = (value, out)
+    return out
+
+
+_WEIGHTS = {}       # id: (value, (weight, plain)) of the values one reading has weighed, each held so its id stays its own
 
 
 def _sized(value):
-    if isinstance(value, (str, bytes, tuple, list)) and len(value) > BUDGET["length"]:
+    """`value`, refused when it outweighs what the reader builds."""
+    if _weighed(value)[0] > BUDGET["length"]:
         raise ValueError("a value is longer than the reader builds")
     return value
+
+
+def _built(values) -> list:
+    """The list of `values`, refused as soon as it outweighs what the reader builds."""
+    out, weight = [], 1
+    for one in values:
+        weight += _weighed(one)[0]
+        if weight > BUDGET["length"]:
+            raise ValueError("a value is longer than the reader builds")
+        out.append(one)
+    return out
+
+
+def _items(value) -> list:
+    """The items of a value worked out, as Python iterates it, refused past what the reader builds."""
+    if _real(lambda: len(value)) > BUDGET["length"]:
+        raise ValueError("a value is longer than the reader builds")
+    return _real(lambda: list(value))
 
 
 class _Frame:
@@ -558,7 +597,7 @@ class _Frame:
         if kind is ast.Dict and None not in node.keys:
             keys = [self.value(one) for one in node.keys]
             values = [self.value(one) for one in node.values]
-            return _real(lambda: dict(zip(keys, values))) if _plain(keys) else UNKNOWN
+            return _sized(_real(lambda: dict(zip(keys, values)))) if _plain(keys) else UNKNOWN
         if kind is ast.BinOp:
             return _operation(node.op, self.value(node.left), self.value(node.right))
         if kind is ast.UnaryOp and type(node.op) in (ast.USub, ast.Not):
@@ -576,13 +615,13 @@ class _Frame:
             return _real(lambda: held[at]) if _plain(held) and _plain(at) else UNKNOWN
         if kind is ast.ListComp:
             rounds = self.rounds(node)
-            return UNKNOWN if rounds is None else _sized([inner.value(node.elt) for inner in rounds])
+            return UNKNOWN if rounds is None else _built(inner.value(node.elt) for inner in rounds)
         if kind is ast.DictComp:
             rounds = self.rounds(node)
             if rounds is None:
                 return UNKNOWN
             pairs = [(inner.value(node.key), inner.value(node.value)) for inner in rounds]
-            return _real(lambda: dict(pairs)) if _plain([key for key, _ in pairs]) else UNKNOWN
+            return _sized(_real(lambda: dict(pairs))) if _plain([key for key, _ in pairs]) else UNKNOWN
         if kind is ast.Call:
             return self.called(node)
         raise ValueError("%s line %d: a %s is not read" % (self.file.rel, node.lineno, kind.__name__))
@@ -590,14 +629,14 @@ class _Frame:
     def generated(self, node):
         """The items of a generator that is read once, whole, where it is made: given to tuple(), or looped over."""
         rounds = self.rounds(node)
-        return UNKNOWN if rounds is None else _sized([inner.value(node.elt) for inner in rounds])
+        return UNKNOWN if rounds is None else _built(inner.value(node.elt) for inner in rounds)
 
     def spread(self, node) -> list:
         """The parts `*node` gives a list or a tuple: those of a value worked out, or as many UNKNOWN as each return of
         the function it calls gives, when it returns a tuple of one fixed length."""
         value = self.value(node)
         if isinstance(value, (tuple, list)) or _plain(value):
-            return _real(lambda: list(value))
+            return _items(value)
         called = self.value(node.func) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) else None
         returns = [one.value for one in ast.walk(called.node) if isinstance(one, ast.Return)] \
             if isinstance(called, _Function) else []
@@ -647,7 +686,7 @@ class _Frame:
                     if self.top:
                         raise ValueError("%s: a loop at the top is not worked out" % self.file.rel)
                     return None
-                for item in _real(lambda: list(over)):
+                for item in _items(over):
                     self.file.read.rounds += 1
                     if self.file.read.rounds > BUDGET["rounds"]:
                         raise ValueError("the mutants take more rounds than the reader runs")
@@ -683,7 +722,9 @@ class _Frame:
             if called.what == "builtins.dict" and len(node.args) <= 1:
                 return _merged(args[:len(node.args)], args[len(node.args):])
             if called.what != "builtins.dict" and not node.keywords:
-                return _sized(_real(lambda: {"len": len, "range": range, "tuple": tuple}[called.what[9:]](*args)))
+                if called.what == "builtins.tuple" and len(args) == 1:
+                    return _sized(tuple(_items(args[0])))
+                return _sized(_real(lambda: {"len": len, "range": range}[called.what[9:]](*args)))
         if isinstance(called, _Function) and _pinned(called, "areas") and self.file.rel == "tools/mutants.py" \
                 and self.top and len(args) == 1 and args[0] is self.file.bound.get("ROOT"):
             return _areas(self.file, called)
@@ -715,7 +756,7 @@ COMPARE = {ast.Eq: lambda a, b: a == b, ast.NotEq: lambda a, b: a != b, ast.Lt: 
 
 def _merged(given: list, spread: list) -> dict:
     """`dict(given, **one, **two)` as Python builds it: a spread key that is not a str, or that two spreads give, raises."""
-    out = _real(lambda: dict(*given))
+    out = _sized(_real(lambda: dict(*given)))
     seen = set()
     for one in spread:
         if type(one) is not dict or not all(type(key) is str and key not in seen for key in one):
@@ -737,19 +778,23 @@ def _operation(op, left, right):
     """`left op right`, as Python works it out, within the reader's budget; UNKNOWN for a value not worked out. Two
     tuples or two lists are joined whatever they hold, which the join does not read."""
     if type(op) is ast.Add and type(left) is type(right) and type(left) in (tuple, list):
-        if len(left) + len(right) > BUDGET["length"]:
+        if _weighed(left)[0] + _weighed(right)[0] > BUDGET["length"]:
             raise ValueError("a value is longer than the reader builds")
         return left + right
     if not (_plain(left) and _plain(right)):
         return UNKNOWN
     if type(op) is ast.Mod and isinstance(left, str):
+        if len(left) + 4 * _weighed(right)[0] > BUDGET["length"]:
+            raise ValueError("a format is wider than the reader builds")
         for width in FORMAT.finditer(left):
             if "*" in width.group(0) or any(part and int(part) > BUDGET["width"] for part in width.groups()):
                 raise ValueError("a format is wider than the reader builds")
     if type(op) is ast.Pow and not (type(left) is type(right) is int and 0 <= right <= 64 and abs(left) < 2 ** 64):
         raise ValueError("a power is larger than the reader works out")
     if type(op) is ast.Mult:
-        sizes = [len(one) for one in (left, right) if isinstance(one, (str, bytes, tuple, list))]
+        if any(type(one) in (tuple, list) for one in (left, right)):
+            raise ValueError("a repeated tuple or list is not read")
+        sizes = [len(one) for one in (left, right) if isinstance(one, (str, bytes))]
         counts = [one for one in (left, right) if type(one) is int]
         if sizes and counts and sizes[0] * max(counts[0], 0) > BUDGET["length"] or \
                 len(counts) == 2 and counts[0].bit_length() + counts[1].bit_length() > 4096:

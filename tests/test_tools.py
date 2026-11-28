@@ -7727,6 +7727,9 @@ class Decisions(unittest.TestCase):
             "longer than the reader builds": runner + 'def f(s, n):\n    return f(s + s, n - 1) if n else s\n\n\n'
                                                       'X = f("a", 40)\n',
             "wider than the reader builds": runner + 'X = "%2000000000s" % "a"\n',
+            "longer than the reader builds ": runner + "X = tuple(range(10 ** 18))\nY = [n for n in range(10 ** 18)]\n",
+            "longer than the reader builds  ": runner + "def f(x, n):\n    return f((x, x), n - 1) if n else x\n\n\n"
+                                                        'X = "%s" % (f("a", 90),)\n',
             "a test at the top is not worked out": runner + 'X = 1 if re.compile("a") else 2\n',
             "GeneratorExp is not read": runner + "X = (m for m in ())\n",
             "read before it is bound": runner + "G = 1\n\n\ndef f():\n    x = G\n    G = 2\n    return x\n\n\nY = f()\n",
