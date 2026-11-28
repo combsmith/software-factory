@@ -3,12 +3,13 @@
 # The push whole (issue 838; the Solution Architect's ruling 2 of 2026-11-28).
 LANDS = ('tests.test_harness.Push.test_a_push_lands_exactly_its_patch_through_every_check',)
 REFUSES = ('tests.test_harness.Push.test_the_loop_refuses_on_each_check',)
+LATER = ('tests.test_harness.Push.test_a_later_push_moves_the_branch_from_the_head_its_decision_named',)
 PUSH_PY = 'harness/push_steps.py'
 
 TARGETS = (PUSH_PY,)
 MUTANTS = [
     ("a push to another repo is pushed", PUSH_PY,
-     '    why = push_loop.first((("consumer", lambda: judged.consumer(repo, told["own"])), ("listed", listed),\n',
+     '    why = push_loop.first((("consumer", lambda: judged.consumer(repo, home["repo"])), ("listed", listed),\n',
      '    why = push_loop.first((("consumer", lambda: None), ("listed", listed),\n', REFUSES),
     ("the list is read at the admitted commit alone", PUSH_PY,
      '        for sha in dict.fromkeys((default, parent)):\n',
@@ -20,11 +21,25 @@ MUTANTS = [
      '            patterns += said\n        changes, why = _read(reading, sender, told)\n',
      '            pass\n        changes, why = _read(reading, sender, told)\n', REFUSES),
     ("the paths that land are not asked about", PUSH_PY,
-     '        return why or apply.push_refusal(paths, read, sorted(set(patterns)))\n',
-     '        return why or apply.push_refusal([], [], sorted(set(patterns)))\n', REFUSES),
+     '        return apply.push_refusal(touched[0], touched[1], sorted(set(patterns)))\n',
+     '        return apply.push_refusal([], touched[1], sorted(set(patterns)))\n', REFUSES),
+    ("a copy's source is not asked about", PUSH_PY,
+     '        return apply.push_refusal(touched[0], touched[1], sorted(set(patterns)))\n',
+     '        return apply.push_refusal(touched[0], [], sorted(set(patterns)))\n', REFUSES),
+    ("a blob two files share is asked for twice", PUSH_PY,
+     '        if sha in answers:\n', '        if False:\n', REFUSES),
+    ("the workflows are held to the admitted commit's list", PUSH_PY,
+     '            got.setdefault("list", said)\n', '            got["list"] = said\n', LANDS),
+    ("a later push is made as the first", PUSH_PY,
+     '    make = port.make_branch if first else port.move_branch\n', '    make = port.make_branch\n', LATER),
+    ("a later push is held to where its admitted commit stands", PUSH_PY,
+     '        return None if not first or case in base.GOES_ON else BASE_UNREAD if case is None else OFF_DEFAULT\n',
+     '        return None if case in base.GOES_ON else BASE_UNREAD if case is None else OFF_DEFAULT\n', LATER),
+    ("a later push moves its branch past a moved default head", PUSH_PY,
+     '    moved = base.on_default(reader, repo, parent)[1]\n', '    moved = got["base"][1]\n', LATER),
     ("a first push off the default head goes on", PUSH_PY,
-     '        return None if not first or case in (base.HEAD, base.ANCESTOR) else BASE_UNREAD if case is None else OFF_DEFAULT\n',
-     '        return None if not first or case in (base.HEAD, base.ANCESTOR, base.NEITHER) else BASE_UNREAD if case is None else OFF_DEFAULT\n',
+     '        return None if not first or case in base.GOES_ON else BASE_UNREAD if case is None else OFF_DEFAULT\n',
+     '        return None if not first or case in base.GOES_ON + (base.NEITHER,) else BASE_UNREAD if case is None else OFF_DEFAULT\n',
      REFUSES),
     ("the workflows at the admitted commit are not read again", PUSH_PY,
      '        for sha in dict.fromkeys((standing()[1], parent)):\n',
@@ -33,8 +48,8 @@ MUTANTS = [
      '        for sha in dict.fromkeys((standing()[1], parent)):\n',
      '        for sha in dict.fromkeys((parent,)):\n', REFUSES),
     ("a workflow's refusal lets the push go on", PUSH_PY,
-     '            why = why or workflows.refusal_at(files, got["list"], told["default"], told["own"])\n',
-     '            why = why or workflows.refusal_at(files, got["list"], told["default"], told["own"]) and None\n', REFUSES),
+     '            why = why or workflows.refusal_at(files, got["list"], home["branch"], home["repo"])\n',
+     '            why = why or workflows.refusal_at(files, got["list"], home["branch"], home["repo"]) and None\n', REFUSES),
     ("a default head that moved before the branch's write is written", PUSH_PY,
      '    if moved != got["base"][1]:\n',
      '    if moved is None:\n', REFUSES),

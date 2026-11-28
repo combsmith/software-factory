@@ -7,13 +7,13 @@ points each rule waiting on that file at its tests; until `apply`'s dispatch lan
 `push(reader, sender, told)` gives `(landed, None)`, `guards/push.py`'s `landed` of the push, the commit it made and
 the branch it was told (decisions 1207 and 1208), or `(None, code)` with nothing written past the step that refused.
 `reader` is the token `apply` reads with, and `sender` the push's own, `adapters/push.py`'s `transport`. `told` is
-`TOLD`: the repo and the Factory's own, `own`; the default branch's name; the work branch; the commit the Decision
-admitted, `parent`, and the branch's head it admitted, `head`, None at the first push; the commit's message; the
+`TOLD`: the repo; the work branch; the commit the Decision admitted, `parent`, and the branch's head it admitted, `head`, None at the first push; the commit's message; the
 patch's bytes; and `judged`, None or the implementing Role's acceptance contract and where it was read, `(contract,
 at)`.
 
 The checks, in `harness/push_loop.py`'s `ORDER`, each only once all before it passed:
-- `consumer`: the repo is the Factory's own (decision 0004; `guards/judged.py`'s `consumer`).
+- `consumer`: the repo is the Factory's own, `config/controller.json`'s `home`, whose default branch it names
+  (decision 0004; `guards/judged.py`'s `consumer`).
 - `listed`: the list is read at the admitted commit and at the default branch's head, and the contract's paths added
   (decisions 0188, 0242 and 0025); the admitted tree is read and the patch applied to it, by a push that writes
   nothing; and `harness/apply.py`'s `push_refusal` is asked about every path that lands (`guards/push.py`'s `touched`).
@@ -23,14 +23,18 @@ The checks, in `harness/push_loop.py`'s `ORDER`, each only once all before it pa
   (decision 0239, as decisions 1378, 1390 and 1391 narrow it).
 
 Then the push of the changes: the branch, the commit and its tree read again, a blob of each written file, one tree,
-read back, one commit, read back, and the branch made or moved, then read (`harness/push_loop.py`'s `land`). At the
-first push the default branch's head is read again right before the branch's write, and refuses it where it moved,
-`BASE_MOVED`; and once more after it, where the admitted commit no longer stands on it, `OFF_DEFAULT`, with nothing
+read back, one commit, read back, and the branch made or moved, then read (`harness/push_loop.py`'s `land`). The
+default branch's head is read again right before the branch's write, and refuses it where it moved, `BASE_MOVED`, so
+no check read another base; and at the first push once more after it, where the admitted commit no longer stands on it, `OFF_DEFAULT`, with nothing
 landed (decision 0242). Its limits: the branch it made then stays; no draft is opened from it, which is the dispatch's.
+The patch is taken as told: that it is the bundle's, by its digest, and the token the push is sent by, are the
+dispatch's. FR-14's rule on a test the admitted commit holds (`guards/push.py`'s `existing`) is the fix Intent's.
 """
 from __future__ import annotations
 
 import base64 as encoding
+import json
+import pathlib
 
 from adapters import base, rules
 from adapters import push as port
@@ -38,7 +42,8 @@ from guards import judged, patch, workflows
 from guards import push as guard
 from harness import apply, push_loop
 
-TOLD = ("repo", "own", "default", "branch", "parent", "head", "message", "patch", "judged")
+TOLD = ("repo", "branch", "parent", "head", "message", "patch", "judged")
+ROOT = pathlib.Path(__file__).resolve().parent.parent
 # The default branch's head could not be read, or where the admitted commit stands on it: the port's.
 BASE_UNREAD = "push_base_unread"
 # At the first push, the admitted commit is no commit of the default branch's head, before the write or after it.
@@ -46,6 +51,11 @@ OFF_DEFAULT = "push_base_off_default"
 # The default branch's head moved between the checks and the branch's write: the checks read another base.
 BASE_MOVED = "push_base_moved"
 BLOB = "blob"
+
+
+def _home() -> dict:
+    """The Factory's own repo and its default branch, as `config/controller.json` names them."""
+    return json.loads((ROOT / "config" / "controller.json").read_text())["home"]
 
 
 def _through(state, sender, told, *asks) -> tuple:
@@ -65,20 +75,25 @@ def _read(state, sender, told) -> tuple:
                           lambda _: port.read_commit(repo, told["parent"]), lambda at: port.read_tree(repo, at["tree"]))
     if why is not None:
         return None, why
-    listing, held = state["before"], [state, None]
+    listing, held, answers = state["before"], [state, None], {}
     paths, why = port.to_read(listing, patch.sources(told["patch"]))
     if why is not None:
         return None, why
 
     def blob(path):
-        # One blob's read, asked of the guard and seen by it as `step` does, its answer kept for `read_whole`.
-        req = port.read_blob(repo, listing["blobs"][path][0])
+        # One blob's read, asked of the guard and seen by it as `step` does, its answer kept for `read_whole`: once
+        # for each blob, however many files share it, as the guard permits it.
+        sha = listing["blobs"][path][0]
+        if sha in answers:
+            return answers[sha]
+        req = port.read_blob(repo, sha)
         if held[1] is not None or req is None or not guard.permits(held[0], req["method"], req["path"], req["body"]):
             held[1] = held[1] or guard.NOT_PERMITTED
             return None
         answer = port.send(sender, repo, told["branch"], req)
         held[0], held[1] = guard.seen(held[0], req["method"], req["path"], req["body"], answer)
-        return answer if held[1] is None else None
+        answers[sha] = answer if held[1] is None else None
+        return answers[sha]
     contents, why = port.read_whole(listing, paths, blob)
     if why is not None or held[1] is not None:
         return None, held[1] or why
@@ -115,7 +130,7 @@ def push(reader, sender, told) -> tuple:
     reading, why = guard.began(dict({key: told[key] for key in guard.PUSH if key in told}, changes=None, blobs=None))
     if why is not None:
         return None, why
-    repo, parent, first, got = told["repo"], told["parent"], told["head"] is None, {}
+    repo, parent, first, got, home = told["repo"], told["parent"], told["head"] is None, {}, _home()
 
     def standing():
         if "base" not in got:
@@ -142,29 +157,31 @@ def push(reader, sender, told) -> tuple:
         changes, why = _read(reading, sender, told)
         if why is not None:
             return why
-        (paths, read), why = guard.touched(changes)
+        touched, why = guard.touched(changes)
+        if why is not None:
+            return why
         got["changes"] = changes
-        return why or apply.push_refusal(paths, read, sorted(set(patterns)))
+        return apply.push_refusal(touched[0], touched[1], sorted(set(patterns)))
 
     def on_base():
         case = standing()[0]
-        return None if not first or case in (base.HEAD, base.ANCESTOR) else BASE_UNREAD if case is None else OFF_DEFAULT
+        return None if not first or case in base.GOES_ON else BASE_UNREAD if case is None else OFF_DEFAULT
 
     def secrets():
         for sha in dict.fromkeys((standing()[1], parent)):
             files, why = rules.workflows_at(reader, repo, sha)
-            why = why or workflows.refusal_at(files, got["list"], told["default"], told["own"])
+            why = why or workflows.refusal_at(files, got["list"], home["branch"], home["repo"])
             if why is not None:
                 return why
         return None
-    why = push_loop.first((("consumer", lambda: judged.consumer(repo, told["own"])), ("listed", listed),
+    why = push_loop.first((("consumer", lambda: judged.consumer(repo, home["repo"])), ("listed", listed),
                            ("base", on_base), ("workflows", secrets)))
     if why is not None:
         return None, why
     state, why = _write(sender, told, got["changes"])
     if why is not None:
         return None, why
-    moved = base.on_default(reader, repo, parent)[1] if first else got["base"][1]
+    moved = base.on_default(reader, repo, parent)[1]
     if moved != got["base"][1]:
         return None, BASE_UNREAD if moved is None else BASE_MOVED
     make = port.make_branch if first else port.move_branch
@@ -172,6 +189,6 @@ def push(reader, sender, told) -> tuple:
     if why is not None:
         return None, why
     case = base.on_default(reader, repo, parent)[0] if first else base.HEAD
-    if case not in (base.HEAD, base.ANCESTOR):
+    if case not in base.GOES_ON:
         return None, BASE_UNREAD if case is None else OFF_DEFAULT
     return guard.landed(state), None

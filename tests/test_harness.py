@@ -2223,8 +2223,7 @@ class Push(unittest.TestCase):
              b"--- a/gone.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-A file the first push removes.\n")
 
     def told(self, **over) -> dict:
-        return dict({"repo": PUSH_REPO, "own": PUSH_REPO, "default": "main", "branch": PUSH_BRANCH,
-                     "parent": PUSH_A[0]["response"]["body"]["sha"], "head": None,
+        return dict({"repo": PUSH_REPO, "branch": PUSH_BRANCH, "parent": PUSH_A[0]["response"]["body"]["sha"], "head": None,
                      "message": PUSH_A[9]["request"]["body"]["message"], "patch": self.PATCH, "judged": None}, **over)
 
     def exchanges(self) -> list:
@@ -2236,9 +2235,10 @@ class Push(unittest.TestCase):
                                                                     "content": base64.b64encode(self.GONE).decode() + "\n"}}}
         return [PUSH_A[4], PUSH_A[0], PUSH_A[1], gone] + [PUSH_A[i] for i in (4, 0, 1, 5, 6, 7, 8, 9, 10, 11, 13)]
 
-    def pushed(self, told=None, bases=None, lists=None, files=None, exchanges=None):
+    def pushed(self, told=None, bases=None, lists=None, files=None, exchanges=None, home=None):
         """`push`'s answer on push A's replay, with the reads `apply` makes by its own token answered as given: where
-        the admitted commit stands, `bases` in turn; the list at a sha, `lists(sha)`; the workflows, `files(sha)`."""
+        the admitted commit stands, `bases` in turn; the list at a sha, `lists(sha)`; the workflows, `files(sha)`; the
+        Factory's own repo, `home`, P-71's canary unless told."""
         from adapters import push as port
         from harness import push_steps as push
         from tests.test_apply import own_list
@@ -2249,14 +2249,18 @@ class Push(unittest.TestCase):
             return bases.pop(0)
 
         def listed_at(transport, repo, sha):
+            self.assertEqual((transport, repo), ("the read token", PUSH_REPO))
             asked["list"].append(sha)
             return lists(sha) if lists else (own_list(), None)
 
         def workflows_at(transport, repo, sha):
+            self.assertEqual((transport, repo), ("the read token", PUSH_REPO))
             asked["workflows"].append(sha)
             return files(sha) if files else ({}, None)
         live = Recorded(self.exchanges() if exchanges is None else exchanges)
-        with unittest.mock.patch.object(push.base, "on_default", on_default), \
+        home = home or {"repo": PUSH_REPO, "branch": "main"}
+        with unittest.mock.patch.object(push, "_home", lambda: home), \
+                unittest.mock.patch.object(push.base, "on_default", on_default), \
                 unittest.mock.patch.object(push.rules, "listed_at", listed_at), \
                 unittest.mock.patch.object(push.rules, "workflows_at", workflows_at):
             said = push.push("the read token", port.transport(live, PUSH_REPO, PUSH_BRANCH), self.told() if told is None else told)
@@ -2279,6 +2283,60 @@ class Push(unittest.TestCase):
         # Where the admitted commit is the default branch's head, each is read there once.
         said, _, asked = self.pushed(bases=[("head", parent)] * 3)
         self.assertEqual((said[1], asked["list"], asked["workflows"]), (None, [parent], [parent]))
+        # The workflows are held to the default head's list: this repo's own pass on it, whatever the admitted
+        # commit's list leaves out.
+        from guards import workflows
+        from tests.test_apply import own_list
+        ours = {".github/workflows/release.yml": (ROOT / ".github" / "workflows" / "release.yml").read_text()}
+        self.assertEqual([workflows.refusal_at(ours, listed, "main", PUSH_REPO) is None for listed in (own_list(), ["docs/x.md"])],
+                         [True, False])
+        said, _, _ = self.pushed(lists=lambda sha: (own_list() if sha == self.DEFAULT else ["docs/x.md"], None),
+                                 files=lambda sha: (ours, None), home={"repo": PUSH_REPO, "branch": "main"})
+        self.assertIsNone(said[1])
+
+    def test_a_later_push_moves_the_branch_from_the_head_its_decision_named(self):
+        from harness import push_steps as push
+        # P-71's push B, as a patch on push A's commit: the branch read at the head admitted, moved to the commit made
+        # without force, and landed there; where the admitted commit stands on the default branch is not held.
+        old, new = b"Notes the second push changes.\n", b"Notes the second push changed.\n"
+        sha = hashlib.sha1(b"blob %d\0" % len(old) + old).hexdigest()
+        notes = {"request": {"via": "rest", "call": "GET /repos/%s/git/blobs/%s" % (PUSH_REPO, sha), "headers": {}, "body": None},
+                 "response": {"status": 200, "headers": {}, "body": {"sha": sha, "size": len(old), "encoding": "base64",
+                                                                     "content": base64.b64encode(old).decode()}}}
+        at = PUSH_A[10]["response"]["body"]["sha"]
+        patch = (b"diff --git a/docs/notes.md b/docs/notes.md\nindex 5786211..0000001 100644\n--- a/docs/notes.md\n"
+                 b"+++ b/docs/notes.md\n@@ -1 +1 @@\n-" + old + b"+" + new)
+        reads = [PUSH_A[13], PUSH_A[10], PUSH_A[8]]
+        said, live, asked = self.pushed(self.told(parent=at, head=at, patch=patch, message=PUSH_B[3]["request"]["body"]["message"]),
+                                        bases=[("neither", self.DEFAULT)] * 2,
+                                        exchanges=reads + [notes] + reads + PUSH_B[0:6] + PUSH_B[9:10])
+        self.assertEqual(said, ((PUSH_B[4]["response"]["body"]["sha"], PUSH_BRANCH), None))
+        self.assertEqual((live.replay._left, live.asked[-2:], len(asked["base"])), ([], ["PATCH", "GET"], 2))
+        # The default branch's head moved before the branch's move: refused, the branch not written.
+        said, live, _ = self.pushed(self.told(parent=at, head=at, patch=patch, message=PUSH_B[3]["request"]["body"]["message"]),
+                                    bases=[("neither", self.DEFAULT), ("neither", self.MOVED)],
+                                    exchanges=reads + [notes] + reads + PUSH_B[0:6] + PUSH_B[9:10])
+        self.assertEqual((said, "PATCH" in live.asked), ((None, push.BASE_MOVED), False))
+
+    def shared(self) -> list:
+        """A commit whose tree holds two files of one blob, read by a push that removes both: the blob is read once."""
+        from adapters import push as port
+        data, parent = b"same\n", "c" * 40
+        blob = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+        tree = port._tree_name([("100644", "a.txt", blob), ("100644", "b.txt", blob)])
+        git = "GET /repos/%s/git/" % PUSH_REPO
+
+        def exchange(call, status, body):
+            return {"request": {"via": "rest", "call": git + call, "headers": {}, "body": None},
+                    "response": {"status": status, "headers": {}, "body": body}}
+        files = [{"path": path, "mode": "100644", "type": "blob", "sha": blob, "size": len(data)} for path in ("a.txt", "b.txt")]
+        patch = b"".join(b"diff --git a/%s b/%s\ndeleted file mode 100644\nindex 1111111..0000000\n--- a/%s\n+++ /dev/null\n"
+                         b"@@ -1 +0,0 @@\n-same\n" % (name, name, name) for name in (b"a.txt", b"b.txt"))
+        return [exchange("ref/heads/" + PUSH_BRANCH, 404, {"message": "Not Found"}),
+                exchange("commits/" + parent, 200, {"sha": parent, "tree": {"sha": tree}}),
+                exchange("trees/%s?recursive=1" % tree, 200, {"sha": tree, "truncated": False, "tree": files}),
+                exchange("blobs/" + blob, 200, {"sha": blob, "size": len(data), "encoding": "base64",
+                                                "content": base64.b64encode(data).decode()})], dict(parent=parent, patch=patch)
 
     def test_the_loop_refuses_on_each_check(self):
         from adapters import rules
@@ -2286,7 +2344,7 @@ class Push(unittest.TestCase):
         from harness import push_steps as push
         from tests.test_apply import own_list
         from tests.test_guards import CONTRACT_AT, contract
-        parent, ancestor = self.told()["parent"], ("ancestor", self.DEFAULT)
+        parent, ancestor, shared = self.told()["parent"], ("ancestor", self.DEFAULT), self.shared()
         unread = (None, rules.UNREADABLE)
         started = {".github/workflows/x.yml": "name: x\non: pull_request\njobs:\n  a:\n    runs-on: ubuntu-24.04\n"
                                               "    steps:\n      - run: make\n        env:\n          T: ${{ secrets.T }}\n"}
@@ -2297,8 +2355,9 @@ class Push(unittest.TestCase):
         # branch's write but at the last two, which stop before it and after it.
         for said, given, code, sent in (
                 ("a key missing", dict(told={k: v for k, v in self.told().items() if k != "judged"}), guard.NOT_PERMITTED, []),
+                ("a key more", dict(told=self.told(force=True)), guard.NOT_PERMITTED, []),
                 ("a push told wrongly", dict(told=self.told(branch="main")), guard.NOT_PERMITTED, []),
-                ("another repo", dict(told=self.told(own="combsmith/software-factory")), judged.CONSUMER, []),
+                ("another repo", dict(home={"repo": "combsmith/software-factory", "branch": "main"}), judged.CONSUMER, []),
                 ("no default head", dict(bases=[(None, None)]), push.BASE_UNREAD, []),
                 ("the default head's list unread", dict(lists=lambda sha: unread if sha == self.DEFAULT else (own_list(), None)),
                  rules.UNREADABLE, []),
@@ -2308,6 +2367,12 @@ class Push(unittest.TestCase):
                  "push_protected", first_reads),
                 ("a path on the admitted commit's list", dict(lists=lambda sha: (own_list() + ["bin/"] * (sha == parent), None)),
                  "push_protected", first_reads),
+                ("a copy from a path on the list", dict(told=self.told(patch=b"diff --git a/bin/run.sh b/docs/run.sh\nsimilarity index 100%\n"
+                                                                        b"copy from bin/run.sh\ncopy to docs/run.sh\n"),
+                                                        lists=lambda sha: (own_list() + ["bin/run.sh"] * (sha == parent), None),
+                                                        exchanges=[PUSH_A[i] for i in (4, 0, 1, 2)]), "push_protected", first_reads),
+                ("two files of one blob, read once, off the default head", dict(told=self.told(**shared[1]), exchanges=shared[0],
+                                                                               bases=[("neither", self.DEFAULT)]), push.OFF_DEFAULT, first_reads),
                 ("a contract unread", dict(told=self.told(judged=(contract(schema="acceptance/2"), CONTRACT_AT))), judged.UNREADABLE, []),
                 ("a contract in no pair", dict(told=self.told(judged=contract())), judged.UNREADABLE, []),
                 ("a path the contract judges", dict(told=self.told(judged=(contract(protected_paths=["bin/"]), CONTRACT_AT))),
@@ -2347,6 +2412,10 @@ class Push(unittest.TestCase):
             for node in ast.walk(ast.parse(path.read_text(), rel)):
                 names = [alias.name for alias in node.names] if isinstance(node, (ast.Import, ast.ImportFrom)) else []
                 module = node.module if isinstance(node, ast.ImportFrom) else None
+                if isinstance(node, ast.ImportFrom) and node.level:
+                    # A relative import, read from the file's own package: `from . import push_steps` in harness/.
+                    package = path.relative_to(ROOT).parent.parts[:len(path.relative_to(ROOT).parent.parts) - node.level + 1]
+                    module = ".".join(package + ((node.module,) if node.module else ()))
                 if "harness.push_steps" in names or module == "harness.push_steps" or module == "harness" and "push_steps" in names:
                     callers.append(rel)
         self.assertEqual(callers, [])
