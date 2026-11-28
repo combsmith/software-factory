@@ -6,6 +6,7 @@ its arguments, its environment and where it ran. Nothing here reaches the networ
 """
 from __future__ import annotations
 
+import base64
 import copy
 import hashlib
 import json
@@ -1978,6 +1979,222 @@ class Head(unittest.TestCase):
                     self.assertIsInstance(err, head.Refused)
                 else:
                     self.fail("read, not refused")
+
+
+
+PUSH_TRIAL = json.loads((ROOT / "trials" / "P-71.json").read_text())
+PUSH_REPO, PUSH_BRANCH = PUSH_TRIAL["repo"], "factory-work/issue-9971-1"
+PUSH_A = PUSH_TRIAL["exchanges"]
+PUSH_B = json.loads((ROOT / "trials" / "P-71.moved.json").read_text())["exchanges"]
+
+
+def push_request(exchange: dict) -> dict:
+    """The request the push port builds for one of P-71's exchanges, read from the call recorded: the port must build
+    that path itself for the replay to answer it."""
+    from adapters import push as port
+    method, path = exchange["request"]["call"].split()[:2]
+    body, (kind, _, name) = exchange["request"]["body"], path.split("/git/", 1)[1].partition("/")
+    if method == "GET" and kind == "ref":
+        return port.read_branch(PUSH_REPO, name[len("heads/"):])
+    if method == "GET":
+        return {"commits": port.read_commit, "trees": port.read_tree, "blobs": port.read_blob}[kind](PUSH_REPO, name.split("?")[0])
+    if method == "PATCH":
+        return port.move_branch(PUSH_REPO, name[len("heads/"):], body["sha"])
+    if kind == "blobs":
+        return port.make_blob(PUSH_REPO, body["content"])
+    if kind == "trees":
+        return port.make_tree(PUSH_REPO, body["base_tree"], body["tree"])
+    if kind == "commits":
+        return port.make_commit(PUSH_REPO, body["message"], body["tree"], body["parents"][0])
+    return port.make_branch(PUSH_REPO, body["ref"][len("refs/heads/"):], body["sha"])
+
+
+def push_a() -> dict:
+    """P-71's push A as `apply` tells it: the branch absent, two files written and one removed on the admitted commit."""
+    blobs = [exchange["request"]["body"]["content"] for exchange in PUSH_A[5:7]]
+    return {"repo": PUSH_REPO, "branch": PUSH_BRANCH, "parent": PUSH_A[0]["response"]["body"]["sha"], "head": None,
+            "message": PUSH_A[9]["request"]["body"]["message"],
+            "blobs": {"docs/written.md": blobs[0], "bin/tool.sh": blobs[1]},
+            "changes": {"written": {"docs/written.md": ("100644", base64.b64decode(blobs[0])),
+                                    "bin/tool.sh": ("100755", base64.b64decode(blobs[1]))},
+                        "removed": ["gone.txt"], "read": []}}
+
+
+def push_b() -> dict:
+    """P-71's push B: the branch at the commit push A made, one file written on it."""
+    at, content = PUSH_A[10]["response"]["body"]["sha"], PUSH_B[0]["request"]["body"]["content"]
+    return {"repo": PUSH_REPO, "branch": PUSH_BRANCH, "parent": at, "head": at,
+            "message": PUSH_B[3]["request"]["body"]["message"], "blobs": {"docs/notes.md": content},
+            "changes": {"written": {"docs/notes.md": ("100644", base64.b64decode(content))}, "removed": [], "read": []}}
+
+
+class PushLoop(unittest.TestCase):
+    """The push loop's own pieces (issue 838; the Solution Architect's ruling 2 of 2026-11-28): one request asked,
+    sent and seen; a branch's write and the read after it; and the order of the checks before the first write."""
+
+    class Recording:
+        """A transport that answers as it is told, and records what it was asked."""
+        def __init__(self, *answers):
+            self.sent, self.answers = [], list(answers)
+
+        def send(self, req):
+            self.sent.append(req)
+            return self.answers.pop(0)
+
+    def through(self, push: dict, before: list, write: dict, after: list):
+        """`push` begun and walked through `step`, each of `before` sent by the push's own sender on a replay of them
+        and of `after`, then `write` landed by `land`: what `land` gives, and what was left unasked."""
+        from adapters import github, push as port
+        from guards import push as guard
+        from harness import push_loop
+        replay = github.Replay(copy.deepcopy(before + [write] + after))
+        sender = port.transport(replay, PUSH_REPO, PUSH_BRANCH)
+        state = guard.began(push)[0]
+        for exchange in before:
+            state, why = push_loop.step(state, sender, PUSH_REPO, PUSH_BRANCH, push_request(exchange))
+            self.assertIsNone(why, exchange["request"]["call"])
+        return push_loop.land(state, sender, PUSH_REPO, PUSH_BRANCH, push_request(write)), replay
+
+    def test_both_of_p71s_pushes_land_through_send_into_seen(self):
+        from guards import push as guard
+        # Push A, the branch read first, as the guard holds it: absent, then made at C1 and read there, landed.
+        reads_a = [PUSH_A[i] for i in (4, 0, 1, 5, 6, 7, 8, 9, 10)]
+        (state, why), replay = self.through(push_a(), reads_a, PUSH_A[11], PUSH_A[13:14])
+        self.assertIsNone(why)
+        self.assertEqual(guard.landed(state), (PUSH_A[10]["response"]["body"]["sha"], PUSH_BRANCH))
+        self.assertEqual(replay._left, [])
+        # Push B, on the branch at C1: moved forward to C2, read there, landed.
+        reads_b = [PUSH_A[13], PUSH_A[10], PUSH_A[8]] + PUSH_B[0:5]
+        (state, why), replay = self.through(push_b(), reads_b, PUSH_B[5], PUSH_B[9:10])
+        self.assertIsNone(why)
+        self.assertEqual(guard.landed(state), (PUSH_B[4]["response"]["body"]["sha"], PUSH_BRANCH))
+        self.assertEqual(replay._left, [])
+
+    def test_a_branch_write_is_followed_by_one_read_that_says_whose_a_422_is(self):
+        from guards import push as guard
+        reads_a = [PUSH_A[i] for i in (4, 0, 1, 5, 6, 7, 8, 9, 10)]
+        reads_b = [PUSH_A[13], PUSH_A[10], PUSH_A[8]] + PUSH_B[0:5]
+        refused = dict(PUSH_B[5], response=PUSH_B[6]["response"])
+        self.assertEqual(refused["response"]["status"], 422)
+        # A 422, and the branch then read where the Decision admitted none: someone else made it, moved. It is read once.
+        (state, why), replay = self.through(push_a(), reads_a, PUSH_A[12], PUSH_A[13:14] * 2)
+        self.assertEqual((state, why), (None, guard.BRANCH_MOVED))
+        self.assertEqual(len(replay._left), 1)
+        # A 422, and the branch then read where the Decision admitted it: refused by a rule, a person's.
+        (state, why), replay = self.through(push_b(), reads_b, refused, PUSH_A[13:14])
+        self.assertEqual((state, why), (None, guard.ANSWER_REFUSED))
+        self.assertEqual(replay._left, [])
+        # A 422, and the read after it unanswered: the port's, never overtaken.
+        (state, why), _ = self.through(push_b(), reads_b, refused, [])
+        self.assertEqual((state, why), (None, guard.UNANSWERED))
+        # A write answered as GitHub's limit is the write's own code, and nothing is read after it.
+        limited = dict(PUSH_B[5], response={"status": 429, "headers": {}, "body": {"message": "API rate limit exceeded"}})
+        (state, why), replay = self.through(push_b(), reads_b, limited, PUSH_A[13:14])
+        self.assertEqual((state, why), (None, guard.RATE_LIMITED))
+        self.assertEqual(len(replay._left), 1)
+
+    def test_a_request_leaves_only_as_the_guard_permits_it_by_the_pushs_own_sender(self):
+        from adapters import push as port
+        from guards import push as guard
+        from harness import push_loop
+        branch = port.read_branch(PUSH_REPO, PUSH_BRANCH)
+        absent = {"status": 404, "headers": {}, "body": {"message": "Not Found"}}
+        # The first read is the branch, as the guard holds it: the commit asked first leaves nothing.
+        for req in (push_request(PUSH_A[0]), None, {}, dict(branch, method=None), dict(branch, path=None),
+                    {k: v for k, v in branch.items() if k != "body"}):
+            transport = self.Recording(absent)
+            sender = port.transport(transport, PUSH_REPO, PUSH_BRANCH)
+            self.assertEqual(push_loop.step(guard.began(push_a())[0], sender, PUSH_REPO, PUSH_BRANCH, req),
+                             (None, guard.NOT_PERMITTED), req)
+            self.assertEqual(transport.sent, [], req)
+        # The branch read leaves by the push's own sender, unchanged, and its 404 is the branch admitted none of.
+        transport = self.Recording(absent)
+        state, why = push_loop.step(guard.began(push_a())[0], port.transport(transport, PUSH_REPO, PUSH_BRANCH),
+                                    PUSH_REPO, PUSH_BRANCH, branch)
+        self.assertIsNone(why)
+        self.assertTrue(state["branch_read"])
+        self.assertEqual([(r["method"], r["path"], r["body"]) for r in transport.sent], [(branch["method"], branch["path"], None)])
+        # A write out of turn leaves nothing, nor a request with a key the port never builds, nor one for another branch.
+        other = "factory-work/issue-9972-1"
+        for at, req, on in ((None, push_request(PUSH_A[11]), PUSH_BRANCH), (None, dict(branch, note="x"), PUSH_BRANCH),
+                            (state, push_request(PUSH_A[0]), other)):
+            transport = self.Recording(absent)
+            self.assertEqual(push_loop.step(at or guard.began(push_a())[0], port.transport(transport, PUSH_REPO, on), PUSH_REPO,
+                                            on, req), (None, guard.NOT_PERMITTED), req)
+            self.assertEqual(transport.sent, [], req)
+        self.assertTrue(guard.permits(state, "GET", push_request(PUSH_A[0])["path"], None))
+        # A repo named as a tree's path is read as no tree: its branch read's 404 is the branch absent.
+        named = dict(push_a(), repo="git/trees")
+        transport = self.Recording(absent)
+        state, why = push_loop.step(guard.began(named)[0], port.transport(transport, "git/trees", PUSH_BRANCH), "git/trees",
+                                    PUSH_BRANCH, port.read_branch("git/trees", PUSH_BRANCH))
+        self.assertIsNone(why)
+        # A bare transport is no push's sender: nothing is sent, and the read is unanswered.
+        transport = self.Recording(absent)
+        self.assertEqual(push_loop.step(guard.began(push_a())[0], transport, PUSH_REPO, PUSH_BRANCH, branch),
+                         (None, guard.UNANSWERED))
+        self.assertEqual(transport.sent, [])
+
+    def test_a_trees_answer_is_the_ports_listing_or_its_code(self):
+        from adapters import github, push as port
+        from guards import patch, push as guard
+        from harness import push_loop
+        reads = [PUSH_A[i] for i in (4, 0)]
+        tree = PUSH_A[1]
+        for answer, code in (({"status": 200, "headers": {}, "body": dict(tree["response"]["body"], truncated=True)}, patch.TREE_UNREAD),
+                             ({"status": 502, "headers": {}, "body": {}}, port.TREE_UNFETCHED),
+                             (None, port.TREE_UNFETCHED), (tree["response"], None)):
+            found = reads + ([dict(tree, response=answer)] if answer is not None else [])
+            sender = port.transport(github.Replay(copy.deepcopy(found)), PUSH_REPO, PUSH_BRANCH)
+            state = guard.began(push_a())[0]
+            for exchange in reads:
+                state = push_loop.step(state, sender, PUSH_REPO, PUSH_BRANCH, push_request(exchange))[0]
+            state, why = push_loop.step(state, sender, PUSH_REPO, PUSH_BRANCH, push_request(tree))
+            self.assertEqual(why, code, answer)
+            self.assertEqual(state is None, code is not None)
+
+    def test_the_checks_before_the_first_write_are_asked_in_their_order_and_none_is_skipped(self):
+        from guards import push as guard
+        from harness import push_loop
+        self.assertEqual(push_loop.ORDER, ("consumer", "listed", "base", "workflows"))
+        asked = []
+
+        def check(name, said=None):
+            return name, lambda: asked.append(name) or said
+        # Each is asked once, in order, and all passing pass.
+        self.assertIsNone(push_loop.first([check(name) for name in push_loop.ORDER]))
+        self.assertEqual(asked, list(push_loop.ORDER))
+        # The first that refuses gives its code, and none after it is asked.
+        for at, name in enumerate(push_loop.ORDER):
+            del asked[:]
+            checks = [check(other, "refused_" + other if other == name else None) for other in push_loop.ORDER]
+            self.assertEqual(push_loop.first(tuple(checks) if at % 2 else checks), "refused_" + name)
+            self.assertEqual(asked, list(push_loop.ORDER[:at + 1]))
+        # Checks in another order, one missing, one more, or in no shape: none is asked, and the push is not permitted.
+        names = list(push_loop.ORDER)
+        for given in (names[::-1], names[1:], names[:-1], names + ["extra"], names[:2] + names[3:] + names[2:3]):
+            del asked[:]
+            self.assertEqual(push_loop.first([check(name) for name in given]), guard.NOT_PERMITTED, given)
+            self.assertEqual(asked, [], given)
+        for checks in (None, {}, "consumer", [check(name) + (1,) for name in names], [list(check(name)) for name in names],
+                       iter([check(name) for name in names])):
+            self.assertEqual(push_loop.first(checks), guard.NOT_PERMITTED)
+            self.assertEqual(asked, [])
+        # A list changed while it is asked asks nothing less: it was read once. A check that cannot be called asks none.
+        del asked[:]
+        live = [check(name) for name in names]
+        live[0] = ("consumer", lambda: live.clear())
+        self.assertIsNone(push_loop.first(live))
+        self.assertEqual(asked, names[1:])
+        del asked[:]
+        self.assertEqual(push_loop.first([check(name) if name != "base" else ("base", None) for name in names]), guard.NOT_PERMITTED)
+        self.assertEqual(asked, [])
+        # A check that gives anything but None or a code is no pass: a sentence is no reason.
+        for said in (False, 0, "", ["x"], b"x", "could not read main", "Refused", "a__b", "_a"):
+            del asked[:]
+            self.assertEqual(push_loop.first([check(name, said if name == "base" else None) for name in names]),
+                             guard.NOT_PERMITTED, said)
+            self.assertEqual(asked, names[:3])
 
 
 if __name__ == "__main__":
