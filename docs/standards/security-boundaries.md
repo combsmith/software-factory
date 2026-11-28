@@ -99,13 +99,16 @@ Held by: `tools/check_repo.py`, `tests/test_tools.py::test_only_the_transport_re
 
 ## The Factory cannot change what governs it
 
+`apply` refuses a Role's change to a path on the base's list (decision 0188): the protected paths
+`config/hooks.json` names, `lifecycle/`, `config/authority.json` and `.github/` among them, and each
+model Lens's input. The rest of `kernel/` and `tools/` is pushed, and decision 0020 holds it at
+convergence until every model Lens has reviewed the head. Code ownership does not do this here: the
+code owners are the org's team, which holds the machine user.
+
 ```text
-lifecycle/   config/authority.json   kernel/   tools/   .github/
+refused: lifecycle/   config/authority.json   .github/   kernel/gate.py   tools/hooks/protected.py
+pushed:  kernel/derive.py   tools/check_context.py
 ```
 
-`apply` refuses a change to these by any Role whose manifest does not permit it, unless a person
-approved it. Code ownership does not do this here: the code owners are the org's team, which holds
-the machine user.
-
 Org standard: codeowners-standard.md, "Rule": the code owners file is the org's, word for word.
-Held by: `tests/test_tools.py::test_code_owners_are_the_orgs_word_for_word`; the refusal is waiting on `harness/push.py`, the fix Intent's push
+Held by: `tests/test_tools.py::test_code_owners_are_the_orgs_word_for_word`; the refusal: `tests/test_apply.py::test_a_push_is_held_to_the_bases_list_by_each_class_of_path`
