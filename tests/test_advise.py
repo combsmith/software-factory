@@ -252,9 +252,23 @@ class Advise(unittest.TestCase):
         results, azure_, clock = advised([dict(response(), headers={"retry-after": "20"}), DOWN])
         self.assertEqual(codes(results), {"astra": ("completed", None, 1, 1), "kimi": ("failed", "transport", 0, 1)})
         self.assertEqual((clock.slept, len(azure_.sent)), ([], 2))
-        # And only where the wait is less than the reader's time.
-        self.assertEqual([advise.waited(LIMITED, left) for left in (20.1, 20, 5)], [20, None, None])
+        # And only where the wait leaves the ask after it POLL of the reader's time.
+        self.assertEqual([advise.waited(LIMITED, left) for left in (30, 29.9, 5)], [20, None, None])
         self.assertEqual(advise.waited(dict(LIMITED, headers={"retry-after": "90"}), 100), 90)
+        # The ask after the wait is sent after it, and waits only what is left of its turn then.
+
+        def slow(changed: dict) -> None:
+            changed["readers"]["astra"]["seconds"] = 900
+        results, azure_, clock = advised([LIMITED, response(), completion()], readers=slow)
+        turn = advise.WHOLE - config()["readers"]["kimi"]["share"]
+        self.assertEqual((codes(results)["astra"], [made[2] for made in azure_.made[:2]]),
+                         (("completed", None, 1, 2), [turn, turn - 20]))
+        # A wait that outlasts the turn asks nothing more: the rate limit is the Result.
+        late, sends = Clock(), []
+        late.sleep = lambda seconds: setattr(late, "now", late.now + seconds + 15)
+        answer, asks = advise.asked(lambda request: sends.append(request) or LIMITED, config()["readers"]["kimi"],
+                                    {"act": "chat"}, 30.0, late, late.sleep)
+        self.assertEqual((answer["status"], asks, len(sends)), (429, 1, 1))
 
     def test_a_response_still_running_when_its_readers_share_is_spent_is_cancelled(self):
         # A response not ended when its reader's turn is spent, where only the next reader's share is left of the step,
@@ -341,17 +355,20 @@ class Advise(unittest.TestCase):
         # pass counts at the worst case.
         results, azure_, _ = advised([response(), completion()], first=True, mid=True)
         self.assertEqual((codes(results), azure_.before), (BOTH, nothing))
-        self.assertEqual(azure_.seen, [dict(nothing, asks=2, cost_usd=None)] * 2)
+        self.assertEqual(azure_.seen, [dict(nothing, asks=4, cost_usd=None)] * 2)     # two asks a reader, at most
         # A reader refused before anything is sent is not among them.
 
         def short(changed: dict) -> None:
             changed["readers"]["kimi"]["prompt_characters"] = 10
         _, azure_, _ = advised([response()], mid=True, readers=short)
-        self.assertEqual([seen["asks"] for seen in azure_.seen], [1])
+        self.assertEqual([seen["asks"] for seen in azure_.seen], [2])
         # A Run that asks nobody, refused before anything is sent or no review at all, leaves it as it was written.
         for made in ({"ask": False}, {"env": FIRST}, {"intent": "fix-findings"}, {"change": {"class": "dependency"}}):
             _, azure_, _ = advised([], first=True, **made)
             self.assertEqual((azure_.before, azure_.cost, azure_.sent), (nothing, nothing, []), made)
+        # The cost file names the attempt GitHub names, here one that asks nobody for want of a key.
+        _, azure_, _ = advised([], env={ATTEMPT: "2"})
+        self.assertEqual((azure_.cost, azure_.sent), (dict(nothing, attempt=2), []))
 
     def test_the_runs_cost_is_true_wherever_the_step_stops(self):
         # After its last reader the step says what was asked and what it cost, summed from each answer's tokens and the
@@ -414,7 +431,7 @@ class Advise(unittest.TestCase):
 
     def test_an_ask_is_counted_as_it_is_sent_and_never_as_configured(self):
         # Kimi's transport is not reached, so nothing is sent to it: the Run said before it began that it was about to
-        # ask two readers, and at its end it says the one ask it sent.
+        # ask two readers, four asks at most, and at its end it says the one ask it sent.
         class Once(Azure):
             def __call__(self, host, key, seconds):
                 if self.made:
@@ -429,7 +446,7 @@ class Advise(unittest.TestCase):
             advise.job("task", "advice", KEYED, base=base, transport=stand_in, clock=clock, sleep=clock.sleep)
             kimi = json.loads((base / "advice" / "advice.kimi.json").read_text())
             astra = json.loads((base / "advice" / "advice.astra.json").read_text())
-            self.assertEqual([seen["asks"] for seen in stand_in.seen], [2])
+            self.assertEqual([seen["asks"] for seen in stand_in.seen], [4])     # the most it set out to send
             self.assertEqual((kimi["reason"], kimi["usage"]["asks"], len(stand_in.sent)), ("transport", 0, 1))
             self.assertEqual(spent(cost_in(base)), (1, astra["usage"]["cost_usd"]))
 
