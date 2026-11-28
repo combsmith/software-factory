@@ -513,7 +513,7 @@ MUTANTS = [
      '    except ZeroDivisionError:\n', ('tests.test_controller.Record.test_a_review_told_yes_a_pass_before_counts_until_its_run_is_listed',)),
     ('a Run no run-name names counts nothing against the day', 'controller/pass_.py',
      ' + [\n        {"intent": advisory_.REVIEWING, "started_at": u["created_at"], "status": u["status"]} for u in unnamed]',
-     ']', ('tests.test_controller.Record.test_a_review_told_yes_a_pass_before_counts_until_its_run_is_listed',)),
+     '', ('tests.test_controller.Record.test_a_review_told_yes_a_pass_before_counts_until_its_run_is_listed',)),
     ('an unnamed Run counts however old', 'controller/pass_.py',
      '               or seconds(now, u["created_at"]) is None or seconds(now, u["created_at"]) <= UNLISTED_SECONDS]',
      '               or True]', ('tests.test_controller.Record.test_a_review_told_yes_a_pass_before_counts_until_its_run_is_listed',)),

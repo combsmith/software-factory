@@ -24,7 +24,7 @@ would hold, `now` is a time in the one form, the run records were read whole, an
 worst case together do not pass the ceiling. Neither figure has a default: with either missing, no reader is asked.
 Whatever it is handed, it answers, and what it cannot read it answers no to. A caller that admits more than one review
 in a pass hands each the ones before it, as records still running, so that each counts the others' worst case; it
-hands so too each review an earlier pass told yes whose Run no record lists yet, and each Run listed with no run-name
+likewise hands each review an earlier pass told yes whose Run no record lists yet, and each Run listed with no run-name
 (issue 932).
 """
 from __future__ import annotations
