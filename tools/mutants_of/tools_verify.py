@@ -85,4 +85,9 @@ MUTANTS = [
      "        env.update(CHECKS_SHARD=str(share[0]), CHECKS_SHARDS=str(share[1]))\n", "        pass\n", ENDS),
     ("a failed tests' process is not read", "tools/verify.py",
      "cwd=str(ROOT), env=env, check=False).returncode", "cwd=str(ROOT), env=env, check=False) and 0", ENDS),
+    ("make tests names no leg", "tools/verify.py",
+     '        if share is not None:\n            print("%-22s leg', '        if False:\n            print("%-22s leg', LEG_TESTS),
+    ("make tests prints no rule the fake GitHub has unverified", "tools/verify.py",
+     "        unverified(check_trials.unverified())\n", "        pass\n",
+     ("tests.test_tools.Trials.test_verify_prints_every_rule_no_fixture_grounds",)),
 ]

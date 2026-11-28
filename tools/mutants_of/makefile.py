@@ -17,4 +17,7 @@ MUTANTS = [
     ("make verify puts the repo's top ahead of the standard library", "Makefile",
      "\nverify:\n\t$(PY) -I -S tools/verify.py\n", "\nverify:\n\t$(PY) -m tools.verify\n",
      ("tests.test_tools.Verify.test_a_file_at_the_top_named_as_a_standard_module_is_not_imported_by_the_checks",)),
+    ("make tests runs the checks too", "Makefile",
+     "\ntests:\n\t$(PY) -I -S tools/verify.py --tests\n", "\ntests:\n\t$(PY) -I -S tools/verify.py\n",
+     ('tests.test_tools.Verify.test_make_fast_is_verify_without_the_seeded_simulation',)),
 ]

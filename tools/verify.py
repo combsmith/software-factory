@@ -3,16 +3,18 @@
 `make fast` runs the same checks and every test but the seeded simulation. `make checks` runs the checks alone, half a
 minute, and is what a session's hooks run after an edit and before a stop (`tools/hooks/after_edit.py`,
 `tools/hooks/before_stop.py`), and what the desk owes with the mutants of the files a change touches; the tests are CI's.
-After the checks it prints one note that fails nothing, `tools/desk.py`'s size (`desk_note`), which CI's legs never run.
+After the checks it prints one note that fails nothing, `tools/desk.py`'s size (`desk_note`). `make tests` runs the
+tests alone, and prints first what verify says of the records and of the fake GitHub.
 
-CI runs `make verify` in legs, each told CHECKS_SHARD and CHECKS_SHARDS by its matrix: each leg runs every check and its
-share of the tests, so that across the legs every test runs once and no leg nears the step's limit. Neither set: every
-test, as at a desk.
+CI runs `make checks` in a step of its own, then `make tests` in another, in legs, each told CHECKS_SHARD and
+CHECKS_SHARDS by its matrix, so that across the legs every test runs once and no leg nears the step's limit. A failed
+check ends the job before any test runs. Neither set: every test, as at a desk.
 
 The Makefile runs this file in Python's isolated mode, without site, so the repo's top is put on the path here, after
-the standard library: a file at the top named as one of its modules is never imported in its place. The tests run in a
-process of their own (`tested`), and no test module is imported in this one, so a test module that ends its process at
-import ends only the tests' process, and the checks' verdict is still the answer (issue 1050).
+the standard library: a file at the top named as one of its modules is never imported in its place. `make verify` runs
+the checks here and the tests in a process of their own (`tested`), and no test module is imported in this one, so a
+test module that ends its process at import ends only the tests' process, and the checks' verdict is still the answer
+(issue 1050).
 """
 from __future__ import annotations
 
@@ -164,7 +166,12 @@ def main(argv: list, environ=None) -> int:
     except ValueError as err:
         print(err)
         return 1
-    if "--tests" in argv:       # the tests' own process, which `tested` starts: it runs no check
+    if "--tests" in argv:       # `make tests`, or the tests' process that `tested` starts: it runs no check
+        for line in notes():
+            print(line)
+        unverified(check_trials.unverified())
+        if share is not None:
+            print("%-22s leg %d of %d counted from 0" % ("tests", share[0], share[1]))
         result = unittest.TextTestRunner(verbosity=1).run(suite("--fast" in argv, share))
         return 0 if result.wasSuccessful() else 1
     checks_failed = failed(CHECKS)
@@ -175,11 +182,7 @@ def main(argv: list, environ=None) -> int:
         except BaseException:       # NOSONAR: a closed pipe too; the note never decides make checks' answer
             quiet(sys.stdout)
         return answer
-    for line in notes():
-        print(line)
-    unverified(check_trials.unverified())
-    if share is not None:
-        print("%-22s leg %d of %d counted from 0" % ("tests", share[0], share[1]))
+    sys.stdout.flush()      # what the checks printed goes out before what the tests' process prints
     tests = tested("--fast" in argv, share)
     print("%-22s %s" % ("tests", "their process ended %d" % tests))
     return 1 if checks_failed or tests != 0 else 0
