@@ -18,7 +18,8 @@ and their cost summed, null where a reader that was asked has no count. An ask i
 then. A Run that asks nobody leaves no asks and no cost. Nothing is made for a Run the step cannot name. Limits: a job
 GitHub cancels is stopped by a signal, which is no `Exception`: the step then fails its job, and the last file is
 written only where the signal lets its `finally` run; where it is not, the file before the first request stands, and
-the pass counts the worst case.
+the pass counts the worst case. As with every step's files, OUT is checked once, at the start, and its files are then
+reached by its path, so another process in the job that swaps it for a link moves where they land (issue 1409).
 
 Attempts. GitHub names the Run's attempt in `GITHUB_RUN_ATTEMPT`, since a re-run keeps the run's id, and the cost file
 names it. An attempt that cannot be read is never taken for the first: the step asks nobody and writes nothing, and
@@ -33,8 +34,8 @@ UTF-8 as decision 0243 prices it, is not asked: `too_large`.
 Time. The readers share WHOLE seconds from the step's start, asked one after another: a reader's turn ends where only
 the `share` of each reader after it that is to be asked is left, and the last runs to the step's end (trial P-78). A
 share that cannot be read is none. A request waits the reader's `seconds`, or what is left of its turn where that is
-less; an ask after a rate limit's wait is built again, and waits only what is left of its turn then. No workflow runs
-the step yet.
+less; each request after the first, a read, a cancel or an ask after a rate limit's wait, is built again, and waits
+only what is left of its turn then. No workflow runs the step yet.
 
 What a reader is sent: a fixed instruction, `roles/pr-review/advisory-reader.md` of the Release, then the base's rules
 where the reader's folder holds them, then the whole diff, as data. It is given no tool.
@@ -183,8 +184,8 @@ def one(reader: dict, told: dict, prompt: str, admitted: bool, key, until: float
     live = [limited()]
 
     def send(request: dict) -> dict:
-        if request["act"] in ("create", "chat") and sent:
-            live[0] = limited()     # the ask after a rate limit's wait waits only what is left of its turn
+        if sent:
+            live[0] = limited()     # a later request waits only what is left of its turn, never the whole of its seconds
         sent.append(request["act"])
         return live[0].send(request)
     answer, asks = asked(send, reader, body_of(reader, told["effort"], prompt), until, clock, sleep)

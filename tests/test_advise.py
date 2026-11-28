@@ -172,9 +172,10 @@ class Advise(unittest.TestCase):
                                      rules={"AGENTS.md": "The rules.", "x": 7})
         self.assertEqual(codes(results), BOTH)
         readers = config()["readers"]
-        # Each is reached at its own host with the step's one key, and a wait no longer than its own seconds.
-        self.assertEqual(azure_.made, [(readers["astra"]["host"], "k" * 32, readers["astra"]["seconds"]),
-                                       (readers["kimi"]["host"], "k" * 32, readers["kimi"]["seconds"])])
+        # Each is reached at its own host with the step's one key, and a wait no longer than its own seconds, for its
+        # ask and for each read after it.
+        self.assertEqual(azure_.made, [(readers["astra"]["host"], "k" * 32, readers["astra"]["seconds"])] * 3
+                         + [(readers["kimi"]["host"], "k" * 32, readers["kimi"]["seconds"])])
         create, first, second, chat = azure_.sent       # and a response that ended is not cancelled
         self.assertEqual((create["act"], first, second, chat["act"]),
                          ("create", azure.read("resp_1"), azure.read("resp_1"), "chat"))
@@ -284,8 +285,11 @@ class Advise(unittest.TestCase):
         self.assertLessEqual(clock.now, advise.WHOLE)
         turn = advise.WHOLE - kimi - advise.POLL     # astra's last read, the last that left it POLL of its turn
         self.assertEqual((results["astra"]["usage"]["seconds"], results["astra"]["usage"]["cost_usd"]), (turn, None))
+        # Each request after the first, a read or the cancel, waits only what is left of its reader's turn when it is
+        # sent: astra's last read and its cancel, sent POLL before its turn ends, wait POLL.
+        self.assertEqual([made[2] for made in azure_.made[-3:-1]], [advise.POLL, advise.POLL])
         # A reader waits the time left of the step where that is less than its own seconds: kimi has its share and more.
-        self.assertEqual(azure_.made[1][2], advise.WHOLE - turn)
+        self.assertEqual(azure_.made[-1][2], advise.WHOLE - turn)
         self.assertGreaterEqual(advise.WHOLE - turn, kimi)
         # What Azure does not answer, or this step did not foresee of it, is a code, and the next reader is still asked.
         results, azure_, _ = advised([azure.Unanswered("down"), completion()])
@@ -385,6 +389,9 @@ class Advise(unittest.TestCase):
         # each ask is counted, and so is the ask of a reader whose read raised what no one foresaw.
         self.assertEqual(spent(advised([LIMITED, response(), LIMITED, LIMITED])[1]), (4, None))
         self.assertEqual(spent(advised([RuntimeError("boom"), completion()])[1]), (2, None))
+        # A reader whose ask after a rate limit's wait raised has sent two asks, and both are counted.
+        results, azure_, _ = advised([LIMITED, RuntimeError("boom"), completion()])
+        self.assertEqual((codes(results)["astra"], spent(azure_)), (("failed", "transport", 0, 2), (3, None)))
         with tempfile.TemporaryDirectory() as where:
             base = pathlib.Path(where)
             # A step stopped from outside while a reader is asked has counted the ask, at a cost not known.
