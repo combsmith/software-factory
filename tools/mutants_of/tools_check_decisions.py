@@ -75,7 +75,7 @@ MUTANTS = [
     ('a path through a parent is not the file it reaches', 'tools/check_decisions.py',
      '        if part == ".." and parts and parts[-1] != "..":\n', '        if False:\n', NAMED_MUTANTS),
     ('the mutants are read once whatever the file holds', 'tools/check_decisions.py',
-     '        key = (str(root.resolve()), hashlib.sha256(', '        key = (str(root.resolve()), len(', NAMED_MUTANTS),
+     '(str(path), hashlib.sha256(path.read_bytes()).hexdigest())', '(str(path), len(path.read_bytes()))', NAMED_MUTANTS),
     ('two mutants may share a description', 'tools/check_decisions.py',
      '        if len({name for name, _ in read}) != len(read):\n', '        if False:\n', NAMED_MUTANTS),
     ('the mutants are read for rows that need none', 'tools/check_decisions.py',
