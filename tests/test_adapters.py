@@ -1754,6 +1754,11 @@ class Records(unittest.TestCase):
         other_run = {("r_00000XZ", "2026-10-21T00:00:00Z", 1): {"advisory_asks": 1, "advisory_cost_usd": 0.01}}
         got, _ = self.read(one, *costs[0], day="2026-10-21", advised=other_run)
         self.assertEqual((said(got), stamped(got)), ([{"advisory_asks": 2, "advisory_cost_usd": 1.42}], 1))
+        # A file that is another Run's is none of this one's, though it is a cost.
+        got, _ = self.read(one, *cost(0, outcome_zip(dict(good, run="r_000009Z"), member=artifacts.ADVICE_COST_MEMBER)), day="2026-10-21")
+        self.assertEqual(said(got), [{"advisory_cost_usd": None}])
+        # A key a later record lists twice keeps nothing, though an earlier record kept it.
+        self.assertEqual(records.advised([{"runs": first["runs"][:1]}, {"runs": first["runs"][:1] * 2}]), {})
         # One read asks for the costs of so many Runs and no more: the rest are left off, and asked for the pass after.
         with mock.patch.object(records, "COSTS", 2):
             capped, _ = self.read(rows, *costs[0], *costs[1], *costs[2], *costs[3], day="2026-10-21")
@@ -10141,6 +10146,30 @@ class Opening(unittest.TestCase):
             back, _ = self.opened(script)
             self.assertEqual((back["state"], back["number"], back["reason"]), (state, None, reason), (script, state))
             self.assertEqual(apply.opened("e1", 12, OPENED_FROM, back)["key"], None)
+
+    def test_a_listed_pull_request_that_says_not_whether_a_person_or_an_app_opened_it_posts_nothing(self):
+        # One that does not say it is a person's or an App's may be the App's own draft: none is opened (issue 1346).
+        for listed in ([dict(self.pull(5), user=user)] for user in (
+                {"login": OPENER}, {"login": OPENER, "type": None}, {"login": OPENER, "type": "Organization"},
+                {"login": OPENER, "type": ["Bot"]}, {"login": "someone", "type": "bot"})):
+            back, sent = self.opened({self.LIST: {"status": 200, "body": listed},
+                                      self.OPEN: {"status": 201, "body": {"number": 7}},
+                                      self.READ: {"status": 200, "body": self.pull()}})
+            self.assertEqual((back["state"], back["reason"]), ("failed", "pulls_unreadable"), listed)
+            self.assertEqual([(r["method"], r["path"]) for r in sent], [self.LIST], listed)
+        # Nor is the App's own draft beside it recovered: the list is not read whole.
+        listed = [self.pull(), dict(self.pull(6), user={"login": OPENER})]
+        back, sent = self.opened({self.LIST: {"status": 200, "body": listed},
+                                  self.READ: {"status": 200, "body": self.pull()}})
+        self.assertEqual((back["state"], back["number"], back["reason"]), ("failed", None, "pulls_unreadable"))
+        self.assertEqual([(r["method"], r["path"]) for r in sent], [self.LIST])
+        # One a person opened says so, and the draft is opened beside it.
+        back, sent = self.opened({self.LIST: {"status": 200, "body": [
+                                      dict(self.pull(5), user={"login": "someone", "type": "User"})]},
+                                  self.OPEN: {"status": 201, "body": {"number": 7}},
+                                  self.READ: {"status": 200, "body": self.pull()}})
+        self.assertEqual((back["state"], back["number"]), ("applied", 7))
+        self.assertEqual([(r["method"], r["path"]) for r in sent], [self.LIST, self.OPEN, self.READ])
 
     def test_an_opening_told_wrongly_sends_nothing(self):
         for repo, branch, base, title, body, login, *commit in (
