@@ -14537,7 +14537,8 @@ class Verify(unittest.TestCase):
             shutil.copy(ROOT / "Makefile", where / "Makefile")
             os.utime(where / "Makefile", (1, 1))
             (where / "Makefile.sh").write_text("verify:\n\t@echo not the committed verify\n")
-            (where / "tests").mkdir()       # make tests runs though a directory of that name stands (Astra's read)
+            (where / "tests").mkdir()       # CI's goals run though a file of their name stands (Astra's, Carbon's reads)
+            (where / "checks").write_text("")
             # make's built-in rules on, whatever flags the run was given (Astra's read), and verify the goal of a bare
             # make too.
             env = {k: v for k, v in os.environ.items() if k not in ("MAKEFLAGS", "MFLAGS", "MAKEFILES", "GNUMAKEFLAGS")}
@@ -14550,8 +14551,9 @@ class Verify(unittest.TestCase):
                 failed = subprocess.run(["make", "-s"] + goal + ["PY=false"], cwd=where, capture_output=True, text=True,
                                         timeout=60, env=env)
                 self.assertNotEqual(failed.returncode, 0, goal)
-            ran = subprocess.run(["make", "-s", "tests", "PY=false"], cwd=where, capture_output=True, timeout=60, env=env)
-            self.assertNotEqual(ran.returncode, 0)
+            for goal in ("tests", "checks"):
+                ran = subprocess.run(["make", "-s", goal, "PY=false"], cwd=where, capture_output=True, timeout=60, env=env)
+                self.assertNotEqual(ran.returncode, 0, goal)
 
     poisoned_run = None
 
@@ -19058,7 +19060,8 @@ class Desk(unittest.TestCase):
             self.assertEqual(verify.main([], {}), 0)
             self.assertEqual(verify.main([], {"CHECKS_SHARD": "0", "CHECKS_SHARDS": "2"}), 0)
             with mock.patch.object(verify, "suite"), mock.patch.object(verify.unittest, "TextTestRunner"):
-                self.assertEqual(verify.main(["--tests"], {"CHECKS_SHARD": "0", "CHECKS_SHARDS": "2"}), 0)   # make tests
+                for environ in ({}, {"CHECKS_SHARD": "0", "CHECKS_SHARDS": "2"}):      # make tests
+                    self.assertEqual(verify.main(["--tests"], environ), 0)
         note.assert_not_called()
 
     def merging(self) -> pathlib.Path:
