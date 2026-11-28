@@ -11,16 +11,18 @@ says is refused, never passed.
   only from files `listed` holds, or the one reason, a code, why not:
   - `UNREADABLE`: a path, a text or a list of no exact kind, or a path of no file right in the folder; a control character but the line feed, a tab among them,
     or what YAML may read as a line's end, a carriage return, U+0085, U+2028 or U+2029, or the byte order mark,
-    anywhere; a line outside the narrow form (an anchor, an alias, a tag, a block scalar, a flow form, a quote left
-    open, a key of another spelling, a key or a job given twice, a dash alone, or a line of no key, wherever it
+    anywhere; a line outside the narrow form (an anchor, an alias, a tag, a block scalar but a key's `|` or `>`
+    with a chomping mark or none, a flow form, a quote left open, a key of another spelling, a key or a job given twice, a dash alone, or a line of no key, wherever it
     stands); a key the table does not name, at the top, in a job or in a step; a job that calls another workflow or
-    runs in a container; a step that runs a command (`run:`) or uses an action, at its pin, that `ACTIONS` does not
-    name; an input of an action its row does not name, or one whose value holds an expression, `${{`, which may read
+    runs in a container; a step that runs a command (`run:`) beside `uses:`, `with:` or an `env:` name outside
+    `ENV`; one that uses an action, at its pin, that `ACTIONS` does not name; an input of an action its row does not name, or one whose value holds an expression, `${{`, which may read
     a file; a job whose steps are no list of items, or none; an `env:` name outside `ENV`; a quoted `{}`; a double-quoted value that
     holds an escape.
   - `UNLISTED`: a file the job takes its settings from, its own workflow among them, that the list holds neither word
     for word nor under a directory it names.
-- `refusal_at(files, listed)`: the same answer for every workflow a commit holds, `files` mapping each one's path to
+  - `STARTED`: a step that runs a command, where a branch but the default may start the workflow. `refusal` is
+    told no default branch, so every command is refused there.
+- `refusal_at(files, listed, default)`: the same answer for every workflow a commit holds, `files` mapping each one's path to
   its text, but of the jobs that hold a secret alone: the first reason, the workflows in their paths' order, or None.
   A job holds a secret unless all of these are so (record 0239's first row): neither it nor its workflow outside its
   jobs names `secrets`, in any case, as a key or in a value, `secrets: inherit` and `${{ secrets.X }}` among them; it
@@ -31,6 +33,11 @@ says is refused, never passed.
   key in any case. A workflow's lines are still read whole in the narrow form, a job that holds no secret among them, so
   that what a job names is never hidden: lines this does not read are `UNREADABLE`, and so is no mapping of path to
   text. Its keys at the top and its `env:` are held to the table only where one of its jobs holds a secret.
+  A command such a job runs passes only where its workflow is on the list, as every job's must be, and its `on:` names
+  nothing but `workflow_dispatch`, `schedule`, and `push` with a list of `branches` that names `default` alone, word
+  for word (the Solution Architect's ruling 1 of 2026-11-28): no branch but the default can then start it before a
+  review. `on: workflow_dispatch` alone passes too. Any other event, its list form, a `push:` with no list or with
+  more beside it, and a `default` that is no text or holds a pattern's mark, refuse the command as `STARTED`.
 
 Every route that points SonarCloud's scan at another settings file is refused: the scan's `args` and `projectBaseDir`
 are inputs its row does not name, and `SONAR_SCANNER_OPTS`, `SONAR_SCANNER_JSON_PARAMS` and `SONARQUBE_SCANNER_PARAMS`
@@ -42,17 +49,20 @@ too, so the file is the commit the run is for, and the scanner's other variables
 Its stated limits:
 - `refusal` takes every job to hold a secret, so a job with no secret beside one that has is refused with it.
   `refusal_at` reads which jobs hold one, but takes the repo's default permission as write: it costs a push, never
-  passes one. A job that holds a secret and runs a command is refused, though the command is the Release's own: so,
-  at this repo's own workflows, every push is refused until a row reads such a job.
-- A block scalar anywhere, a job's `run: |` among them, makes a workflow `UNREADABLE`, at a commit too: this cannot
-  tell what such a job names.
+  passes one.
+- A command is read as text only: what it runs is the base's, from the default branch after a review, or from the
+  ref a person dispatches. A person or an App that may dispatch a workflow on a work branch runs that branch's files
+  beside its secret; that is theirs, as the ruling says, never a Role's.
+- A job that calls a workflow of this repo, and a workflow started by `workflow_call`, are refused: what calls it is
+  not read. So, with the actions and `env:` names the table does not name, every job of this repo's own workflows
+  that holds a secret and runs a command is still refused, and so is every push here.
 - The Actions cache a job may write is not read: no action the table names restores one.
 - What an action reads at its pin is read from its source by a person when its row is written: the rows hold the pins
   `.github/workflows/sonarcloud.yml` holds, which decision 0225's row was written from. A new pin is refused until a
   row names it.
 - What a listed file says is a person's: a `sonar-project.properties` that names modules points the scanner at files
   of their folders, and this reads no file's text.
-- The events and the runner are not read: a runner is taken to be GitHub's own, on Linux, which keeps nothing of an
+- The events are read only for a command; the runner is not read: a runner is taken to be GitHub's own, on Linux, which keeps nothing of an
   earlier job, sets no variable of its own, and reads a file's name in its case.
 - That a listed file is a plain file, not a link to an unlisted one, is the caller's to read in the tree. A file
   `.gitattributes` may change how a listed file's bytes land, never what a person wrote in it.
@@ -65,12 +75,15 @@ from __future__ import annotations
 
 UNREADABLE = "settings_unreadable"   # a workflow, or a part of one, this does not read as its table says
 UNLISTED = "settings_unlisted"       # a file a job takes its settings from that the base's list does not hold
+STARTED = "settings_started"         # a command run beside a secret, in a workflow a branch but the default may start
 
 FOLDER = ".github/workflows/"
 KEY = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
 # What no value read here begins with: an anchor, an alias, a tag, a block scalar, a flow form, a directive or a
 # reserved mark. A flow form is read only as `{}`, the empty mapping `permissions` is often given.
 MARKS = "&*!|>{}[]%@`"
+# A block scalar, read only as a key's value: literal or folded, its chomping mark or none, no indentation mark.
+BLOCKS = ("|", "|-", "|+", ">", ">-", ">+")
 # What YAML may read as a line's end, or as nothing, where this reads none: a carriage return, the next line, the line
 # and paragraph separators and the byte order mark. Every other character below the space, the DEL and the C1 controls
 # are refused with them, a tab among them.
@@ -89,6 +102,13 @@ ENV = ("SONAR_TOKEN", "GITHUB_TOKEN")
 # `write` or `write-all` among it, or no `permissions:` at the job or its workflow, lets the token write.
 QUIET = ("read", "none")
 QUIET_ALL = ("read-all", "{}")
+# The events a workflow beside whose secret a command runs may start on: a person's dispatch, the schedule, and a push
+# to a list of branches that names the default branch alone. Every other, `pull_request`, `pull_request_target`,
+# `workflow_run`, `workflow_call` and a push to every branch among them, refuses the command.
+DISPATCH = "workflow_dispatch"
+EVENTS = ("workflow_dispatch", "schedule")
+# What a branch filter reads as a pattern: a default branch's name with one is never matched word for word.
+PATTERN = "*?+[]!"
 # Each action a job may use, at its pin: the inputs it may be given, and the files of the repo it takes settings from.
 ACTIONS = (
     ("actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", ("fetch-depth", "persist-credentials"), ()),
@@ -121,11 +141,14 @@ def _value(said: str):
 def _lines(text: str):
     """Each line that is no comment as `(column, item, key, value)`: where its key starts, the column of its list item's
     dash or None, its key, None for an item that is a value alone, and its value; or None where a line is outside the
-    narrow form."""
+    narrow form. A key's block scalar, `|` or `>` with a chomping mark or none, takes as its value every line after it
+    that is blank or stands right of its key, comments among them, joined as written."""
     if any(c < SPACE and c != "\n" or DEL <= c <= C1_LAST or c in BREAKS for c in text):
         return None
     out = []
-    for raw in text.split("\n"):
+    left = text.split("\n")[::-1]
+    while left:
+        raw = left.pop()
         body = _lstrip(raw)
         if not body or body.startswith("#"):
             continue
@@ -136,10 +159,17 @@ def _lines(text: str):
         key, colon, rest = body.partition(":")
         if item is not None and not colon:     # a list item that is a value alone, as `- main`
             key, rest = None, " " + body
-        value = _value(rest) if colon or key is None else None
+        column = len(raw) - len(body)
+        if colon and rest.startswith(" ") and _lstrip(rest).rstrip(" ") in BLOCKS:
+            kept = []
+            while left and (not left[-1].rstrip(" ") or len(left[-1]) - len(_lstrip(left[-1])) > column):
+                kept.append(left.pop())
+            value = "\n".join(kept)
+        else:
+            value = _value(rest) if colon or key is None else None
         if key is not None and (not key or any(c not in KEY for c in key)) or value is None:
             return None
-        out.append((len(raw) - len(body), item, key, value))
+        out.append((column, item, key, value))
     return out
 
 
@@ -188,8 +218,9 @@ def _env(node) -> bool:
     return node is None or _flat(node, ENV)
 
 
-def _job(node: dict):
-    """The files of the repo a job takes its settings from, or None where it is not read as the table says."""
+def _job(node: dict, started: bool):
+    """The files of the repo a job takes its settings from, `STARTED` where a step runs a command and `started` says a
+    branch but the default may start the workflow, or None where it is not read as the table says."""
     keys = _keys(node, JOB + ("env", "steps"))
     steps = keys.get("steps") if keys else None
     if steps is None or steps["value"] or not steps["kids"] or not _env(keys.get("env")) \
@@ -197,8 +228,13 @@ def _job(node: dict):
         return None
     files = []
     for step in steps["kids"]:
-        held = _keys(step, STEP + ("uses", "with", "env"))
-        uses = held.get("uses") if held else None
+        held = _keys(step, STEP + ("uses", "with", "env", "run"))
+        run = held.get("run") if held else None
+        if run is not None and not run["kids"] and "uses" not in held and "with" not in held and _env(held.get("env")):
+            if started:
+                return STARTED
+            continue
+        uses = held.get("uses") if held and run is None else None
         rows = [(inputs, read) for name, inputs, read in ACTIONS if uses and not uses["kids"] and uses["value"] == name]
         given = held.get("with") if rows else None
         if not rows or not _env(held.get("env")) or given is not None and (
@@ -206,6 +242,24 @@ def _job(node: dict):
             return None
         files += rows[0][1]
     return files
+
+
+def _branches(node: dict, default: str) -> bool:
+    """Whether a `push:` names a list of branches alone, and in it `default` alone, word for word."""
+    named = node["kids"][0]["kids"] if [kid["key"] for kid in node["kids"]] == ["branches"] else []
+    return bool(named) and not node["kids"][0]["value"] \
+        and all(kid["key"] is None and not kid["kids"] and kid["value"] == default for kid in named)
+
+
+def _started(root: dict, default) -> bool:
+    """Whether a branch but `default`, the default branch, may start the workflow: true unless its `on:` names
+    `workflow_dispatch` alone, or a mapping of `workflow_dispatch`, `schedule` and a `push:` that `_branches` holds."""
+    on = [kid for kid in root["kids"] if kid["key"] == "on"]
+    if type(default) is not str or not default or any(c in PATTERN for c in default) or not on:
+        return True
+    if not on[0]["kids"]:
+        return on[0]["value"] != DISPATCH
+    return not all(kid["key"] in EVENTS or kid["key"] == "push" and _branches(kid, default) for kid in on[0]["kids"])
 
 
 def _listed(name: str, listed: list) -> bool:
@@ -246,8 +300,9 @@ def _holds(job: dict, outer: bool, given: list) -> bool:
         or not given or not _quiet(given[0])
 
 
-def _read(path, text, listed, narrow: bool):
-    """`refusal`'s answer, of every job where `narrow` is false, or of each job that holds a secret where it is true."""
+def _read(path, text, listed, narrow: bool, default):
+    """`refusal`'s answer, of every job where `narrow` is false, or of each job that holds a secret where it is true;
+    a command is read only where `default`, the default branch, alone may start the workflow."""
     name = path[len(FOLDER):] if type(path) is str and path.startswith(FOLDER) else ""
     if "/" in name or name in ("", ".", "..") or type(text) is not str or type(listed) is not list \
             or not all(type(entry) is str for entry in listed):
@@ -270,10 +325,11 @@ def _read(path, text, listed, narrow: bool):
     if top is None or not _env(top.get("env")):
         return UNREADABLE
     files = [path]
+    started = _started(root, default)
     for job in held:
-        found = _job(job)
-        if found is None:
-            return UNREADABLE
+        found = _job(job, started)
+        if found is None or found == STARTED:
+            return found or UNREADABLE
         files += found
     return None if all(_listed(name, listed) for name in files) else UNLISTED
 
@@ -281,10 +337,10 @@ def _read(path, text, listed, narrow: bool):
 def refusal(path, text, listed):
     """None where every job of the workflow at `path`, of `text`, takes its settings only from files on `listed`, the
     base's protected list, or the one reason why not."""
-    return _read(path, text, listed, False)
+    return _read(path, text, listed, False, None)
 
 
-def refusal_at(files, listed):
+def refusal_at(files, listed, default):
     """None where, in every workflow a commit holds, each job that holds a secret takes its settings only from files on
     `listed`, the base's protected list; or the first reason why not, the workflows taken in their paths' order.
     `files` maps each workflow's path to its text, every one the folder holds, as a port read them whole."""
@@ -292,7 +348,7 @@ def refusal_at(files, listed):
     if not kinds or not all(type(path) is str for path in files):
         return UNREADABLE
     for path in sorted(files):
-        why = _read(path, files[path], listed, True)
+        why = _read(path, files[path], listed, True, default)
         if why is not None:
             return why
     return None
