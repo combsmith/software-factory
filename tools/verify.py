@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import importlib.machinery
 import json
 import os
 import pathlib
@@ -57,6 +58,13 @@ CHECKS = [
 ]
 # What imports a module by a name worked out as it runs: a check that holds one is never read as closed.
 DYNAMIC = frozenset(("__import__", "import_module", "importlib", "imp", "pkgutil", "runpy", "zipimport"))
+# What runs text as code: called by its own name, or imported under another, it is never read as closed.
+RUNS_TEXT = frozenset(("exec", "eval", "compile"))
+# Where a check's process finds the standard library, ahead of the tree it appends: a module found here is never a
+# file of the tree, whatever file of that name the tree holds (Claude's security read).
+STANDARD = [os.path.dirname(os.__file__), os.path.join(os.path.dirname(os.__file__), "lib-dynload")]
+DRAIN_SECONDS = 5       # for a stopped check's pipes to close, which a process it started may hold open
+EARLY = 2               # what `failed` says when a check that runs no Role code failed: nothing else was started
 CHECK_SECONDS = 180     # for every check of a phase to answer, within the step's four minutes
 # How a check's process gives its answer: its last line of output, this, then {"check": its name, "problems": [...]}.
 ANSWER = "verify: the check answers "
@@ -84,35 +92,47 @@ def answers(checks: list) -> dict:
     is and told nothing but its name. Its bytecode is written to and read from a folder outside the tree, never a
     __pycache__ a push could hold, and one that has not answered by CHECK_SECONDS is stopped."""
     cache = tempfile.mkdtemp(prefix="verify-bytecode-")
+    if pathlib.Path(cache).resolve() == ROOT or ROOT in pathlib.Path(cache).resolve().parents:   # TMPDIR in the tree
+        shutil.rmtree(cache, ignore_errors=True)
+        return {name: (None, "", "its bytecode folder would be %s, inside the tree" % cache) for name, _, _ in checks}
+    started = {}
     try:
-        started = {name: subprocess.Popen([sys.executable, "-I", "-S", "-X", "pycache_prefix=" + cache,
-                                           str(ROOT / "tools" / "verify.py"), "--check", name],
-                                          cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                          stderr=subprocess.PIPE)
-                   for name, _, _ in checks}
+        for name, _, _ in checks:
+            started[name] = subprocess.Popen([sys.executable, "-I", "-S", "-X", "pycache_prefix=" + cache,
+                                              str(ROOT / "tools" / "verify.py"), "--check", name],
+                                             cwd=str(ROOT), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                             stderr=subprocess.PIPE)
         out, until = {}, time.monotonic() + CHECK_SECONDS
         for name, process in started.items():
             try:
                 said, errors = process.communicate(timeout=max(1.0, until - time.monotonic()))
+                code = process.returncode
             except subprocess.TimeoutExpired:
                 process.kill()
-                said, errors = process.communicate()
-                errors += b"\nit gave no answer within %d seconds" % CHECK_SECONDS
-            out[name] = (process.returncode, said.decode("utf-8", "replace"), errors.decode("utf-8", "replace"))
+                try:
+                    said, errors = process.communicate(timeout=DRAIN_SECONDS)
+                except subprocess.TimeoutExpired:
+                    said, errors = b"", b""
+                code, errors = "on a timeout", errors + b"\nit gave no answer within %d seconds" % CHECK_SECONDS
+            out[name] = (code, said.decode("utf-8", "replace"), errors.decode("utf-8", "replace"))
         return out
     finally:
+        for process in started.values():
+            if process.returncode is None:      # one started before another could not be: never left running
+                process.kill()
         shutil.rmtree(cache, ignore_errors=True)
 
 
 def phase_one(checks: list, root: pathlib.Path = ROOT) -> list:
     """The entries of `checks` that run no Role code: each whose whole import closure, read through ast and never run,
     is on the protected list of config/hooks.json. They answer, and pass, before any other check starts (issue 1377).
-    The list decides, not a check's name: a check whose closure leaves it, or cannot be read, runs later."""
+    The list decides, not a check's name: a check whose closure leaves it, or cannot be read, runs later. Raises
+    ValueError when the list cannot be read, since then no check can be told to run no Role code."""
     from tools.hooks import protected      # protected itself; it imports none of the checks
     try:
         listed = protected.entries(protected.load(root / "config" / "hooks.json")["protected"])
-    except Exception:       # noqa: BLE001 -- a list that cannot be read protects nothing, so every check runs later
-        return []
+    except Exception as err:       # noqa: BLE001 -- a list that cannot be read fails, never sorts every check later
+        raise ValueError("the protected list of config/hooks.json cannot be read (%s)" % type(err).__name__)
     held = lambda rel: any(whole.match(rel.casefold()) for _, _, _, whole in listed)  # noqa: E731
     return [entry for entry in checks if _closed("tools/%s.py" % entry[1], held, root)]
 
@@ -133,21 +153,28 @@ def _closed(start: str, held, root: pathlib.Path) -> bool:
         if tree is None:
             return False
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.level or isinstance(node, ast.Name) and node.id in DYNAMIC \
-                    or isinstance(node, ast.Attribute) and node.attr in DYNAMIC:
+            if isinstance(node, ast.ImportFrom) and node.level or isinstance(node, ast.Attribute) and node.attr in DYNAMIC \
+                    or isinstance(node, ast.Name) and (node.id in DYNAMIC or node.id in RUNS_TEXT):
                 return False
             names = [a.name for a in node.names] if isinstance(node, ast.Import) else \
                 [node.module] + [node.module + "." + a.name for a in node.names] if isinstance(node, ast.ImportFrom) \
                 else []
             for name in names:
                 parts = name.split(".")
-                if parts[0] in DYNAMIC:
+                if any(part in DYNAMIC or part in RUNS_TEXT for part in parts):     # an alias of one too
                     return False
+                if _standard(parts[0]):
+                    continue
                 for at in range(1, len(parts) + 1):
                     base = root.joinpath(*parts[:at])
                     todo += [c.relative_to(root).as_posix() for c in (base.with_suffix(".py"), base / "__init__.py")
                              if c.is_file()]
     return True
+
+
+def _standard(name: str) -> bool:
+    """Whether a check's process finds the top-level module `name` in the standard library, ahead of the tree."""
+    return name in sys.builtin_module_names or importlib.machinery.PathFinder.find_spec(name, STANDARD) is not None
 
 
 def problems_of(name: str, answer) -> list:
@@ -160,7 +187,7 @@ def problems_of(name: str, answer) -> list:
     last = lines[-1] if lines else ""
     try:
         given = json.loads(last[len(ANSWER):]) if last.startswith(ANSWER) else None
-    except ValueError:
+    except (ValueError, RecursionError):
         given = None
     whole = isinstance(given, dict) and set(given) == {"check", "problems"} and given["check"] == name \
         and isinstance(given["problems"], list) and all(isinstance(p, str) for p in given["problems"])
@@ -170,14 +197,30 @@ def problems_of(name: str, answer) -> list:
     return given["problems"]
 
 
-def failed(checks: list, ran=answers, first=phase_one) -> bool:
-    """Run each check, print what it found, and say whether any found a problem. A check that gives no answer has
-    found one. The checks that run no Role code run first; if one fails, none that runs Role code is started."""
-    early = first(checks)
-    if told(early, ran):
+def failed(checks: list, ran=answers, first=phase_one) -> int:
+    """Run each check, print what it found, and say whether any found a problem: 0 if none did, else 1, or EARLY if
+    one that runs no Role code did, which run first, or none of them can be told. A check that gives no answer has
+    found one. After EARLY nothing that runs Role code has started, and `main` starts nothing more."""
+    early = led(checks, ran, first)
+    if early is None:
         print("%-22s %s" % ("role code", "not run, since a check that runs none failed"))
-        return True
-    return told([entry for entry in checks if entry not in early], ran)
+        return EARLY
+    return 1 if told([entry for entry in checks if entry not in early], ran) else 0
+
+
+def led(checks: list, ran=answers, first=phase_one):
+    """Run the entries of `checks` that run no Role code, alone, and print what each found: those entries if all
+    passed, else None. That none of them can be told, or that none runs no Role code, fails too."""
+    try:
+        early = first(checks)
+    except ValueError as err:
+        print("%-22s %s\n    %s" % ("phases", "FAILED", err))
+        return None
+    if not early:
+        print("%-22s %s\n    %s" % ("phases", "FAILED", "no check runs first: none has its whole import closure on "
+                                                         "the protected list"))
+        return None
+    return None if told(early, ran) else early
 
 
 def told(checks: list, ran=answers) -> bool:
@@ -305,8 +348,10 @@ def main(argv: list, environ=None) -> int:
         result = unittest.TextTestRunner(verbosity=1).run(suite("--fast" in argv, share))
         return 0 if result.wasSuccessful() else 1
     if "--checks-first" in argv:    # CI's step before `make checks`: the checks that run no Role code, alone
-        return 1 if told(phase_one(CHECKS)) else 0
-    checks_failed = failed(CHECKS)
+        return 1 if led(CHECKS, answers, phase_one) is None else 0
+    checks_failed = failed(CHECKS, answers, phase_one)
+    if checks_failed == EARLY:      # nothing that runs Role code starts: no other check, no note, no test
+        return 1
     if "--checks" in argv:
         answer = 1 if checks_failed else 0      # the checks' answer, told before the note runs
         if any(name in (environ or {}) for name in ("CHECKS_SHARD", "CHECKS_SHARDS", "CI")):
