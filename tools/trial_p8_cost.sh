@@ -344,7 +344,7 @@ json.dump({"query": sys.stdin.read(), "variables": json.loads(sys.argv[1])}, ope
         echo "trial_p8_cost: read $n ($3) failed (curl ok: $read_ok, status: ${status:-none}); nothing of it reaches OUT." >&2
         exit 1
     fi
-    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
+    (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
     drop "$scratch/raw-$n"
     # A 200 can carry errors beside partial data, as a read past GitHub's node limit does: that is not a pass's read.
     if ! sed -n '/^{/,$p' "$out/clean-$n" | python3 -I -c '
@@ -417,7 +417,7 @@ if [ "$minted_status" != 201 ]; then
     [ -z "$minting" ] || note "trial_p8_cost: $slug: $refused"
     echo "trial_p8_cost: $slug: $refused;" \
         "nothing read. GitHub answered, redacted:" >&2
-    if shown=$(printf '%s\n' "$minted" | (cd "$root" && python3 -m tools.redact_trial) 2>/dev/null); then
+    if shown=$(printf '%s\n' "$minted" | (cd "$root" && python3 -I -S "$root/tools/redact_trial.py") 2>/dev/null); then
         printf '%s\n' "$shown" >&2
     else
         echo "(an answer the redaction could not read, so it is not shown)" >&2

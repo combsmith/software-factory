@@ -50,7 +50,7 @@ SECOND = r"^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$"
 GOOD = (ROOT / "examples" / "workflows" / "verify.yml").read_text()
 # The poller's shim, as issue 196's ruling 4 gives it in full: the shape the rules shim and wake hold.
 POLLER = 'name: sf-poller\non:\n  schedule:\n    - cron: "13 * * * *"\n    - cron: "33 * * * *"\n    - cron: "53 * * * *"\n  workflow_dispatch:\n  workflow_run:\n    workflows:\n      - factory\n      - ci\n    types:\n      - completed\npermissions: {}\njobs:\n  pass:\n    permissions:\n      actions: write\n      contents: read\n    concurrency:\n      group: sf-poller\n      cancel-in-progress: false\n    uses: combsmith/software-factory/.github/workflows/pass.yml@factory/v0-next\n    secrets: inherit\n'
-STEP = "      - run: make verify\n"
+STEP = "      - run: make tests\n"
 
 
 SCRATCH = tempfile.TemporaryDirectory()     # removed when the run ends
@@ -3419,7 +3419,7 @@ class Repo(unittest.TestCase):
         for name, text, said in bypasses:
             self.assertTrue(caught(check_repo.run(tree({rel: text})), said), name)
         workflow = (ROOT / ".github" / "workflows" / "verify.yml").read_text()
-        named = workflow.replace("      - run: make verify\n", "      - run: python3 tools/trial_p50_stub.py p l\n")
+        named = workflow.replace("      - run: make tests\n", "      - run: python3 tools/trial_p50_stub.py p l\n")
         self.assertNotEqual(named, workflow)
         self.assertTrue(caught(check_repo.run(clone({".github/workflows/verify.yml": named})), "runs only in the canary's workflow"))
 
@@ -4173,8 +4173,8 @@ class Workflows(unittest.TestCase):
         # no required check or Run reads as a failure. A step stopped at its own timeout fails, and so does its job
         # (trials/P-42.step-timeout.json). So each run: step sets its own timeout-minutes, and a job's run: steps are
         # given fewer minutes together than the job is, so that a step past its limit fails the job before GitHub stops it.
-        # Each run: step of the example, its own limit and its job's.
-        limits = {"make verify": (26, 28), "python3 -m tools.mutants": (27, 30),
+        # Each run: step of the example, its own limit and its job's, less the limits of the job's other run: steps.
+        limits = {"make checks": (4, 6), "make tests": (22, 24), "python3 -m tools.mutants": (27, 30),
                   "python3 -m tools.commits_are_the_maintainers": (7, 10), "python3 -m tools.needs_passed": (5, 10)}
         unlimited = GOOD
         for command, (minutes, _) in limits.items():
@@ -4197,15 +4197,15 @@ class Workflows(unittest.TestCase):
         problems = check_workflows.lint(unlimited, required=True)
         self.assertIn(("timeout", "a run: step of job checks has no timeout-minutes of its own"), problems)
         # A uses: step needs none, and a run: step's limit is read wherever among its keys it stands.
-        moved = GOOD.replace("      - run: make verify\n        timeout-minutes: 26\n",
-                             "      - timeout-minutes: 26\n        run: make verify\n")
+        moved = GOOD.replace("      - run: make tests\n        timeout-minutes: 22\n",
+                             "      - timeout-minutes: 22\n        run: make tests\n")
         self.assertEqual(rules(moved), [])
-        # A job's run: steps are counted together: two of 13 under a job of 28 are 26 minutes, and leave it its two.
-        two = GOOD.replace("      - run: make verify\n        timeout-minutes: 26\n",
-                           "      - run: make verify\n        timeout-minutes: 13\n      - run: make fast\n"
-                           "        timeout-minutes: 13\n")
+        # A job's run: steps are counted together: 4, 11 and 11 under a job of 28 are 26 minutes, and leave it its two.
+        two = GOOD.replace("      - run: make tests\n        timeout-minutes: 22\n",
+                           "      - run: make tests\n        timeout-minutes: 11\n      - run: make fast\n"
+                           "        timeout-minutes: 11\n")
         self.assertEqual(rules(two), [])
-        more = two.replace("timeout-minutes: 13\n      - run: make fast", "timeout-minutes: 14\n      - run: make fast")
+        more = two.replace("timeout-minutes: 11\n      - run: make fast", "timeout-minutes: 12\n      - run: make fast")
         self.assertEqual(rules(more), ["timeout"])
         self.assertIn(("timeout", "the run: steps of job checks are given 27 minutes together, more than its 28 less the "
                                   "2 its other steps keep"), check_workflows.lint(more, required=True))
@@ -4279,7 +4279,7 @@ class Workflows(unittest.TestCase):
         self.assertEqual(self.lens_problems(GOOD), [])
         self.assertEqual(self.lens_problems(GOOD.replace("    name: verify\n", "")), [])
         elsewhere = GOOD.replace("name: factory\n", "name: verify\n").replace("  verify:\n    name: verify\n", "  build:\n")
-        elsewhere = elsewhere.replace("      - run: make verify\n", "      - name: verify\n        run: make verify\n")
+        elsewhere = elsewhere.replace("      - run: make tests\n", "      - name: verify\n        run: make tests\n")
         self.assertNotEqual(elsewhere, GOOD)
         self.assertTrue(caught(self.lens_problems(elsewhere), "runs no job named 'verify'"))
         renamed = GOOD.replace("  verify:\n    name: verify\n", "  verify:\n    name: build\n")
@@ -4453,10 +4453,12 @@ class Workflows(unittest.TestCase):
         # On 2026-11-09 `make verify` as one job was cut at its step's 26 minutes in a merge group, so it runs in legs. A
         # leg told CHECKS_SHARD as a number would run another's share, leaving its own tests in no leg, and CHECKS_SHARDS
         # as a number could differ from the matrix's size; each is the matrix's own expression, as the mutant shards'.
+        # Each leg runs `make checks` in a step before `make tests`, so a failed check ends it before any test runs.
         job = GOOD[GOOD.index("  checks:\n"):GOOD.index("  mutants:\n")]
         index, total = "      CHECKS_SHARD: ${{ strategy.job-index }}\n", "      CHECKS_SHARDS: ${{ strategy.job-total }}\n"
-        run = "      - run: make verify\n"
-        self.assertEqual((job.count(index), job.count(total), job.count(run)), (1, 1, 1))
+        checks, run = "      - run: make checks\n        timeout-minutes: 4\n", "      - run: make tests\n"
+        tests = run + "        timeout-minutes: 22\n"
+        self.assertEqual((job.count(index), job.count(total), job.count(checks + tests)), (1, 1, 1))
         told, shape = "not told CHECKS_SHARD", "whose steps are not a checkout of the head"
         cases = [(index, "      CHECKS_SHARD: 0\n", told), (total, "      CHECKS_SHARDS: 3\n", told),
                  (total, "", told), (index, index + "      OTHER: 1\n", told),
@@ -4466,14 +4468,18 @@ class Workflows(unittest.TestCase):
                  ("      contents: read\n", "      contents: write\n", "granted other than"),
                  (run, run + "        working-directory: evil\n", shape), (run, run + "        env:\n          CHECKS_SHARD: 0\n", shape),
                  (run, run + "      - run: make fast\n", shape),
-                 (run, "      - run: make fast\n      - run: make verify\n", shape),
-                 ("          fetch-depth: 0\n      - run: make verify\n", "      - run: make verify\n", shape)]
+                 (run, "      - run: make fast\n      - run: make tests\n", shape),
+                 ("          fetch-depth: 0\n", "", shape),
+                 # The checks gone, run after the tests, run as another target, or let the tests run when they failed.
+                 (checks, "", shape), (checks + tests, tests + checks, shape),
+                 (checks, "      - run: make fast\n        timeout-minutes: 4\n", shape),
+                 (checks, checks + "        continue-on-error: true\n", shape)]
         for old, new, said in cases:
             text = GOOD.replace(job, job.replace(old, new))
             self.assertNotEqual(text, GOOD, said)
             self.assertTrue(caught(self.lens_problems(text), said), (old, new, said))
-        # No job runs `make verify` at all: the checks and the tests are gone, not reshaped.
-        gone = "has no job that runs `make verify`"
+        # No job runs `make tests` at all: the checks and the tests are gone, not reshaped.
+        gone = "has no job that runs `make tests`"
         self.assertTrue(caught(self.lens_problems(GOOD.replace(job, "").replace("      - checks\n", "")), gone))
         self.assertTrue(caught(self.lens_problems(GOOD.replace(job, job.replace(run, "      - run: make fast\n"))), gone))
         self.assertEqual(self.lens_problems(GOOD), [])
@@ -5372,7 +5378,7 @@ class Workflows(unittest.TestCase):
                      run.replace("group: ${{ inputs.item }}", "group: lane-${{ inputs.item }}"),
                      POLLER.replace("group: sf-poller", "group: ${{ github.ref }}"),
                      run.replace("permissions: {}\n", "permissions: {}\nconcurrency:\n  group: ${{ inputs.item }}\n"),
-                     GOOD.replace("      - run: make verify\n", "      - run: make verify\n        outputs:\n"
+                     GOOD.replace("      - run: make tests\n", "      - run: make tests\n        outputs:\n"
                                   "          d: ${{ steps.a.outputs.b }}\n", 1)):
             # Read as the required check's workflow, so that GOOD's own concurrency is no expression out of place.
             self.assertIn("expression", {rule for rule, _ in check_workflows.lint(text, required=True)}, text)
@@ -14503,9 +14509,9 @@ class Verify(unittest.TestCase):
         self.assertIn("a problem", said.getvalue())
 
     def test_the_legs_of_make_verify_run_every_test_once(self):
-        # CI runs `make verify` in legs (docs/standards/workflows.md): each runs every check and each count-th test from
-        # its place, so that across the legs every test of the whole suite runs, the seeded simulation's included, and
-        # none twice. A leg it cannot read stops the run before any check or test.
+        # CI runs `make tests` in legs, after a step of `make checks` (docs/standards/workflows.md): each runs each
+        # count-th test from its place, so that across the legs every test of the whole suite runs, the seeded
+        # simulation's included, and none twice. A leg it cannot read stops the run before any check or test.
         whole = [test.id() for test in verify._tests(verify.suite(False))]
         self.assertTrue({"tests.test_simulator", "tests.test_issue_simulator"} <= {i.rsplit(".", 2)[0] for i in whole})
         for count in (1, 2, 3, 5):
@@ -16368,7 +16374,7 @@ class SignalTraps(unittest.TestCase):
                 'as --keep-raw asked; delete it once read\\n\' %s "$scratch" >&2' % name), name)
             self.assertIn("\ntrap finish EXIT\n", text, name)
             self.assertNotIn('rm -f "$scratch/raw', text, name)
-            redacted = [n for n, line in enumerate(lines) if re.search(r'redact_trial < "\$scratch/raw-', line)]
+            redacted = [n for n, line in enumerate(lines) if re.search(r'redact_trial\.py" < "\$scratch/raw-', line)]
             self.assertTrue(redacted, name)
             for n in redacted:
                 raw = re.search(r'< "(\$scratch/raw-[^"]*)"', lines[n]).group(1)
@@ -16474,15 +16480,14 @@ class SignalTraps(unittest.TestCase):
         # A PYTHONPATH entry, and the working directory under -m, come before the standard library on the path: a json.py
         # planted in either would run inside the redaction as it reads the raw answers, and a package in site-packages
         # named tools would stand in for the repo's. Every script that redacts runs the redaction as a file under -I and
-        # -S, by the root it found, on every call. A test that the file is there is no call. The token trials that mint
-        # come in part 3 of issue 1300.
-        scripts, later = [], SCRIPTS_1300_LATER
+        # -S, by the root it found, on every call. A test that the file is there is no call.
+        scripts = []
         for script in sorted((ROOT / "tools").glob("*.sh")):
             lines = [line.replace('-f "$root/tools/redact_trial.py"', "") for line in script.read_text().splitlines()]
             calls = [line for line in lines if "redact_trial" in line and not line.lstrip().startswith("#")]
             if calls:
                 scripts.append(script.name)
-            for line in calls if script.name not in later else ():
+            for line in calls:
                 self.assertEqual(re.findall(r"python3[^|;()<>]*redact_trial[^\s)]*", line), ['python3 -I -S "$root/tools/redact_trial.py"'],
                                  (script.name, line))
         self.assertEqual(len(scripts), 18)
@@ -16543,12 +16548,6 @@ def note_in(test: unittest.TestCase, out: pathlib.Path, told: str) -> str:
     test.assertIn("redacted: 0 removed", clean.stderr)
     test.assertFalse(check_trials.shaped(note), note)
     return note
-
-
-# The token trials whose redaction runs under -I and -S from part 3 of issue 1300.
-SCRIPTS_1300_LATER = ("trial_reader_reads.sh", "trial_p54_issue_lookup.sh", "trial_p12_status.sh", "trial_p56_comments.sh",
-                      "trial_p80_branch_reads.sh", "trial_p58_edits.sh", "trial_p81_review_order.sh", "trial_p39_reach.sh",
-                      "trial_p4_narrow.sh", "trial_p8_cost.sh", "trial_p52_pause.sh")
 
 
 # What gh reads from the environment to choose a configuration or a pager (issue 1300).
@@ -19116,7 +19115,7 @@ class Desk(unittest.TestCase):
 
     def test_make_checks_note_fails_nothing(self):
         # The note is printed after the checks have answered, and nothing it does, an error or an exit, changes the
-        # answer. CI's legs never run it.
+        # answer. CI never runs it: a leg or CI set, its code is never imported (issue 1050).
         def ran(argv: list, checks_failed: bool, note) -> tuple:
             printed = io.StringIO()
             with mock.patch.object(verify, "failed", return_value=checks_failed), \
@@ -19130,6 +19129,14 @@ class Desk(unittest.TestCase):
                                (KeyboardInterrupt, "KeyboardInterrupt")):
                 self.assertEqual(ran(["--checks"], checks_failed, note),
                                  (int(checks_failed), "%-22s no note: it raised %s\n" % ("diff size", name)))
+        for environ in ({"CHECKS_SHARD": "0", "CHECKS_SHARDS": "2"}, {"CHECKS_SHARD": "1"}, {"CI": "true"}):
+            for checks_failed in (False, True):
+                printed = io.StringIO()
+                with mock.patch.object(verify, "failed", return_value=checks_failed), \
+                        mock.patch.object(verify, "desk_note") as note, contextlib.redirect_stdout(printed):
+                    self.assertEqual(verify.main(["--checks"], environ), int(checks_failed), environ)
+                note.assert_not_called()
+                self.assertEqual(printed.getvalue(), "", environ)
         for checks_failed in (False, True):
             read, write = os.pipe()
             os.close(read)      # a reader that closed before the note

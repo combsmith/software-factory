@@ -3,12 +3,12 @@
 `make fast` runs the same checks and every test but the seeded simulation. `make checks` runs the checks alone, half a
 minute, and is what a session's hooks run after an edit and before a stop (`tools/hooks/after_edit.py`,
 `tools/hooks/before_stop.py`), and what the desk owes with the mutants of the files a change touches; the tests are CI's.
-After the checks it prints one note that fails nothing, `tools/desk.py`'s size (`desk_note`), which CI's legs never run.
+After the checks it prints one note that fails nothing, `tools/desk.py`'s size (`desk_note`), at a desk alone.
 `make tests` runs the tests alone, and prints first what verify says of the records and of the fake GitHub.
 
-CI runs `make verify` in legs, each told CHECKS_SHARD and CHECKS_SHARDS by its matrix: each leg runs every check and its
-share of the tests, so that across the legs every test runs once and no leg nears the step's limit. Neither set: every
-test, as at a desk.
+CI runs `make checks` in a step of its own, then `make tests` in another, in legs, each told CHECKS_SHARD and
+CHECKS_SHARDS by its matrix, so that across the legs every test runs once and no leg nears the step's limit. A failed
+check ends the job before any test runs. Neither set: every test, as at a desk.
 
 The Makefile runs this file in Python's isolated mode, without site, so the repo's top is put on the path here, after
 the standard library: a file at the top named as one of its modules is never imported in its place. `make verify` runs
@@ -177,6 +177,8 @@ def main(argv: list, environ=None) -> int:
     checks_failed = failed(CHECKS)
     if "--checks" in argv:
         answer = 1 if checks_failed else 0      # the checks' answer, told before the note runs
+        if any(name in (environ or {}) for name in ("CHECKS_SHARD", "CHECKS_SHARDS", "CI")):
+            return answer       # CI: the note's code, which a push can change, is never imported there
         try:
             print("%-22s %s" % ("diff size", desk_note()), flush=True)
         except BaseException:       # NOSONAR: a closed pipe too; the note never decides make checks' answer

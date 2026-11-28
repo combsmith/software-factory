@@ -232,7 +232,7 @@ ask() {   # METHOD PATH [BODY]
         echo "trial_p12_status: $1 /$2: $why; nothing of it reaches OUT" >&2
         exit 1
     fi
-    (cd "$root" && python3 -m tools.redact_trial < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
+    (cd "$root" && python3 -I -S "$root/tools/redact_trial.py" < "$scratch/raw-$n" > "$out/clean-$n") 2> "$out/redacted-$n"
     drop "$scratch/raw-$n"
     asked="$asked{\"n\": $n, \"as\": \"${slug}[bot]\", \"call\": \"$1 /$2\", \"body\": \"${3:-}\", \"status\": $status},"
     echo "$1 /$2: $status"
@@ -324,7 +324,7 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
         [ -z "$minting" ] || note "trial_p12_status: $slug: $refused"
         echo "trial_p12_status: $slug: $refused;" \
             "GitHub answered, redacted:" >&2
-        if shown=$(printf '%s\n' "$minted" | sed '$d' | (cd "$root" && python3 -m tools.redact_trial) 2>/dev/null); then
+        if shown=$(printf '%s\n' "$minted" | sed '$d' | (cd "$root" && python3 -I -S "$root/tools/redact_trial.py") 2>/dev/null); then
             printf '%s\n' "$shown" >&2
         else
             echo "(an answer the redaction could not read, so it is not shown)" >&2
