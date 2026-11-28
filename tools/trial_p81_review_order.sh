@@ -115,7 +115,7 @@ drop() { [ -n "$keep" ] || rm -f -- "$@"; }
 unset SSLKEYLOGFILE token jwt signature minted minting
 # Nor does curl go through a proxy, or trust a certificate authority or TLS library, that the shell names, nor does
 # openssl, which signs with the App's key, load a configuration or a module the shell names (issue 1288).
-unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR CURL_SSL_BACKEND OPENSSL_CONF OPENSSL_ENGINES OPENSSL_MODULES
+unset http_proxy HTTP_PROXY https_proxy HTTPS_PROXY all_proxy ALL_PROXY no_proxy NO_PROXY CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR CURL_SSL_BACKEND OPENSSL_CONF OPENSSL_CONF_INCLUDE OPENSSL_ENGINES OPENSSL_MODULES
 token=""
 
 revoke() {
@@ -289,7 +289,7 @@ with_token() {   # NARROWED PERMISSIONS
     minted=$(printf 'Authorization: Bearer %s\n' "$jwt" | curl -q -sS -w '\n%{http_code}' -X POST -H @- -H "$ACCEPT" \
         -H "$VERSION" -d "{\"repositories\":[\"$name\"],\"permissions\":{$2}}" \
         "$API/app/installations/$installation/access_tokens" && printf '\n0' || printf '\n%s' "$?")
-    jwt="" signature="" minting=""
+    jwt="" signature=""
     minted_exit=$(printf '%s\n' "$minted" | tail -n 1)
     minted=$(printf '%s\n' "$minted" | sed '$d')
     minted_status=$(printf '%s\n' "$minted" | tail -n 1)
@@ -311,6 +311,7 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
             echo "trial_p81_review_order: $slug: GitHub minted a token narrowed to $1 and its answer was cut short; the" \
                 "token may be live for up to an hour, and the Maintainer must revoke it by hand." >&2
         fi
+        minting=""
         echo "trial_p81_review_order: $slug: nothing read, and nothing of the answer kept." >&2
         exit 1
     fi
@@ -325,19 +326,24 @@ print(answer.get("token") or "" if isinstance(answer, dict) else "")' 2>/dev/nul
         exit 1
     fi
     if [ "$minted_status" != 201 ]; then
-        # No token was minted, so the answer is GitHub's error: it is redacted before it is shown, and never written
+        # No token came back, so the answer is GitHub's error: it is redacted before it is shown, and never written
         # to a file.
-        echo "trial_p81_review_order: $slug: no token narrowed to $1 was minted (status ${minted_status:-none});" \
+        # A 4xx refusal minted nothing; any other answer with no token (000, a 5xx) may have (issue 1245).
+        case "$minted_status" in
+            4??) minting="" refused="no token narrowed to $1 was minted (status $minted_status)" ;;
+            *) refused="the mint answered ${minted_status:-none} with no token, and GitHub may have minted one, live for up to an hour; no one holds it to revoke, so to end it sooner the Maintainer suspends the App's installation" ;;
+        esac
+        echo "trial_p81_review_order: $slug: $refused;" \
             "GitHub answered, redacted:" >&2
         if shown=$(printf '%s\n' "$minted" | sed '$d' | (cd "$root" && python3 -m tools.redact_trial) 2>/dev/null); then
             printf '%s\n' "$shown" >&2
         else
             echo "(an answer the redaction could not read, so it is not shown)" >&2
         fi
-        minted=""
+        minted="" minting=""
         exit 1
     fi
-    minted=""
+    minted="" minting=""
     bodies
     reads
     # The pull request holds no review, so the run's is the only one.
