@@ -14,7 +14,7 @@ Decision 1378 reads each step of a job that holds a secret, even where no work b
 
 `guards/workflows.py` holds it. `refusal_at` is told the home repo's name.
 
-Limits: whoever can move a Release tag changes what a home call runs, so the tag's protection is the boundary. A self-hosted runner given a hosted label is the org's setting. A job that holds no secret may run anywhere: issue 1380, "guards: a job with no secret can poison a self-hosted runner". The called workflows still refuse every push here.
+Limits: whoever can move a factory/ ref, tag or branch, changes what a home call runs: the boundary is the tag rulesets and decision 0124's branch ruleset. A self-hosted runner given a hosted label is the org's setting. A job that holds no secret may run anywhere: issue 1380, "guards: a job with no secret can poison a self-hosted runner". The called workflows still refuse every push here.
 
 ## Why
 
