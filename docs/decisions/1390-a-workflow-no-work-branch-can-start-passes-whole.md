@@ -1,4 +1,4 @@
-# 0000. A workflow no work branch can start passes whole
+# 1390. A workflow no work branch can start passes whole
 
 Status: accepted. 2026-11-28, the Solution Architect's rulings on decision 1378's follow-up; issue 838. Narrows decision 1378's Decision row "A `run:` step in a job that holds a secret" and its Limits.
 
