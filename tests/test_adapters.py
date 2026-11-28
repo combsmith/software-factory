@@ -2281,7 +2281,7 @@ class Artifacts(unittest.TestCase):
                        dict(good, asks=101), dict(good, cost_usd=100000.01), json.dumps(good).replace("1.42", "NaN"),
                        dict(good, asks=1.5), dict(good, findings=0), dict(good, schema="advice-cost/2"),
                        {k: v for k, v in good.items() if k != "asks"}, {k: v for k, v in good.items() if k != "cost_usd"},
-                       {k: v for k, v in good.items() if k != "release"},
+                       {k: v for k, v in good.items() if k != "release"}, {k: v for k, v in good.items() if k != "run"},
                        json.dumps(dict(good, attempt=2))[:-1] + ', "attempt": 1}', json.dumps(good)[:-1] + ', "run": "%s"}' % self.RUN,
                        "[]", "not json", b"PK\x03\x04 not a zip", outcome_zip(" " * (artifacts.HELD + 1), member=artifacts.ADVICE_COST_MEMBER),
                        outcome_zip(good, member="advice.astra.json"), outcome_zip(good, member=artifacts.MEMBER),
