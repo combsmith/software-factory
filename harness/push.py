@@ -1,7 +1,6 @@
 """A Role's push, whole: every check it passes before its first write, then the reads and writes of one commit on the
 Run's work branch, each asked of `guards/push.py` (issue 838; the Solution Architect's ruling 2 of 2026-11-28). It is
-a composition of tested functions and decides nothing itself. It becomes `harness/push.py`, renamed, in the change that
-points each rule waiting on that file at its tests; until `apply`'s dispatch lands nothing calls it, which
+a composition of tested functions and decides nothing itself; nothing calls it until `apply`'s dispatch does, which
 `tests/test_harness.py` pins.
 
 `push(reader, sender, told)` gives `(landed, None)`, `guards/push.py`'s `landed` of the push, the commit it made and

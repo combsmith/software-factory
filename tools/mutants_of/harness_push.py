@@ -1,10 +1,10 @@
-"""The mutants of `harness/push_steps.py`: tools/mutants.py runs them."""
+"""The mutants of `harness/push.py`: tools/mutants.py runs them."""
 
 # The push whole (issue 838; the Solution Architect's ruling 2 of 2026-11-28).
 LANDS = ('tests.test_harness.Push.test_a_push_lands_exactly_its_patch_through_every_check',)
 REFUSES = ('tests.test_harness.Push.test_the_loop_refuses_on_each_check',)
 LATER = ('tests.test_harness.Push.test_a_later_push_moves_the_branch_from_the_head_its_decision_named',)
-PUSH_PY = 'harness/push_steps.py'
+PUSH_PY = 'harness/push.py'
 
 TARGETS = (PUSH_PY,)
 MUTANTS = [

@@ -248,7 +248,7 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-42 The author edited the tests it was judged by
 **Failure.** "[Phase 4] Name and guard the "agent optimizes the check, not the intent" failure mode" (issue 1468): a test tool vendored to satisfy a check, and a distributed file edited to turn a monitor green. Separately, the author edited tests to match its own code.
 **Rule.** `apply` refuses a change by an implementing Role to a test, a fixture, a threshold or an acceptance contract that judges it.
-**Check.** waiting on `harness/push.py`, the fix Intent's push
+**Check.** `tests/test_guards.py::Judged.test_what_judges_the_implementing_role_is_added_to_the_list_its_push_may_not_touch`, `tests/test_harness.py::Push.test_the_loop_refuses_on_each_check`, `guards/judged.py`, `harness/push.py`
 
 ### L-43 The model held the credential that could write
 **Failure.** The author's job held the owner account's token and kept it for pushing. "Never push" was a sentence in the prompt.
@@ -308,12 +308,12 @@ remedies. Issue and pull-request numbers are in combsmith/.github-private.
 ### L-54 A wrong fix cleared a gate
 **Failure.** A fix added a new test and broke an existing one without editing it. Nobody ran the suite against the state before the fix, and an outside reviewer marked the thread addressed on the strength of the reply.
 **Rule.** `verify` compares with the head the Run started from. A test that passed and now fails applies no Effect, and a repo with no test command is recorded as not run, never as passed.
-**Check.** An Intent that pushes nothing is recorded `not_run`: `tests/test_steps.py::test_verify_takes_the_results_digest`; the comparison with the head a Run started from is waiting on `harness/push.py`
+**Check.** An Intent that pushes nothing is recorded `not_run`: `tests/test_steps.py::test_verify_takes_the_results_digest`; the comparison with the head a Run started from is waiting on `harness/fix.py`
 
 ### L-55 A forced push destroyed the Maintainer's commit
 **Failure.** A push leased against a ref that an earlier fetch in the same run had refreshed. The lease passed, and the push discarded a commit the Maintainer had made to steer the work.
 **Rule.** `apply` pushes against the exact head its Decision named. A refusal means the Run was superseded.
-**Check.** waiting on `harness/push.py`, the fix Intent's push
+**Check.** `tests/test_guards.py::Push.test_each_read_says_whose_a_stop_is`, `tests/test_harness.py::Push.test_the_loop_refuses_on_each_check`, `tests/test_harness.py::Push.test_a_later_push_moves_the_branch_from_the_head_its_decision_named`, `harness/push.py`
 
 ### L-56 Steering never reached the agent
 **Failure.** An issue steered by a comment sat idle, because only its title and body reached the prompt. When comments were added they had to be cut to people with write access, newest first, with what was dropped counted and said.

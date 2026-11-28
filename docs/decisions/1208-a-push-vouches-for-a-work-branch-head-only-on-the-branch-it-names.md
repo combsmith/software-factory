@@ -20,4 +20,4 @@ A commit is made for one issue's slot. A branch planted at another slot and move
 |---|---|
 | A push vouches only for the branch it names; one naming no work branch defers | `tests/test_adapters.py::test_a_work_branch_head_the_factory_never_pushed_is_not_its_own`, `adapters/applied.py`, mutant: "a push to another branch vouches for its head" |
 | The port asks of the branch whose head it read | `tests/test_adapters.py::test_a_work_branch_head_the_factory_never_pushed_is_not_its_own`, `adapters/issues.py`, mutant: "the port asks of no branch whose head it read" |
-| `apply`'s push records the branch it landed on | waiting on `harness/push.py`, the push `apply` makes before the `open_pull_request` Effect |
+| `apply`'s push records the branch it landed on | `tests/test_guards.py::Push.test_a_landed_push_is_keyed_by_the_commit_it_made_on_the_branch_it_was_told`, `tests/test_harness.py::Push.test_a_push_lands_exactly_its_patch_through_every_check`, `guards/push.py`, `harness/push.py`; mutant: "a landed push names no branch"; the `applied/1` entry, waiting on `harness/opening.py`, the dispatch |

@@ -14,7 +14,7 @@ three cases apart, `(case, head)`:
 merge base, and `(None, None)` where the head cannot, or where the repo or the sha is told wrongly: then nothing is
 compared, or nothing at all is asked. Neither is one of the three: an unread fact is never a case.
 
-The port decides nothing. `harness/push.py`, not yet built, asks it before the write and once after it. It goes on
+The port decides nothing. `harness/push.py` asks it before the write and once after it. It goes on
 only where the case is in `GOES_ON`, and refuses in the third case and where nothing was told, whatever head is given
 beside it; and it makes the work branch only while the head is the one its checks read. A later record names the
 refusal's code and its fault.
