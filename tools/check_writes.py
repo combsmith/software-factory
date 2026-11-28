@@ -16,9 +16,9 @@ imports as a namespace package, is read as one. A bare import of a name the file
 `tools/`, is a problem too: run as a script, the file has that folder first on its path (issue 1276). Two things are this
 check's limits, not read: a change to `sys.path`, which lets a bare name load a file of the folder it adds; and a file
 named as a module of Python's own library, `tools/decimal.py`, which a script beside it loads in that module's place
-when Python's own code imports it (Astra). Nor are the library calls that load a module by a dotted name and are in
-honest daily use, mostly in tests: the `unittest` loaders, `unittest.mock.patch`, `logging.config.dictConfig` given a
-factory, and `timeit` given code as text (issue 1348).
+when Python's own code imports it (Astra). Nor are library calls in honest daily use, mostly in tests, that load a
+module by a dotted name or run code given as text, such as the `unittest` loaders, `unittest.mock.patch`, the `class`
+and `()` keys of `logging.config.dictConfig`, and `timeit` (issue 1348).
 """
 from __future__ import annotations
 
