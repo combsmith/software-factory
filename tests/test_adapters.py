@@ -1593,7 +1593,8 @@ class Records(unittest.TestCase):
         template = rows["response"]["body"]["workflow_runs"][0]
         names = [NAME.replace("r_01JA6Z", "r_%06dZ" % n) for n in range(4)]
         rows["response"]["body"].update(total_count=4, workflow_runs=[
-            dict(template, id=700 + n, name=names[n], run_started_at="2026-10-21T0%d:00:00Z" % n) for n in range(4)])
+            dict(template, id=700 + n, name=names[n], run_started_at="2026-10-21T0%d:00:00Z" % n,
+                 updated_at="2026-10-21T0%d:30:00Z" % n) for n in range(4)])
 
         def cost(n: int, zipped) -> list:
             found = stored(canary(), 700 + n, zipped, name=artifacts.ADVICE_COST)
@@ -1613,6 +1614,8 @@ class Records(unittest.TestCase):
         self.assertEqual(said(first), [{"advisory_asks": 2, "advisory_cost_usd": 1.42}, {"advisory_cost_usd": None},
                                        {"advisory_cost_usd": None}, {"advisory_asks": 1, "advisory_cost_usd": None}])
         self.assertEqual((stamped(first), first["complete"]), (4, True))
+        # Each stamp is the answer's own date and age, as a list's is.
+        self.assertEqual({tuple(sorted(r)) for r in first["reads"] if r["read"] == "advice_cost"}, {("age", "date", "read")})
         for run in first["runs"]:
             self.assertEqual(shared_errors(run), [], run)
         # The pass after: a cost read is kept; no file, or one that is no cost, is asked for once more, since GitHub may
@@ -1657,7 +1660,13 @@ class Records(unittest.TestCase):
             got, _ = self.read(never, stored(canary(), 700, None)[0], *costs[0], day="2026-10-21")     # there, not asked for
             self.assertEqual((said(got), got["runs"][0][records.ATTEMPT], stamped(got)), ([{}], None, 0), attempt)
             self.assertEqual(shared_errors(got["runs"][0]), [], attempt)
-        # A first attempt's record names none, and a re-run's in flight names its own.
+        # The last attempt a Run may have is read as any other.
+        never["response"]["body"]["workflow_runs"][0]["run_attempt"] = 100
+        last = cost(0, outcome_zip(dict(good, attempt=100), member=artifacts.ADVICE_COST_MEMBER))
+        got, _ = self.read(never, stored(canary(), 700, None)[0], *last, day="2026-10-21")
+        self.assertEqual((said(got), got["runs"][0][records.ATTEMPT]), ([{"advisory_asks": 2, "advisory_cost_usd": 1.42}], 100))
+        # A first attempt's record names none, and a re-run's in flight names its own, as does one queued, and one read
+        # with no day.
         self.assertNotIn(records.ATTEMPT, first["runs"][0])
         flying_ = copy.deepcopy(rows)
         flying_["response"]["body"].update(total_count=1, workflow_runs=[dict(template, id=700, name=names[0], run_attempt=3,
@@ -1665,6 +1674,9 @@ class Records(unittest.TestCase):
                                                                               status="in_progress", conclusion=None)])
         got, _ = self.read(flying_, day="2026-10-21")
         self.assertEqual((got["runs"][0][records.ATTEMPT], stamped(got)), (3, 0))
+        self.assertEqual(self.read(flying_)[0]["runs"][0][records.ATTEMPT], 3)
+        flying_["response"]["body"]["workflow_runs"][0].update(status="queued")
+        self.assertEqual(self.read(flying_, day="2026-10-21")[0]["runs"][0][records.ATTEMPT], 3)
         # A finished Run counts on every day it touched: one across midnight is read on the day it ended, and on the day
         # it started; one that ended the day before is not (the Solution Architect, 2026-11-27).
         across = copy.deepcopy(rows)
@@ -1674,6 +1686,15 @@ class Records(unittest.TestCase):
         for day, asked in (("2026-10-21", 1), ("2026-10-20", 1), ("2026-10-22", 0), ("2026-10-19", 0)):
             got, _ = self.read(across, *(costs[0] if asked else []), day=day)
             self.assertEqual(stamped(got), asked, day)
+        # And on each day between: one that ran from the day before to the day after is read today.
+        across["response"]["body"]["workflow_runs"][0]["updated_at"] = "2026-10-22T00:30:00Z"
+        got, _ = self.read(across, *costs[0], day="2026-10-21")
+        self.assertEqual(stamped(got), 1)
+        # One whose end GitHub gives none of may have ended on any day since it started, as the ceiling counts it.
+        across["response"]["body"]["workflow_runs"][0]["updated_at"] = "2026-10-20T22:00:00Z"
+        for day, asked in (("2026-10-25", 1), ("2026-10-19", 0)):
+            got, _ = self.read(across, *(costs[0] if asked else []), day=day)
+            self.assertEqual(("ended_at" in got["runs"][0], stamped(got)), (False, asked), day)
         # With no day, as from a caller that sums nothing, and on another day, nothing is read.
         for day in (None, "2026-10-22", "2026-10-20"):
             none, _ = self.read(rows, *costs[0], *costs[3], day=day)       # there to be read, and not asked for
@@ -1685,6 +1706,9 @@ class Records(unittest.TestCase):
                 {"name": names[0], "run_started_at": "2026-10-21T00:00:00Z"}, **change))])
             got, _ = self.read(other, *costs[0], day="2026-10-21")
             self.assertEqual((said(got), stamped(got)), ([{}], 0), change)
+        # Another Intent's re-run names no attempt: the attempt is a review's, for the ceiling alone.
+        other["response"]["body"]["workflow_runs"][0]["run_attempt"] = 2
+        self.assertNotIn(records.ATTEMPT, self.read(other, day="2026-10-21")[0]["runs"][0])
         # A cost GitHub does not answer for ends nothing: the record holds none, and the list is as whole as it was.
         unanswered = cost(0, outcome_zip(good, member=artifacts.ADVICE_COST_MEMBER))[:2]
         one = copy.deepcopy(rows)
@@ -1711,9 +1735,11 @@ class Records(unittest.TestCase):
         self.assertEqual(sorted(key[0] for key in records.advised([{"runs": bare}, {"runs": first["runs"]}])), ["r_000000Z", "r_000003Z"])
         self.assertEqual(records.advised([{"runs": first["runs"]}, {"runs": bare}]), {})
         self.assertEqual(records.advised([{"runs": first["runs"]}, {"runs": []}, {"runs": []}]), {})
-        # Two misses in a row are of the same attempt: one Run's miss and then another's keep neither.
+        # Two misses in a row are of the same attempt: one Run's miss and then another's keep neither, nor do two
+        # attempts' of one Run.
         miss = [{"run": run_, "started_at": "2026-10-20T12:00:00Z", "advisory_cost_usd": None} for run_ in ("r_00000AZ", "r_00000BZ")]
         self.assertEqual(records.advised([{"runs": miss[:1]}, {"runs": miss[1:]}]), {})
+        self.assertEqual(records.advised([{"runs": miss[:1]}, {"runs": [dict(miss[0], advisory_attempt=2)]}]), {})
         self.assertEqual(list(records.advised([{"runs": miss[1:]}, {"runs": miss[1:]}])), [("r_00000BZ", "2026-10-20T12:00:00Z", 1)])
         # A key holds the attempt the row names, a first where it names none, and a row whose attempt cannot be read
         # keeps nothing.
@@ -1724,6 +1750,10 @@ class Records(unittest.TestCase):
         changed = [dict(first["runs"][0], advisory_cost_usd=9)]
         self.assertEqual(records.advised([{"runs": first["runs"]}, {"runs": changed}])[("r_000000Z", "2026-10-21T00:00:00Z", 1)],
                          {"advisory_asks": 2, "advisory_cost_usd": 9})
+        # A cost kept of one Run is never another's that started when it did: the listed Run's own file is read.
+        other_run = {("r_00000XZ", "2026-10-21T00:00:00Z", 1): {"advisory_asks": 1, "advisory_cost_usd": 0.01}}
+        got, _ = self.read(one, *costs[0], day="2026-10-21", advised=other_run)
+        self.assertEqual((said(got), stamped(got)), ([{"advisory_asks": 2, "advisory_cost_usd": 1.42}], 1))
         # One read asks for the costs of so many Runs and no more: the rest are left off, and asked for the pass after.
         with mock.patch.object(records, "COSTS", 2):
             capped, _ = self.read(rows, *costs[0], *costs[1], *costs[2], *costs[3], day="2026-10-21")
