@@ -7709,6 +7709,8 @@ class Decisions(unittest.TestCase):
         files = dict(AREA_FILES)
         self.assertIn(("x is undone", "tools/check_w.py", ("tests.test_x.T.test_y",)),
                       check_decisions.read_mutants(history(files)))
+        kept = files["tools/mutants.py"] + "X = [n for n in (0,) if n if 1 // n]\n"
+        self.assertTrue(check_decisions.read_mutants(edited(history(files), {"tools/mutants.py": kept})))
         # What Python would build otherwise, or what the reader cannot work out as Python would, holds no row.
         runner, area = files["tools/mutants.py"], files["tools/mutants_of/tools_check_w.py"]
         cases = {
@@ -7734,13 +7736,28 @@ class Decisions(unittest.TestCase):
             "GeneratorExp is not read": runner + "X = (m for m in ())\n",
             "read before it is bound": runner + "G = 1\n\n\ndef f():\n    x = G\n    G = 2\n    return x\n\n\nY = f()\n",
             "not read as PINNED writes it": runner.replace('r"[a-z_][a-z0-9_]*"', 'r"[a-z]*"'),
+            "areas takes what the reader does not give": runner.replace("AREAS = areas(ROOT)", "ROOT = ROOT.parent\nAREAS = areas(ROOT)"),
+            "the class T is read": runner + "class T(Exception):\n    def get(self):\n        return 1\n\n\nX = T.get(1)\n",
+            "g is not run by the reader": runner + "class T(Exception):\n    \"\"\"T.\"\"\"\n\n\ndef g(p):\n    if p:\n"
+                                                   "        return T.get(MUTANTS)\n    return 1\n\n\nX = g(pathlib.Path('a'))\n",
+            "wrong number of values": runner + "a, b = (pathlib.Path('.'), 1, 2)\n",
+            "a starred part ": runner + "def pair(p):\n    if p:\n        return 'a', *('b', 'c')\n    return 'a', 'b'\n\n\n"
+                                        "X = [*pair(pathlib.Path('a'))]\n",
+            "n is read before it is bound": runner + "n = (1,)\nX = [n for first in (0,) for n in n]\n",
+            "an identity of values": runner + "A = (1, 2)\nB = (1, 2)\nX = A is B\n",
+            "a bytes format": runner + "X = b'%1001s' % b'x'\n",
+            "text and its change": runner.replace('"a", "b", ("tests.test_x.T.test_y",)),', '1, None, ("tests.test_x.T.test_y",)),', 1),
+            "tests is not read as text": runner.replace('("tests.test_x.T.test_y",)),', '(7,)),', 1),
+            "raises error": runner + "P = re.compile('[')\n",
         }
         areas = {"imports from": area.replace("import Y", "import *"), "line 24 is not read": area + "raise SystemExit(7)\n",
                  "calls or builds a value": area + 'def f(x: len("a")):\n    return x\n'}
         broken = [{"tools/mutants.py": text} for text in cases.values()] + \
             [{"tools/mutants_of/tools_check_w.py": text} for text in areas.values()] + \
-            [{"tools/mutants_of/tools_check_w/__init__.py": "MUTANTS = []\n"}]
-        for words, overlay in zip(list(cases) + list(areas) + ["not the file the reader reads"], broken):
+            [{"tools/mutants_of/tools_check_w/__init__.py": "MUTANTS = []\n"}, {"tools/mutants/__init__.py": "MUTANTS = []\n"},
+             {"tools/mutants_of/__init__.py": "common = 1\n"}]
+        more = ["not the file the reader reads", "not the file Python imports", "__init__.py binds common"]
+        for words, overlay in zip(list(cases) + list(areas) + more, broken):
             with self.subTest(words=words), self.assertRaisesRegex(ValueError, re.escape(words.strip())):
                 check_decisions.read_mutants(edited(history(files), overlay))
 

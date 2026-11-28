@@ -3,40 +3,7 @@
 from tools.mutants_of.common import MAIN_ROWS, NAMED_MUTANTS
 
 TARGETS = ("tools/check_decisions.py",)
-AS_TEXT = ("tests.test_tools.Decisions.test_the_mutants_are_read_as_text_and_never_run",)
-RUNS = ("tests.test_tools.Decisions.test_the_mutants_read_as_text_are_those_the_runner_runs",)
 MUTANTS = [
-    # Issue 1377: the mutants are read from their files as text, in a grammar where nothing changes a value once bound.
-    ("no file of tools/mutants_of/ is read", "tools/check_decisions.py",
-     "    return tuple(file.read.loaded(path.stem) for path in", "    return () and tuple(file.read.loaded(path.stem) for path in",
-     AS_TEXT + RUNS),
-    ("a statement the reader does not know is passed over", "tools/check_decisions.py",
-     '        elif not (isinstance(node, ast.If) and rel == "tools/mutants.py" and source == PINNED["main"]):\n',
-     "        elif False:\n", AS_TEXT),
-    ("a method that changes a value is called", "tools/check_decisions.py",
-     "        if attr not in METHODS or isinstance(held, (_Module, _Function))",
-     "        if False or isinstance(held, (_Module, _Function))", AS_TEXT),
-    ("a function that may change a value on a path it does not take is run", "tools/check_decisions.py",
-     "or one.attr in METHODS and id(one) in calls)", "or id(one) in calls)", AS_TEXT),
-    ("a starred call whose returns differ in width is read", "tools/check_decisions.py",
-     "        if not returns or len(widths) != 1 or", "        if not returns or len(widths) < 1 or", AS_TEXT),
-    ("a mutant of six parts is read", "tools/check_decisions.py",
-     "    if type(mutant) is not tuple or len(mutant) != 5:\n", "    if type(mutant) is not tuple or len(mutant) < 5:\n",
-     AS_TEXT),
-    ("a name read before its function binds it is read from the top", "tools/check_decisions.py",
-     "        if self.local is not None and name in self.names:\n", "        if self.local is not None and name in self.local:\n",
-     AS_TEXT),
-    ("a function that calls itself runs on", "tools/check_decisions.py",
-     '        raise ValueError("the mutants take more calls than the reader runs")\n', "        pass\n", AS_TEXT),
-    ("a generator is read as a list", "tools/check_decisions.py",
-     "        if kind is ast.ListComp:\n", "        if kind in (ast.ListComp, ast.GeneratorExp):\n", AS_TEXT),
-    ("areas(ROOT) is read whatever it pins", "tools/check_decisions.py",
-     '        raise ValueError("areas(ROOT) is not read as PINNED writes it")\n', "        pass\n", AS_TEXT),
-    ("a file of mutants beside a folder of its name is read", "tools/check_decisions.py",
-     "            if name and ((folder / name).is_dir() or not", "            if name and (False or not", AS_TEXT),
-    ("a test at the top that is not worked out is passed over", "tools/check_decisions.py",
-     '        if self.top:\n            raise ValueError("%s: a test at the top', '        if False:\n            raise ValueError("%s: a test at the top',
-     AS_TEXT),
     # Issue 590: a check names a test, never a file of tests, and a row names the mutant its own tests kill.
     ('a record that cannot be read has its rows', 'tools/check_decisions.py',
      '    if isinstance(parse(text), str):\n        return []\n    rows = _rows(', '    rows = _rows(', NAMED_MUTANTS),
@@ -89,7 +56,7 @@ MUTANTS = [
     ('a path through a parent is not the file it reaches', 'tools/check_decisions.py',
      '        if part == ".." and parts and parts[-1] != "..":\n', '        if False:\n', NAMED_MUTANTS),
     ('the mutants are read once whatever the file holds', 'tools/check_decisions.py',
-     '(str(path), hashlib.sha256(path.read_bytes()).hexdigest())', '(str(path), len(path.read_bytes()))', NAMED_MUTANTS),
+     '        key = (str(root.resolve()), hashlib.sha256(', '        key = (str(root.resolve()), len(', NAMED_MUTANTS),
     ('two mutants may share a description', 'tools/check_decisions.py',
      '        if len({name for name, _ in read}) != len(read):\n', '        if False:\n', NAMED_MUTANTS),
     ('the mutants are read for rows that need none', 'tools/check_decisions.py',

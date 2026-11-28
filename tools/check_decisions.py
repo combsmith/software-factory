@@ -240,12 +240,10 @@ def _mutants(root: pathlib.Path) -> dict:
 
 _READ = {}
 
-# The mutants are read from the text of their files through ast, never imported: a file of tools/mutants_of/ that a push
-# changes could end this process at import (issue 1377). The reader takes a file only in a narrow grammar in which no
-# value, once bound, can change, and works out each value as Python would, or leaves it UNKNOWN where Python reads it
-# from outside the text, a path or a file. It refuses with ValueError whatever else it meets, so it never reads a list
-# other than the one Python would build. `tools/mutants.py`'s `areas(ROOT)`, which imports the files of mutants, is read
-# only as PINNED writes it.
+# The mutants are read from the text of their files through ast, never imported: a file a push changes could end this
+# process at import (issue 1377). In a grammar where no value changes once bound, each value is worked out as Python
+# would, or is UNKNOWN where Python reads it from a path or a file; whatever else is refused with ValueError, so the
+# list read is never one Python would not build. The runner's `areas(ROOT)` is read only as PINNED writes it.
 STDLIB = frozenset(("concurrent.futures", "contextlib", "importlib", "json", "os", "pathlib", "re", "signal", "subprocess",
                     "sys", "tempfile", "unittest"))
 BUILTINS = frozenset(("dict", "iter", "len", "range", "tuple"))
@@ -294,6 +292,7 @@ class _Opaque:
 
 
 UNKNOWN = _Opaque("UNKNOWN")
+CLASS = _Opaque("CLASS")        # a class of the runner: its methods are code the reader does not run, so it is never read
 
 
 class _Module(dict):
@@ -312,11 +311,14 @@ class _File:
 
     def __init__(self, read: "_Read", rel: str):
         self.read, self.rel, self.bound, self.future, self.safe = read, rel, _Module(), False, set()
+        if (read.root / rel).is_symlink() or (read.root / rel).with_suffix("").is_dir():
+            raise ValueError("%s is not the file Python imports" % rel)
         data = (read.root / rel).read_bytes()
         self.text = data.decode("utf-8")
         self.tree = ast.parse(data, filename=rel)
         top = [_targets(node) for node in self.tree.body]
         self.names = {name for names in top for name in names}
+        self.classes = {node.name for node in self.tree.body if isinstance(node, ast.ClassDef)}
         self.defs = {node.name: node for node in self.tree.body if isinstance(node, ast.FunctionDef)
                      and sum(node.name in names for names in top) == 1}
 
@@ -370,6 +372,8 @@ def read_mutants(root: pathlib.Path) -> list:
         if type(listed) is not list:
             raise ValueError("MUTANTS is not a list read as text")
         return [_parts(mutant) for mutant in listed]
+    except (OSError, SyntaxError, RecursionError, UnicodeDecodeError) as err:
+        raise ValueError("a file of mutants cannot be read (%s)" % type(err).__name__) from err
     finally:
         _WEIGHTS.clear()
 
@@ -379,6 +383,8 @@ def _parts(mutant) -> tuple:
     if type(mutant) is not tuple or len(mutant) != 5:
         raise ValueError("a mutant is not a tuple of five parts")
     name, rel, tests = mutant[0], mutant[1], mutant[4]
+    if not all(type(one) is str or one is UNKNOWN for one in mutant[2:4]):
+        raise ValueError("a mutant's text and its change are not read as text")
     if not (type(name) is str and type(rel) is str and type(tests) is tuple and all(type(t) is str for t in tests)):
         raise ValueError("a mutant's description, file or tests is not read as text")
     return name, rel, tests
@@ -438,6 +444,8 @@ def _imported(node, file: _File) -> None:
                 raise ValueError("%s imports %s, which common.py does not bind" % (file.rel, name))
             file.bound[asname or name] = common[name]
     elif module == "tools.mutants_of" and names == [("common", None)]:
+        if "common" in file.read.loaded(""):
+            raise ValueError("tools/mutants_of/__init__.py binds common")
         file.bound["common"] = file.read.loaded("common")
     elif runner and (module, names) in (("tools", [("walk", None)]), ("tools.verify", [("SLOW", None)])):
         file.bound[names[0][0]] = _Opaque(module + "." + names[0][0])
@@ -457,7 +465,7 @@ def _signature(node, frame: "_Frame") -> list:
 
 def _classed(node, frame: "_Frame") -> None:
     """A class of the runner: bases of EXCEPTIONS, a body of defs alone, whose one decorator is contextlib's."""
-    if node.decorator_list or node.keywords or not all(isinstance(b, ast.Name) and b.id in EXCEPTIONS
+    if frame.file.rel != "tools/mutants.py" or node.decorator_list or node.keywords or not all(isinstance(b, ast.Name) and b.id in EXCEPTIONS
                                                        and b.id not in frame.file.bound for b in node.bases):
         raise ValueError("%s line %d: a class is not read" % (frame.file.rel, node.lineno))
     for one in node.body:
@@ -467,7 +475,7 @@ def _classed(node, frame: "_Frame") -> None:
                                                       or not isinstance(frame.inert(d), _Opaque) for d in one.decorator_list):
             raise ValueError("%s line %d: a class is not read" % (frame.file.rel, one.lineno))
         _signature(one, frame)
-    frame.file.bound[node.name] = UNKNOWN
+    frame.file.bound[node.name] = CLASS
 
 
 def _bind(target, value, bound: dict) -> None:
@@ -475,9 +483,10 @@ def _bind(target, value, bound: dict) -> None:
     if isinstance(target, ast.Name):
         bound[target.id] = value
     elif isinstance(target, (ast.Tuple, ast.List)) and all(isinstance(one, ast.Name) for one in target.elts):
-        if _plain(value) and len(_items(value)) != len(target.elts):
+        parts = list(value) if type(value) in (tuple, list) else _items(value) if _plain(value) else None
+        if parts is not None and len(parts) != len(target.elts):
             raise ValueError("an assignment unpacks the wrong number of values")
-        parts = list(value) if isinstance(value, (tuple, list)) else [UNKNOWN] * len(target.elts)
+        parts = parts or [UNKNOWN] * len(target.elts)
         for one, part in zip(target.elts, parts):
             bound[one.id] = part
     else:
@@ -551,6 +560,8 @@ class _Frame:
         if name.startswith("__") and name != "__file__":
             raise ValueError("%s is not read" % name)
         if name in self.file.bound:
+            if self.file.bound[name] is CLASS:
+                raise ValueError("%s: the class %s is read" % (self.file.rel, name))
             return self.file.bound[name]
         if name in BUILTINS or name == "__file__":
             return _Opaque("builtins." + name)
@@ -642,7 +653,9 @@ class _Frame:
             if isinstance(called, _Function) else []
         widths = {len(one.elts) for one in returns if isinstance(one, ast.Tuple)
                   and not any(isinstance(part, ast.Starred) for part in one.elts)}
-        if not returns or len(widths) != 1 or not all(isinstance(one, ast.Tuple) for one in returns):
+        ends = isinstance(called, _Function) and isinstance(called.node.body[-1], ast.Return)
+        if not returns or not ends or len(widths) != 1 or not all(isinstance(one, ast.Tuple) and not any(
+                isinstance(part, ast.Starred) for part in one.elts) for one in returns):
             raise ValueError("%s: a starred part is not worked out" % self.file.rel)
         return [UNKNOWN] * widths.pop()
 
@@ -652,6 +665,8 @@ class _Frame:
             right = self.value(right)
             if not (_plain(left) and _plain(right)):
                 return UNKNOWN
+            if type(op) in (ast.Is, ast.IsNot) and not any(one is None or type(one) is bool for one in (left, right)):
+                raise ValueError("%s: an identity of values the reader builds is not read" % self.file.rel)
             if not _real(lambda: COMPARE[type(op)](left, right)):
                 return False
             left = right
@@ -678,6 +693,7 @@ class _Frame:
         """A frame for each round of a comprehension's loops that its conditions keep; None where its loops or its
         conditions are not worked out, which at the top of a file is refused."""
         rounds = [self]
+        names = {one.id for loop in node.generators for one in ast.walk(loop.target) if isinstance(one, ast.Name)}
         for loop in node.generators:
             after = []
             for inner in rounds:
@@ -692,11 +708,14 @@ class _Frame:
                         raise ValueError("the mutants take more rounds than the reader runs")
                     local = dict(inner.local or {})
                     _bind(loop.target, item, local)
-                    one = _Frame(self.file, local, inner.names | set(local), self.top)
-                    kept = [one.test(test) for test in loop.ifs]
-                    if None in kept:
-                        return None
-                    if all(kept):
+                    one = _Frame(self.file, local, inner.names | names, self.top)
+                    for test in loop.ifs:
+                        kept = one.test(test)
+                        if kept is None:
+                            return None
+                        if not kept:
+                            break
+                    else:
                         after.append(one)
             rounds = after
         return rounds
@@ -719,14 +738,14 @@ class _Frame:
         if isinstance(called, _Opaque) and called.what in ("builtins." + name for name in BUILTINS):
             if not _plain(args) or called.what == "builtins.iter":
                 return UNKNOWN      # an iterator changes as it is read: what reads it is not worked out
-            if called.what == "builtins.dict" and len(node.args) <= 1:
-                return _merged(args[:len(node.args)], args[len(node.args):])
+            if called.what == "builtins.dict" and len(node.args) <= 1 and len(node.keywords) <= 1:
+                return _sized(_real(lambda: dict(*args[:len(node.args)], **(args[len(node.args):] or [{}])[0])))
             if called.what != "builtins.dict" and not node.keywords:
                 if called.what == "builtins.tuple" and len(args) == 1:
                     return _sized(tuple(_items(args[0])))
                 return _sized(_real(lambda: {"len": len, "range": range}[called.what[9:]](*args)))
         if isinstance(called, _Function) and _pinned(called, "areas") and self.file.rel == "tools/mutants.py" \
-                and self.top and len(args) == 1 and args[0] is self.file.bound.get("ROOT"):
+                and self.top and len(args) == 1 and isinstance(args[0], _Opaque) and args[0].what == "ROOT":
             return _areas(self.file, called)
         if isinstance(called, _Function) and not node.keywords:
             return _ran(called, args)
@@ -735,6 +754,8 @@ class _Frame:
     def method(self, node, held, attr: str):
         args = [self.value(one) for one in node.args]
         if isinstance(held, _Opaque) and (held.what, attr) in MODULE_CALLS:
+            if held.what == "re" and args and type(args[0]) is str:
+                _real(lambda: re.compile(args[0]))      # a pattern Python refuses at import is refused here
             return UNKNOWN
         if attr == "replace" and self.top and type(held) is str and len(args) in (2, 3) \
                 and type(args[0]) is type(args[1]) is str and all(type(one) is int for one in args[2:]):
@@ -754,18 +775,6 @@ COMPARE = {ast.Eq: lambda a, b: a == b, ast.NotEq: lambda a, b: a != b, ast.Lt: 
            ast.IsNot: lambda a, b: a is not b}
 
 
-def _merged(given: list, spread: list) -> dict:
-    """`dict(given, **one, **two)` as Python builds it: a spread key that is not a str, or that two spreads give, raises."""
-    out = _sized(_real(lambda: dict(*given)))
-    seen = set()
-    for one in spread:
-        if type(one) is not dict or not all(type(key) is str and key not in seen for key in one):
-            raise ValueError("dict() is given what Python refuses")
-        seen |= set(one)
-        out.update(one)
-    return out
-
-
 def _real(work):
     """What Python gives for an operation on values worked out whole; whatever it raises, it is refused."""
     try:
@@ -783,6 +792,8 @@ def _operation(op, left, right):
         return left + right
     if not (_plain(left) and _plain(right)):
         return UNKNOWN
+    if type(op) is ast.Mod and isinstance(left, bytes):
+        raise ValueError("a bytes format is not read")
     if type(op) is ast.Mod and isinstance(left, str):
         if len(left) + 4 * _weighed(right)[0] > BUDGET["length"]:
             raise ValueError("a format is wider than the reader builds")
@@ -853,7 +864,7 @@ def _safe(node, file: _File) -> None:
         if isinstance(one, (ast.stmt, ast.arguments, ast.arg)):
             continue
         bad = not isinstance(one, EXPRESSIONS) \
-            or isinstance(one, ast.Name) and one.id.startswith("__") \
+            or isinstance(one, ast.Name) and (one.id.startswith("__") or one.id in file.classes) \
             or isinstance(one, (ast.Attribute, ast.Subscript)) and not isinstance(one.ctx, ast.Load) \
             or isinstance(one, ast.Attribute) and not (one.attr in ATTRIBUTES or one.attr in METHODS and id(one) in calls) \
             or isinstance(one, ast.GeneratorExp) and id(one) not in tupled \
