@@ -88,7 +88,8 @@ def listed_at(transport, repo: str, sha: str) -> tuple:
 def workflows_at(transport, repo: str, sha: str) -> tuple:
     """`(files, None)`: every workflow commit `sha` of `repo` holds, each file right in `.github/workflows` whose name
     ends `.yml` or `.yaml` in any case, mapped from its path to its text, for `guards/workflows.refusal_at`; or
-    `(None, "workflows_unreadable")` where the folder, or any one of them, cannot be read whole."""
+    `(None, "workflows_unreadable")` where the folder, or any one of them, cannot be read whole. A commit with no such
+    folder is one of those: GitHub answers it 404, as it answers one it cannot read, so a repo with none is refused."""
     if _unaskable(repo, sha):
         return None, WORKFLOWS_UNREADABLE
     try:

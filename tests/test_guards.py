@@ -2298,6 +2298,11 @@ class Secrets(unittest.TestCase):
                              .replace("permissions: write-all\n", ""), listed=LISTED))
         # A workflow none of whose jobs holds a secret need not be on the list, nor hold to the table's keys.
         self.assertIsNone(workflows.refusal_at({TEST_AT: tested("permissions: write-all\n", "defaults:\n  run:\n    shell: bash\n")}, []))
+        # A secret another job names is that job's: a job of the scan's workflow that names none and may write nothing
+        # is not read, though it runs a command.
+        beside = SCAN + "  test:\n    runs-on: ubuntu-24.04\n    permissions:\n      contents: read\n    steps:\n      - run: make\n"
+        self.assertIsNone(workflows.refusal_at({SCAN_AT: beside}, LISTED))
+        self.assertEqual(workflows.refusal(SCAN_AT, beside, LISTED), workflows.UNREADABLE)
         # Every job of a workflow is asked: one that holds beside one that holds none is read.
         both = TEST + "  other:\n    runs-on: ubuntu-24.04\n    permissions: write-all\n    steps:\n      - run: make\n"
         self.assertEqual(at(both), workflows.UNREADABLE)

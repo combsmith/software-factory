@@ -80,4 +80,10 @@ MUTANTS = [
     ("a workflow folder at coordinates of no commit is asked", 'adapters/rules.py',
      '    if _unaskable(repo, sha):\n        return None, WORKFLOWS_UNREADABLE\n',
      '', WHOLE),
+    ("a workflow folder answered with no listing is read", 'adapters/rules.py',
+     ' or not isinstance(listing, list) or len(listing)',
+     ' or len(listing)', WHOLE),
+    ("a listed entry of no name is read", 'adapters/rules.py',
+     '        if not isinstance(name, str) or not name or ',
+     '        if ', WHOLE),
 ]

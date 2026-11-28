@@ -27,8 +27,9 @@ says is refused, never passed.
   calls no other workflow; and its own `permissions:`, or its workflow's where it has none, let its token write
   nothing, `read-all`, `{}`, or each scope `read` or `none`. With neither, the repo's default permission for
   `GITHUB_TOKEN` applies, which `adapters/settings.py` will read: until it does, it is taken as write, so such a job
-  holds a secret. A workflow is still read whole in the narrow form, a job that holds no secret among it, so that what
-  a job names is never hidden: one this does not read is `UNREADABLE`, and so is no mapping of path to text.
+  holds a secret. A workflow's lines are still read whole in the narrow form, a job that holds no secret among them, so
+  that what a job names is never hidden: lines this does not read are `UNREADABLE`, and so is no mapping of path to
+  text. Its keys at the top and its `env:` are held to the table only where one of its jobs holds a secret.
 
 Every route that points SonarCloud's scan at another settings file is refused: the scan's `args` and `projectBaseDir`
 are inputs its row does not name, and `SONAR_SCANNER_OPTS`, `SONAR_SCANNER_JSON_PARAMS` and `SONARQUBE_SCANNER_PARAMS`

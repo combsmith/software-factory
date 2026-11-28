@@ -8719,12 +8719,14 @@ class Workflows(unittest.TestCase):
         refused["response"]["status"] = 403
         file_answer = self.listing("a.yml")
         file_answer["response"]["body"] = file_answer["response"]["body"][0]
+        no_body = self.listing("a.yml")
+        no_body["response"]["body"] = None
         cut = self.listing(*["f%d.md" % n for n in range(rules.ENTRIES)])
         odd = self.listing("a.yml")
         odd["response"]["body"].append("b.yml")
         many = ["w%d.yml" % n for n in range(rules.MOST + 1)]
         # Each with what a read past it would need answered after it, so that the listing alone is what fails.
-        for found in ((gone,), (refused, self.workflow("a.yml")), (file_answer,), (cut,), (odd, self.workflow("a.yml")),
+        for found in ((gone,), (refused, self.workflow("a.yml")), (file_answer,), (no_body,), (cut,), (odd, self.workflow("a.yml")),
                       (self.listing("a.yml", path=".github/workflows/b.yml"), self.workflow("a.yml")),
                       (self.listing("a.yml", path="a.yml"), self.workflow("a.yml")), (self.listing("a.yml", name=None),),
                       (self.listing(""),), (self.listing("a/b.yml"), self.workflow("a/b.yml")),

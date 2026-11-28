@@ -218,4 +218,13 @@ MUTANTS = [
     ("a workflow with an item at the top is read", 'guards/workflows.py',
      ' if named and all(kid["key"] is not None for kid in root["kids"]) else None\n',
      ' if named else None\n', WHOLE),
+    ("a secret one job names is every job's", 'guards/workflows.py',
+     ' for kid in root["kids"] if kid["key"] != "jobs") \\\n',
+     ' for kid in root["kids"]) \\\n', HOLDS),
+    ("a secret named by a key is not seen", 'guards/workflows.py',
+     '    said = (node["key"] or "") + " " + node["value"]\n',
+     '    said = node["value"]\n', HOLDS),
+    ("one quiet scope lets the token write nothing", 'guards/workflows.py',
+     '        return all(kid["key"] is not None and kid["value"] in QUIET',
+     '        return any(kid["key"] is not None and kid["value"] in QUIET', HOLDS),
 ]
