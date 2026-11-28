@@ -262,7 +262,7 @@ EXPRESSIONS = (ast.Constant, ast.Name, ast.Load, ast.Store, ast.Tuple, ast.List,
                ast.Compare, ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE, ast.In, ast.NotIn, ast.Is, ast.IsNot,
                ast.IfExp, ast.Attribute, ast.Subscript, ast.Slice, ast.ListComp, ast.DictComp, ast.GeneratorExp,
                ast.comprehension, ast.Call, ast.keyword)
-BUDGET = {"calls": 20000, "rounds": 200000, "length": 50000000, "width": 1000, "depth": 100}
+BUDGET = {"calls": 20000, "rounds": 200000, "length": 10000000, "width": 1000, "depth": 100}
 PINNED = {
     "ROOT": 'ROOT = pathlib.Path(__file__).resolve().parent.parent',
     "AREA_NAME": 'AREA_NAME = re.compile(r"[a-z_][a-z0-9_]*")',
@@ -314,10 +314,16 @@ class _File:
         if (read.root / rel).is_symlink() or (read.root / rel).with_suffix("").is_dir():
             raise ValueError("%s is not the file Python imports" % rel)
         data = (read.root / rel).read_bytes()
+        cookie = re.match(rb"(?:[^\n]*\n)?[ \t\f]*#.*?coding[:=][ \t]*([-\w.]+)", data)
+        if data.startswith(b"\xef\xbb\xbf") or cookie and cookie.group(1).lower() not in (b"utf-8", b"utf8"):
+            raise ValueError("%s is not read as UTF-8 alone" % rel)
         self.text = data.decode("utf-8")
         self.tree = ast.parse(data, filename=rel)
         top = [_targets(node) for node in self.tree.body]
         self.names = {name for names in top for name in names}
+        shadowed = self.names & (BUILTINS | TYPES | EXCEPTIONS) or {n for n in self.names if n.startswith("__")}
+        if shadowed or sum(len(names) for names in top) != len(self.names):
+            raise ValueError("%s binds a name twice, or one Python gives it" % rel)
         self.classes = {node.name for node in self.tree.body if isinstance(node, ast.ClassDef)}
         self.defs = {node.name: node for node in self.tree.body if isinstance(node, ast.FunctionDef)
                      and sum(node.name in names for names in top) == 1}
@@ -330,7 +336,7 @@ class _Read:
         self.root, self.done, self.calls, self.rounds, self.depth = root, {}, 0, 0, 0
 
     def loaded(self, name: str) -> _Module:
-        """tools.mutants_of's module `name`, or the package for "", read once, its package first, as Python imports."""
+        """tools.mutants_of's module `name`, or the package for "", read once, its package first."""
         folder = self.root / "tools" / "mutants_of"
         if name and "" not in self.done:
             self.loaded("")
@@ -350,12 +356,13 @@ def _targets(node) -> set:
         return {node.name}
     if isinstance(node, (ast.Import, ast.ImportFrom)):
         return {(alias.asname or alias.name).split(".")[0] for alias in node.names}
-    return {one.id for one in ast.walk(node) if isinstance(one, ast.Name) and isinstance(one.ctx, ast.Store)}
+    targets = node.targets if isinstance(node, ast.Assign) else [node]
+    return {one.id for target in targets for one in ast.walk(target) if isinstance(one, ast.Name)
+            and isinstance(one.ctx, ast.Store)}
 
 
 def _mutant_files(root: pathlib.Path) -> list:
-    """tools/mutants.py, then tools/mutants_of/__init__.py and common.py, then each file of mutants there in the order
-    of its name, as tools/mutants.py finds them: a Python file directly in the folder, by a module name."""
+    """tools/mutants.py, tools/mutants_of/__init__.py and common.py, then the files of mutants as areas() finds them."""
     folder = root / "tools" / "mutants_of"
     areas = [path for path in walk.files(root, "tools/mutants_of") if path.parent == folder and path.suffix == ".py"
              and path.stem not in ("__init__", "common") and AREA.fullmatch(path.stem)]
@@ -364,9 +371,8 @@ def _mutant_files(root: pathlib.Path) -> list:
 
 
 def read_mutants(root: pathlib.Path) -> list:
-    """(description, file, tests) of each mutant of tools/mutants.py's MUTANTS in `root`, read as Python builds it: its
-    own, and those of each file of tools/mutants_of/ that its `areas(ROOT)` loads. Raises ValueError for a file or a
-    mutant it cannot read so."""
+    """(description, file, tests) of each mutant tools/mutants.py's MUTANTS holds in `root`, read as Python builds it.
+    Raises ValueError where it cannot be read so."""
     try:
         listed = _top(_Read(root), "tools/mutants.py").get("MUTANTS", UNKNOWN)
         if type(listed) is not list:
@@ -407,7 +413,8 @@ def _top(read: _Read, rel: str) -> _Module:
             file.bound[node.name] = _Function(node, source, file, _signature(node, frame))
         elif isinstance(node, ast.ClassDef):
             _classed(node, frame)
-        elif isinstance(node, ast.Assign) and rel == "tools/mutants.py" and source in (PINNED["ROOT"], PINNED["AREA_NAME"]):
+        elif isinstance(node, ast.Assign) and rel == "tools/mutants.py" and source in (PINNED["ROOT"], PINNED["AREA_NAME"]) \
+                and repr(file.bound.get("pathlib")) == "pathlib" and repr(file.bound.get("re")) == "re":
             file.bound[node.targets[0].id] = _Opaque(node.targets[0].id)
         elif isinstance(node, ast.Assign):
             value = frame.value(node.value)
@@ -423,19 +430,19 @@ def _docstring(node) -> bool:
 
 
 def _imported(node, file: _File) -> None:
-    """Bind what an import binds: a module of STDLIB, or a name of tools/mutants_of/common.py, or common itself; in
-    tools/mutants.py also tools.walk and tools.verify's SLOW. Any other import is refused."""
+    """Bind an import: a module of STDLIB, common.py or a name it binds, and in the runner tools.walk and SLOW."""
     names = [(alias.name, alias.asname) for alias in node.names]
     if isinstance(node, ast.Import):
         for name, asname in names:
-            if name not in STDLIB or asname:
+            top = file.read.root / name.split(".")[0]
+            if name not in STDLIB or asname or top.with_suffix(".py").exists() or top.is_dir():
                 raise ValueError("%s imports %s" % (file.rel, name))
             file.bound[name.split(".")[0]] = _Opaque(name.split(".")[0])
         return
     module, runner = node.module, file.rel == "tools/mutants.py"
     if node.level or any(name == "*" for name, _ in names):
         raise ValueError("%s imports from %s" % (file.rel, module))
-    if module == "__future__" and names == [("annotations", None)]:
+    if module == "__future__" and names == [("annotations", None)] and not file.bound:
         file.future = True
     elif module == "tools.mutants_of.common" and file.rel != "tools/mutants_of/common.py":
         common = file.read.loaded("common")
@@ -454,7 +461,7 @@ def _imported(node, file: _File) -> None:
 
 
 def _signature(node, frame: "_Frame") -> list:
-    """The defaults of a def, worked out as Python does when it runs the def, and its annotations checked alike."""
+    """The defaults of a def, worked out as Python does when it runs the def; its annotations checked alike."""
     args = node.args
     notes = [] if frame.file.future else [one.annotation for one in getattr(args, "posonlyargs", []) + args.args
                                           + args.kwonlyargs + [args.vararg, args.kwarg] if one and one.annotation]
@@ -499,8 +506,8 @@ def _plain(value) -> bool:
 
 
 def _weighed(value) -> tuple:
-    """(weight, plain) of a value: its length, each part counted as often as it is held, and whether it is worked out
-    whole. A part held twice is weighed once, so a value that holds itself many times over costs no more to weigh."""
+    """(weight, plain) of a value: its length, each part counted as often as it is held, and whether it is worked
+    out whole. A part held twice is weighed once."""
     known = _WEIGHTS.get(id(value))
     if known is not None and known[0] is value:
         return known[1]
@@ -568,7 +575,7 @@ class _Frame:
         raise ValueError("%s: %s is not bound" % (self.file.rel, name))
 
     def inert(self, node):
-        """A default, an annotation or a decorator: names, attributes, constants and tuples of them, which call nothing."""
+        """A default, an annotation or a decorator: names, attributes, constants and tuples, which call nothing."""
         if isinstance(node, ast.Constant):
             return node.value
         if isinstance(node, ast.Tuple):
@@ -599,7 +606,10 @@ class _Frame:
         if kind is ast.Constant:
             return node.value
         if kind is ast.Name:
-            return self.name(node.id)
+            value = self.name(node.id)
+            if isinstance(value, _Function):        # given to code the reader does not run, Python could call it
+                raise ValueError("%s: the function %s is read as a value" % (self.file.rel, node.id))
+            return value
         if kind in (ast.Tuple, ast.List):
             out = []
             for one in node.elts:
@@ -638,17 +648,17 @@ class _Frame:
         raise ValueError("%s line %d: a %s is not read" % (self.file.rel, node.lineno, kind.__name__))
 
     def generated(self, node):
-        """The items of a generator that is read once, whole, where it is made: given to tuple(), or looped over."""
+        """The items of a generator read once, whole, where it is made."""
         rounds = self.rounds(node)
         return UNKNOWN if rounds is None else _built(inner.value(node.elt) for inner in rounds)
 
     def spread(self, node) -> list:
-        """The parts `*node` gives a list or a tuple: those of a value worked out, or as many UNKNOWN as each return of
-        the function it calls gives, when it returns a tuple of one fixed length."""
+        """The parts `*node` gives: those of a value worked out, or n UNKNOWN for a call whose every return is a
+        tuple of n."""
         value = self.value(node)
         if isinstance(value, (tuple, list)) or _plain(value):
             return _items(value)
-        called = self.value(node.func) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) else None
+        called = self.name(node.func.id) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) else None
         returns = [one.value for one in ast.walk(called.node) if isinstance(one, ast.Return)] \
             if isinstance(called, _Function) else []
         widths = {len(one.elts) for one in returns if isinstance(one, ast.Tuple)
@@ -675,12 +685,12 @@ class _Frame:
     def attribute(self, held, attr: str):
         if attr.startswith("_"):
             raise ValueError("%s: .%s is not read" % (self.file.rel, attr))
-        if isinstance(held, _Module) and attr in held:
+        if isinstance(held, _Module) and attr in held and not isinstance(held[attr], _Function):
             return held[attr]
         if attr in ATTRIBUTES:
             return _real(lambda: getattr(held, attr)) if _plain(held) else UNKNOWN
-        if isinstance(held, _Opaque) and (held.what, attr) in MODULE_VALUES:
-            return _Opaque(held.what + "." + attr)
+        if isinstance(held, _Opaque) and (held.what, attr) == ("re", "M"):
+            return _Opaque("re.M")
         raise ValueError("%s: .%s is not read" % (self.file.rel, attr))
 
     def index(self, node):
@@ -690,8 +700,8 @@ class _Frame:
         return self.value(node)
 
     def rounds(self, node):
-        """A frame for each round of a comprehension's loops that its conditions keep; None where its loops or its
-        conditions are not worked out, which at the top of a file is refused."""
+        """A frame for each round of a comprehension that its conditions keep; None where they are not worked out,
+        which at the top is refused."""
         rounds = [self]
         names = {one.id for loop in node.generators for one in ast.walk(loop.target) if isinstance(one, ast.Name)}
         for loop in node.generators:
@@ -736,6 +746,8 @@ class _Frame:
             return made if made is UNKNOWN else tuple(made)
         args = [self.value(one) for one in node.args] + [self.value(k.value) for k in node.keywords]
         if isinstance(called, _Opaque) and called.what in ("builtins." + name for name in BUILTINS):
+            if called.what == "builtins.iter" and len(args) != 1:
+                raise ValueError("%s: iter() is given what the reader does not give" % self.file.rel)
             if not _plain(args) or called.what == "builtins.iter":
                 return UNKNOWN      # an iterator changes as it is read: what reads it is not worked out
             if called.what == "builtins.dict" and len(node.args) <= 1 and len(node.keywords) <= 1:
@@ -784,8 +796,7 @@ def _real(work):
 
 
 def _operation(op, left, right):
-    """`left op right`, as Python works it out, within the reader's budget; UNKNOWN for a value not worked out. Two
-    tuples or two lists are joined whatever they hold, which the join does not read."""
+    """`left op right` as Python works it out, within BUDGET; UNKNOWN for a value not worked out."""
     if type(op) is ast.Add and type(left) is type(right) and type(left) in (tuple, list):
         if _weighed(left)[0] + _weighed(right)[0] > BUDGET["length"]:
             raise ValueError("a value is longer than the reader builds")
@@ -839,8 +850,8 @@ def _areas(file: _File, areas: _Function) -> tuple:
 
 
 def _safe(node, file: _File) -> None:
-    """Refuse a function the reader may not run: one whose body could change a value or reach outside on any path, or
-    whose arguments are not positional alone. Each function it calls by name is checked alike."""
+    """Refuse a function whose body could change a value or reach outside on any path, or that takes more than
+    positional arguments."""
     if id(node) in file.safe:
         return
     file.safe.add(id(node))
@@ -877,8 +888,8 @@ def _safe(node, file: _File) -> None:
 
 
 def _unsafe_call(node, local: set, file: _File) -> bool:
-    """Whether a call in a function may reach what the reader does not run: anything but a method of METHODS, a name
-    of BUILTINS the file leaves unbound, or a def bound once at the top of the file, itself checked."""
+    """Whether a function's call may reach what the reader does not run: all but a method of METHODS, an unbound
+    name of BUILTINS, or a def bound at the top of the file, itself checked."""
     if any(isinstance(one, ast.Starred) for one in node.args) or node.keywords:
         return True
     if isinstance(node.func, ast.Attribute):
